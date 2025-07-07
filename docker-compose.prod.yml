@@ -39,8 +39,7 @@ services:
     restart: unless-stopped
     
     networks:
-      - medical-network:
-          external: true
+      - medical-network
       
 
   frontend:
@@ -74,4 +73,4 @@ volumes:
 
 networks:
   medical-network:
-    driver: bridge
+    external: true  # Use existing network if available
