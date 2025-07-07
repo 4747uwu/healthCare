@@ -39,7 +39,9 @@ services:
     restart: unless-stopped
     
     networks:
-      - medical-network
+      - medical-network:
+          external: true
+      
 
   frontend:
     build:
