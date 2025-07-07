@@ -1,0 +1,75 @@
+# 🔧 PRODUCTION: docker-compose.prod.yml
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        - NODE_ENV=production
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BREVO_API_KEY=${BREVO_API_KEY}
+      - MONGODB_URI=${MONGODB_URI}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=1d
+      - JWT_COOKIE_NAME=jwtAuthToken
+      - BCRYPT_SALT_ROUNDS=12
+      - WASABI_ACCESS_KEY=${WASABI_ACCESS_KEY}
+      - WASABI_SECRET_KEY=${WASABI_SECRET_KEY}
+      - WASABI_REGION=${WASABI_REGION}
+      - WASABI_ENDPOINT=${WASABI_ENDPOINT}
+      - WASABI_DICOM_BUCKET=${WASABI_DICOM_BUCKET}
+      - WASABI_DOCUMENTS_BUCKET=${WASABI_DOCUMENTS_BUCKET}
+      - WASABI_REPORTS_BUCKET=${WASABI_REPORTS_BUCKET}
+      - WASABI_BACKUPS_BUCKET=${WASABI_BACKUPS_BUCKET}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - ORTHANC_URL=http://64.227.187.164:8042
+      - ORTHANC_USERNAME=alice
+      - ORTHANC_PASSWORD=alicePassword
+      - FRONTEND_URL=http://157.245.86.199  # ✅ Change from 157.245.86.199
+    restart: unless-stopped
+    
+    networks:
+      - medical-network
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_NODE_ENV=production    
+        - VITE_BACKEND_URL=    # ✅ Change IP
+        - VITE_WS_URL=/ws              # ✅ Change IP  
+        - VITE_ORTHANC_URL=http://64.227.187.164:8042         # ✅ Change IP
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - medical-network
+
+  # orthanc:
+  #   image: orthancteam/orthanc:latest
+  #   ports:
+  #     - "8042:8042"
+  #   volumes:
+  #     - orthanc_data:/var/lib/orthanc/db
+  #   restart: unless-stopped
+  #   networks:
+  #     - medical-network
+
+volumes:
+  orthanc_data:
+
+networks:
+  medical-network:
+    driver: bridge

@@ -1,0 +1,255 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Grunt intermediate storage
+.grunt
+
+# Bower dependency directory
+bower_components
+
+# node_modules compiled binary addons
+build/Release
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Snowpack dependency directory
+web_modules/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# 🔐 ENVIRONMENT VARIABLES (IMPORTANT for Digital Ocean)
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# Parcel-bundler cache
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+out
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Gatsby files
+.cache/
+
+# Vuepress build output
+.vuepress/dist
+
+# Vuepress v2.x temp and cache directory
+.temp
+
+# Docusaurus cache and generated files
+.docusaurus
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# Yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# 🖥️ OPERATING SYSTEM FILES
+# MacOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+
+# 🛠️ EDITOR FILES
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 📁 TEMPORARY FOLDERS
+tmp/
+temp/
+
+# 🏗️ BUILD ARTIFACTS
+build/
+dist/
+
+# 🗃️ DATABASE FILES
+*.db
+*.sqlite
+*.sqlite3
+
+# 📂 UPLOADED FILES
+uploads/
+public/uploads/
+
+# 🏥 MEDICAL/DICOM SPECIFIC FILES
+dicom-files/
+medical-images/
+patient-data/
+*.dcm
+*.dcm.zip
+dicom-temp/
+dicom-cache/
+
+# 🔐 CERTIFICATE FILES
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# 💾 BACKUP FILES
+*.bak
+*.backup
+*.old
+
+# 📦 PACKAGE LOCK FILES
+# Uncomment the one you DON'T want to track
+# package-lock.json
+# yarn.lock
+
+# 🔄 PM2 ECOSYSTEM FILE
+ecosystem.config.js
+
+# 📚 GENERATED DOCUMENTATION
+docs/
+
+# 🧪 TEST COVERAGE REPORTS
+coverage/
+.jest/
+
+# 🎨 PRETTIER/ESLINT CACHE
+.prettiercache
+
+# 📊 BUNDLE ANALYZER REPORTS
+report.html
+
+# ⚙️ LOCAL CONFIGURATION FILES
+config/local.js
+config/local.json
+
+# 📄 GENERATED TEMPLATES & REPORTS
+reports/
+generated-reports/
+generated-documents/
+
+# 🔐 SESSION FILES
+sessions/
+
+# 📊 REDIS DUMP FILES
+dump.rdb
+
+# 🗄️ MONGODB DUMP FILES
+mongo-dump/
+mongodb-backups/
+
+# 🔧 DIGITAL OCEAN SPECIFIC
+.do/
+.digitalocean/
+
+# 📧 EMAIL TEMPLATES (Generated)
+email-templates-compiled/
+
+# 🎯 RADIANT HELPER FILES
+radiant-temp/
+radiant-cache/
+
+# ☁️ CLOUD STORAGE CACHE
+wasabi-cache/
+s3-cache/
+
+# 🔍 SEARCH INDEX FILES
+search-index/
+elasticsearch-data/
+
+# 📝 LOGS DIRECTORY
+logs/
+log-files/
+
+# 🖼️ IMAGE PROCESSING CACHE
+image-cache/
+thumbnails-cache/
+
+# 🔄 WORKFLOW TEMP FILES
+workflow-temp/
+processing-queue/
