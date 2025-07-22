@@ -3,7 +3,7 @@ import Patient from '../models/patientModel.js';
 import Doctor from '../models/doctorModel.js';
 import NodeCache from 'node-cache';
 import mongoose from 'mongoose'
-import { calculateStudyTAT, getLegacyTATFields } from '../utils/TATutility.js';
+import { calculateSimpleTAT} from '../utils/TATutility.js';
 
 const cache = new NodeCache({ stdTTL: 300 });
 
@@ -342,7 +342,7 @@ export const getAssignedStudies = async (req, res) => {
                 }
             }
 
-            const tat = study.calculatedTAT || calculateStudyTAT(study);
+            const tat = study.calculatedTAT || calculateSimpleTAT(study);
 
             return {
                 _id: study._id,
