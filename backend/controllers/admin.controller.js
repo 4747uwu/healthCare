@@ -580,13 +580,14 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
@@ -804,12 +805,14 @@ export const getValues = async (req, res) => {
 
         // Status mapping
         const statusCategories = {
-            pending: ['new_study_received', 'pending_assignment'],
+            pending: ['new_study_received', 'pending_assignment','assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
+                    'report_downloaded_radiologist', 'report_downloaded'
+                ],
             inprogress: [
-                'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                'report_finalized', 'report_drafted', 'report_uploaded', 
-                'report_downloaded_radiologist', 'report_downloaded'
-            ],
+                    
+                    'report_finalized', 'report_drafted', 'report_uploaded'
+                    
+                ],
             completed: ['final_report_downloaded']
         };
 
@@ -3224,16 +3227,23 @@ export const registerDoctor = async (req, res) => {
             const password = "star@star";
 
             // Validation queries
-            const [userExists, doctorWithLicenseExists] = await Promise.all([
-                User.findOne({ $or: [{ email }, { username }] }).session(session),
-                Doctor.findOne({ licenseNumber }).session(session)
-            ]);
+            // const [userExists, doctorWithLicenseExists] = await Promise.all([
+            //     User.findOne({ $or: [{ email }, { username }] }).session(session),
+            //     Doctor.findOne({ licenseNumber }).session(session)
+            // ]);
 
-            if (userExists) {
-                throw new Error('User with this email or username already exists.');
-            }
-            if (doctorWithLicenseExists) {
-                throw new Error('A doctor with this license number already exists.');
+            // if (userExists) {
+            //     throw new Error('User with this email or username already exists.');
+            // }
+            // if (doctorWithLicenseExists) {
+            //     throw new Error('A doctor with this license number already exists.');
+            // }
+
+            
+            const userWithUsername = await User.findOne({ username }).session(session);
+            
+            if (userWithUsername) {
+                throw new Error('User with this username already exists.');
             }
 
             // Create user
@@ -3549,7 +3559,9 @@ export const getPendingStudies = async (req, res) => {
         // 🔧 STEP 1: Build lean query filters with PENDING status priority
         const queryFilters = {
             workflowStatus: { 
-                $in: ['new_study_received', 'pending_assignment'] 
+                $in: ['new_study_received', 'pending_assignment','assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
+                    'report_downloaded_radiologist', 'report_downloaded'
+                ] 
             }
         };
         
@@ -3876,7 +3888,7 @@ export const getPendingStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -3901,13 +3913,15 @@ export const getPendingStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-IN', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                                    timeZone: 'Asia/Kolkata'
+
                     }).replace(',', '');
                 })()
                 : null,
@@ -4054,9 +4068,9 @@ export const getInProgressStudies = async (req, res) => {
         const queryFilters = {
             workflowStatus: { 
                 $in: [
-                    'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                    'report_finalized', 'report_drafted', 'report_uploaded', 
-                    'report_downloaded_radiologist', 'report_downloaded'
+                    
+                    'report_finalized', 'report_drafted', 'report_uploaded'
+                    
                 ] 
             }
         };
@@ -4386,7 +4400,7 @@ export const getInProgressStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -4422,13 +4436,15 @@ export const getInProgressStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-IN', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                                    timeZone: 'Asia/Kolkata'
+
                     }).replace(',', '');
                 })()
                 : null,
@@ -4889,7 +4905,7 @@ export const getCompletedStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -4903,14 +4919,16 @@ export const getCompletedStudies = async (req, res) => {
                 currentCategory: 'completed',
                 createdAt: study.createdAt,
                 uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                ? new Date(study.createdAt).toLocaleString('en-IN', {
                     timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
                     year: 'numeric',
                     month: 'short',
                     day: '2-digit',
                     hour: '2-digit',
                     minute: '2-digit',
-                    hour12: false
+                    hour12: false,
+                                timeZone: 'Asia/Kolkata'
+
                 }).replace(',', '')
                 : 'N/A',
                 reportedBy: study.reportInfo?.reporterName 
@@ -5042,6 +5060,220 @@ export const getCompletedStudies = async (req, res) => {
             success: false, 
             message: 'Server error fetching completed studies.',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+export const registerAdmin = async (req, res) => {
+    console.log('🔍 ===== REGISTER ADMIN CALLED =====');
+    console.log('📝 req.body:', req.body);
+    
+    const session = await mongoose.startSession();
+    
+    try {
+        const result = await session.withTransaction(async () => {
+            const { fullName, email, password } = req.body;
+
+            // Validation
+            if (!fullName || !email || !password) {
+                throw new Error('Full name, email, and password are required.');
+            }
+
+            // Email validation
+            const emailRegex = /\S+@\S+\.\S+/;
+            if (!emailRegex.test(email)) {
+                throw new Error('Please provide a valid email address.');
+            }
+
+            // Password validation
+            if (password.length < 6) {
+                throw new Error('Password must be at least 6 characters long.');
+            }
+
+            // Generate username from email (part before @)
+            const username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            // Check if user already exists
+            const existingUser = await User.findOne({
+                $or: [{ email }, { username }]
+            }).session(session);
+
+            if (existingUser) {
+                throw new Error('A user with this email or generated username already exists.');
+            }
+
+            // Create admin user
+            const adminUser = await User.create([{
+                username,
+                email,
+                password,
+                fullName,
+                role: 'admin',
+                isActive: true
+            }], { session });
+
+            console.log('✅ Admin user created:', adminUser[0]._id);
+
+            // Prepare response (exclude password)
+            const adminUserResponse = adminUser[0].toObject();
+            delete adminUserResponse.password;
+
+            return {
+                admin: adminUserResponse,
+                generatedUsername: username
+            };
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Admin account created successfully.',
+            data: {
+                adminId: result.admin._id,
+                username: result.generatedUsername,
+                email: result.admin.email,
+                fullName: result.admin.fullName
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error registering admin:', error);
+        
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map(val => val.message);
+            return res.status(400).json({ 
+                success: false, 
+                message: messages.join(', ') 
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || 'Server error during admin registration.' 
+        });
+    } finally {
+        await session.endSession();
+    }
+};
+
+export const updateStudyInteractionStatus = async (req, res) => {
+    try {
+        const { studyId } = req.params;
+        const { action } = req.body; // 'ohif_opened', 'study_downloaded', 'radiant_opened'
+        
+        console.log(`🔄 Updating study interaction status: ${studyId}, action: ${action}, user: ${req.user.role}`);
+        console.log(req.user);
+        
+        // Find the study
+        const study = await DicomStudy.findOne({
+            $or: [
+                // { _id: studyId },
+                { studyInstanceUID: studyId },
+                { orthancStudyID: studyId }
+            ]
+        });
+        console.log('🔄 Found study:', study ? study._id : 'Not found');
+        
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found'
+            });
+        }
+        
+        // Only doctors can trigger these status changes
+        if (req.user.role !== 'doctor_account') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only doctors can trigger study interaction status updates'
+            });
+        }
+        console.log(req.user.id);
+        
+        // Check if doctor is assigned to this study
+        // const isAssigned = Array.isArray(study.lastAssignedDoctor)
+        //     ? study.lastAssignedDoctor.some(
+        //         entry => entry.doctorId?.toString() === req.user.id?.toString()
+        //     )
+        //     : study.lastAssignedDoctor?.doctorId?.toString() === req.user.id?.toString();
+
+        // if (!isAssigned) {
+        //     console.log(isAssigned)
+        //     return res.status(403).json({
+        //         success: false,
+        //         message: 'You are not assigned to this study'
+        //     });
+        // }
+        
+        let newStatus;
+        let statusNote;
+        
+        // Determine the new status based on action
+        switch (action) {
+            case 'ohif_opened':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study opened in OHIF viewer by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            case 'radiant_opened':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study opened in Radiant viewer by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            case 'study_downloaded':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study downloaded by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            default:
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid action specified'
+                });
+        }
+        
+        // Only update if current status allows it (don't go backwards)
+        const statusHierarchy = [
+            'new_study_received',
+            'pending_assignment',
+            'assigned_to_doctor',
+                        'report_downloaded_radiologist',
+                                    'report_downloaded',
+
+
+            'doctor_opened_report',
+            'report_in_progress',
+            'report_uploaded',
+            'report_finalized',
+            'final_report_downloaded'
+        ];
+        
+        const currentStatusIndex = statusHierarchy.indexOf(study.workflowStatus);
+        const newStatusIndex = statusHierarchy.indexOf(newStatus);
+        
+        // Only update if we're moving forward or staying at the same level
+        if (newStatusIndex >= currentStatusIndex) {
+            await updateWorkflowStatus({
+                studyId: study._id,
+                status: newStatus,
+                note: statusNote,
+                user: req.user
+            });
+            
+            console.log(`✅ Study status updated to ${newStatus} for study ${studyId}`);
+        } else {
+            console.log(`⚠️ Status not updated - would be moving backwards from ${study.workflowStatus} to ${newStatus}`);
+        }
+        
+        res.json({
+            success: true,
+            message: 'Study interaction recorded successfully',
+            currentStatus: newStatus,
+            action: action
+        });
+        
+    } catch (error) {
+        console.error('❌ Error updating study interaction status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update study interaction status',
+            error: error.message
         });
     }
 };

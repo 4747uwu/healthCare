@@ -19,11 +19,48 @@ import {
     getValues,
     getPendingStudies,
     getInProgressStudies,
-    getCompletedStudies
+    getCompletedStudies,
+    updateStudyInteractionStatus,
+    registerAdmin
 } from '../controllers/admin.controller.js';
+
+import {
+    getAllDoctorsForAdmin,
+    getDoctorForAdmin,
+    updateDoctorForAdmin,
+    deleteDoctorForAdmin,
+    getAllLabsForAdmin,
+    getLabForAdmin,
+    updateLabForAdmin,
+    deleteLabForAdmin,
+    uploadDoctorSignature as uploadSignature
+} from '../controllers/adminCRUD.controller.js';
+
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// ===============================
+// 🆕 DOCTORS MANAGEMENT ROUTES
+// ===============================
+router.get('/doctors/list', protect, authorize('admin'), getAllDoctorsForAdmin);
+router.get('/doctors/details/:doctorId', protect, authorize('admin'), getDoctorForAdmin);
+router.put('/doctors/update/:doctorId', 
+    protect, 
+    authorize('admin'), 
+    uploadSignature,  // Handle signature upload
+    updateDoctorForAdmin
+);
+router.delete('/doctors/delete/:doctorId', protect, authorize('admin'), deleteDoctorForAdmin);
+
+// ===============================
+// 🆕 LABS MANAGEMENT ROUTES  
+// ===============================
+router.get('/labs/list', protect, authorize('admin'), getAllLabsForAdmin);
+router.get('/labs/details/:labId', protect, authorize('admin'), getLabForAdmin);
+router.put('/labs/update/:labId', protect, authorize('admin'), updateLabForAdmin);
+router.delete('/labs/delete/:labId', protect, authorize('admin'), deleteLabForAdmin);
+
 
 // Routes that require admin only
 router.post('/labs/register', protect, authorize('admin'), registerLabAndStaff);
@@ -38,10 +75,14 @@ router.get('/studies', protect, authorize('admin'), getAllStudiesForAdmin);
 router.get('/values', protect, getValues)
 router.get('/doctors', protect, authorize('admin', 'lab_staff'), getAllDoctors); 
 router.post('/studies/:studyId/assign', protect, authorize('admin'), assignDoctorToStudy); 
+router.put('/studies/:studyId/interaction', protect, authorize('doctor_account'), updateStudyInteractionStatus);
+
 
 router.get('/studies/pending', protect, authorize('admin'), getPendingStudies);
 router.get('/studies/inprogress', protect, authorize('admin'), getInProgressStudies);
 router.get('/studies/completed', protect, authorize('admin'), getCompletedStudies);
+router.post('/admins/register', protect, authorize('admin'), registerAdmin);
+
 
 
 // Route that allows multiple roles (admin, lab_staff, doctor_account)

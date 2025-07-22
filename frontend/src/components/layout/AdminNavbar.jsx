@@ -47,6 +47,8 @@ const UniversalNavbar = () => {
           activeColor: 'text-blue-600 bg-blue-50',
           links: [
             { to: '/admin/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
+            { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' }, // 🆕 NEW
+                    { to: '/admin/labs', label: 'Labs', icon: 'labs' }, // 🆕 NEW
             // { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
             { to: '/reports/tat', label: 'TAT Reports', icon: 'reports' },
           ]
@@ -354,7 +356,7 @@ const UniversalNavbar = () => {
               {/* Greeting (Desktop) */}
               <div className="hidden md:block text-right">
                 <p className="text-sm font-medium text-gray-900">
-                  {greeting}, {currentUser?.firstName}
+                  {greeting}, {currentUser?.fullName}
                 </p>
                 <p className="text-xs text-gray-500 capitalize">
                   {currentUser?.role?.replace('_', ' ')}
