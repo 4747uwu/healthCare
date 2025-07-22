@@ -13,7 +13,7 @@ import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
 import WasabiService from '../services/wasabi.service.js';
 
 import Document from '../models/documentModal.js';
-import { calculateStudyTAT, getLegacyTATFields, updateStudyTAT } from '../utils/TATutility.js';
+import { calculateSimpleTAT } from '../utils/TATutility.js';
 
 
 
@@ -1011,8 +1011,8 @@ static async uploadStudyReport(req, res) {
       }
       
       await study.save();
-      const freshTAT = calculateStudyTAT(study.toObject());
-        await updateStudyTAT(studyId, freshTAT);
+      const freshTAT = calculateSimpleTAT(study.toObject());
+        // await updateStudyTAT(studyId, freshTAT);
 
         console.log(`✅ TAT recalculated after report upload - Assignment to Report: ${freshTAT.assignmentToReportTATFormatted}`);
       

@@ -10,7 +10,7 @@ import mongoose from 'mongoose';
 import WasabiService from '../services/wasabi.service.js';
 import multer from 'multer';
 import sharp from 'sharp'; // For image optimization
-import { calculateStudyTAT, getLegacyTATFields,updateStudyTAT } from '../utils/TATutility.js';
+import { calculateSimpleTAT } from '../utils/TATutility.js';
 
 
 // import websocketService from '../config/webSocket.js'; // 🆕 ADD: Import WebSocket service
@@ -527,8 +527,8 @@ export const getAllStudiesForAdmin = async (req, res) => {
 
             // Fast category lookup using pre-compiled map
             const currentCategory = categoryMap[study.workflowStatus] || 'unknown';
-            const tat = study.calculatedTAT || calculateStudyTAT(study);
-            const legacyTATFields = getLegacyTATFields(tat);
+            const tat = study.calculatedTAT || calculateSimpleTAT(study);
+            // const legacyTATFields = getLegacyTATFields(tat);
 
 
             return {
@@ -1553,8 +1553,8 @@ export const assignDoctorToStudy = async (req, res) => {
                 );
             }
 
-            const freshTAT = calculateStudyTAT(updatedStudyDoc.toObject());
-            await updateStudyTAT(studyId, freshTAT, currentSession);
+            const freshTAT = calculateSimpleTAT(updatedStudyDoc.toObject());
+            // await updateStudyTAT(studyId, freshTAT, currentSession);
 
             console.log(`✅ TAT recalculated after assignment - Upload to Assignment: ${freshTAT.uploadToAssignmentTATFormatted}`);
     

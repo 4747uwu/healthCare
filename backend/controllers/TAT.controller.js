@@ -4,7 +4,7 @@ import Doctor from '../models/doctorModel.js';
 import ExcelJS from 'exceljs';
 import mongoose from 'mongoose';
 import NodeCache from 'node-cache';
-import { calculateStudyTAT } from '../utils/TATutility.js';
+import {  getCurrentISTTime, calculateSimpleTAT } from '../utils/TATutility.js';
 import patient from '../models/patientModel.js';
 
 // 🔧 PERFORMANCE: Advanced caching for TAT reports
@@ -295,9 +295,10 @@ export const getTATReport = async (req, res) => {
 
         // 🔧 OPTIMIZED: Process studies efficiently, using the fetched calculatedTAT
         const processedStudies = studies.map(study => {
-            // 🔧 CRITICAL: Prioritize using calculatedTAT from the database.
-            // If it's not present (e.g., for older records), calculate it on-the-fly as a fallback.
-            const tat = study.calculatedTAT || calculateStudyTAT(study);
+            // 🔧 CRITICAL: Use IST-aware TAT calculation
+            const tat = study.calculatedTAT || calculateStudyTAT(study, {
+                currentTime: getCurrentISTTime()
+            });
 
             const patient = study.patient || {};
             const patientName = patient.computed?.fullName ||
@@ -344,6 +345,10 @@ export const getTATReport = async (req, res) => {
                 diffAssignAndReportTAT: tat.assignmentToReportTATFormatted || '-',
                 uploadToAssignmentTAT: tat.uploadToAssignmentTATFormatted || '-',
 
+                // Include timezone information
+                timezone: 'IST',
+                calculatedAt: tat.calculatedAt,
+                
                 // 🔧 ADD: Send the full, structured TAT object for detailed frontend use
                 fullTatDetails: tat 
             };
