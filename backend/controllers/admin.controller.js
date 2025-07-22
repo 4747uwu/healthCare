@@ -597,12 +597,12 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
                 clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
-                tat: tat,
-                ...legacyTATFields,
-                totalTATDays: tat.totalTATDays,
-                totalTATFormatted: tat.totalTATFormatted,
-                isOverdue: tat.isOverdue,
-                tatPhase: tat.phase,
+                // tat: tat,
+                // ...legacyTATFields,
+                // totalTATDays: tat.totalTATDays,
+                // totalTATFormatted: tat.totalTATFormatted,
+                // isOverdue: tat.isOverdue,
+                // tatPhase: tat.phase,
                 
                 // 🔥 FIXED: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
