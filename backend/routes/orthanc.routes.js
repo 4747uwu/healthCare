@@ -13,8 +13,8 @@ const router = express.Router();
 
 // --- Configuration ---
 const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
-const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'admin';
-const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'admin';
+const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice';
+const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
 const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
 
 // --- Redis Setup ---
@@ -120,9 +120,6 @@ const jobQueue = new StableStudyQueue();
 // --- Helper Functions ---
 
 function processDicomPersonName(dicomNameField) {
-  // Store the original raw DICOM name exactly as received
-  const originalRawName = dicomNameField || '';
-  
   if (!dicomNameField || typeof dicomNameField !== 'string') {
     return {
       fullName: 'Unknown Patient',
@@ -131,9 +128,8 @@ function processDicomPersonName(dicomNameField) {
       middleName: '',
       namePrefix: '',
       nameSuffix: '',
-      originalDicomFormat: originalRawName, // Store raw unchanged
-      formattedForDisplay: 'Unknown Patient',
-      rawDicomName: originalRawName // NEW: Store completely unprocessed name
+      originalDicomFormat: dicomNameField || '',
+      formattedForDisplay: 'Unknown Patient'
     };
   }
 
@@ -148,9 +144,8 @@ function processDicomPersonName(dicomNameField) {
       middleName: '',
       namePrefix: '',
       nameSuffix: '',
-      originalDicomFormat: originalRawName, // Store raw unchanged
-      formattedForDisplay: 'Anonymous Patient',
-      rawDicomName: originalRawName // NEW: Store completely unprocessed name
+      originalDicomFormat: nameString,
+      formattedForDisplay: 'Anonymous Patient'
     };
   }
 
@@ -162,7 +157,7 @@ function processDicomPersonName(dicomNameField) {
   const namePrefix = (parts[3] || '').trim();
   const nameSuffix = (parts[4] || '').trim();
 
-  // Create display name (for UI purposes only)
+  // Create display name
   const nameParts = [];
   if (namePrefix) nameParts.push(namePrefix);
   if (givenName) nameParts.push(givenName);
@@ -179,9 +174,8 @@ function processDicomPersonName(dicomNameField) {
     middleName: middleName,
     namePrefix: namePrefix,
     nameSuffix: nameSuffix,
-    originalDicomFormat: originalRawName, // Store raw unchanged
-    formattedForDisplay: displayName,
-    rawDicomName: originalRawName // NEW: Store completely unprocessed name
+    originalDicomFormat: nameString,
+    formattedForDisplay: displayName
   };
 }
 
@@ -237,19 +231,13 @@ async function findOrCreatePatientFromTags(tags) {
     if (!unknownPatient) {
       unknownPatient = await Patient.create({
         mrn: 'UNKNOWN_STABLE_STUDY',
-        patientID: 'UNKNOWN_PATIENT',
-        patientNameRaw: nameInfo.rawDicomName, // Store raw DICOM name unchanged
+        patientID: 'UNKNOWN_PATIENT', // 🔧 FIXED: Use consistent unknown ID
+        patientNameRaw: 'Unknown Patient (Stable Study)',
         firstName: '',
         lastName: '',
         gender: patientSex || '',
         dateOfBirth: patientBirthDate || '',
-        isAnonymous: true,
-        computed: {
-          fullName: nameInfo.formattedForDisplay,
-          namePrefix: nameInfo.namePrefix,
-          nameSuffix: nameInfo.nameSuffix,
-          originalDicomName: nameInfo.rawDicomName // Store raw unchanged
-        }
+        isAnonymous: true
       });
     }
     return unknownPatient;
@@ -258,38 +246,40 @@ async function findOrCreatePatientFromTags(tags) {
   let patient = await Patient.findOne({ mrn: patientIdDicom });
 
   if (!patient) {
+    // 🔧 FIXED: Use DICOM PatientID directly instead of generating new one
     patient = new Patient({
       mrn: patientIdDicom || `ANON_${Date.now()}`,
-      patientID: patientIdDicom || `ANON_${Date.now()}`,
-      patientNameRaw: nameInfo.rawDicomName, // Store raw DICOM name unchanged
+      patientID: patientIdDicom || `ANON_${Date.now()}`, // 🔧 FIXED: Use DICOM PatientID
+      patientNameRaw: nameInfo.formattedForDisplay,
       firstName: nameInfo.firstName,
       lastName: nameInfo.lastName,
       computed: {
         fullName: nameInfo.formattedForDisplay,
         namePrefix: nameInfo.namePrefix,
         nameSuffix: nameInfo.nameSuffix,
-        originalDicomName: nameInfo.rawDicomName // Store raw unchanged
+        originalDicomName: nameInfo.originalDicomFormat
       },
       gender: patientSex || '',
       dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : ''
     });
     
     await patient.save();
-    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (Raw: ${nameInfo.rawDicomName}) (${patientIdDicom})`);
+    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (${patientIdDicom})`);
   } else {
-    // Update existing patient - PRESERVE raw DICOM name
-    console.log(`🔄 Updating patient: Raw name will be preserved as: "${nameInfo.rawDicomName}"`);
-    
-    // Always update to store the latest raw DICOM name
-    patient.patientNameRaw = nameInfo.rawDicomName; // Store raw unchanged
-    patient.firstName = nameInfo.firstName;
-    patient.lastName = nameInfo.lastName;
-    
-    if (!patient.computed) patient.computed = {};
-    patient.computed.fullName = nameInfo.formattedForDisplay;
-    patient.computed.originalDicomName = nameInfo.rawDicomName; // Store raw unchanged
-    
-    await patient.save();
+    // Update existing patient if name format has improved
+    if (patient.patientNameRaw && patient.patientNameRaw.includes('^') && nameInfo.formattedForDisplay && !nameInfo.formattedForDisplay.includes('^')) {
+      console.log(`🔄 Updating patient name format from "${patient.patientNameRaw}" to "${nameInfo.formattedForDisplay}"`);
+      
+      patient.patientNameRaw = nameInfo.formattedForDisplay;
+      patient.firstName = nameInfo.firstName;
+      patient.lastName = nameInfo.lastName;
+      
+      if (!patient.computed) patient.computed = {};
+      patient.computed.fullName = nameInfo.formattedForDisplay;
+      patient.computed.originalDicomName = nameInfo.originalDicomFormat;
+      
+      await patient.save();
+    }
   }
   
   return patient;
@@ -413,7 +403,7 @@ async function processStableStudy(job) {
     
     const studyResponse = await axios.get(studyInfoUrl, {
       headers: { 'Authorization': orthancAuth },
-      timeout: 50000
+      timeout: 10000
     });
     
     const studyInfo = studyResponse.data;
@@ -573,23 +563,6 @@ async function processStableStudy(job) {
         tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
         
-        // 🔧 FIX: Extract referring physician fields with proper DICOM tag mapping
-        tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysicianName;
-        tags.ReferringPhysicianAddress = rawTags["0008,0092"]?.Value || tags.ReferringPhysicianAddress;  
-        tags.ReferringPhysicianTelephoneNumbers = rawTags["0008,0094"]?.Value || tags.ReferringPhysicianTelephoneNumbers;
-        tags.RequestingPhysician = rawTags["0032,1032"]?.Value || tags.RequestingPhysician;
-        tags.RequestingService = rawTags["0032,1033"]?.Value || tags.RequestingService;
-        tags.PerformingPhysicianName = rawTags["0008,1050"]?.Value || tags.PerformingPhysicianName;
-        tags.OperatorName = rawTags["0008,1070"]?.Value || tags.OperatorName;
-
-        // 🔧 DEBUG: Log referring physician extraction
-        console.log(`[StableStudy] 👨‍⚕️ Referring Physician Debug:`, {
-          rawReferringPhysicianName: rawTags["0008,0090"]?.Value,
-          extractedReferringPhysicianName: tags.ReferringPhysicianName,
-          rawReferringPhysicianAddress: rawTags["0008,0092"]?.Value,
-          rawReferringPhysicianTelephone: rawTags["0008,0094"]?.Value
-        });
-        
         console.log(`[StableStudy] ✅ Got instance metadata:`, {
           PatientName: tags.PatientName,
           PatientID: tags.PatientID,
@@ -697,8 +670,6 @@ async function processStableStudy(job) {
     
     console.log(`[StableStudy] 📊 Final counts - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}`);
     
-    const nameInfo = processDicomPersonName(tags.PatientName); // Make sure this is defined
-
     const studyData = {
       orthancStudyID: orthancStudyId,
       studyInstanceUID: studyInstanceUID,
@@ -719,39 +690,36 @@ async function processStableStudy(job) {
       
       patientInfo: {
         patientID: patientRecord.patientID,
-        patientName: patientRecord.patientNameRaw, // This will now be the raw DICOM name
+        patientName: patientRecord.patientNameRaw,
         gender: patientRecord.gender || '',
-        dateOfBirth: tags.PatientBirthDate || '',
-        // NEW: Store both raw and formatted versions
-        rawDicomPatientName: tags.PatientName || '', // Store original DICOM name
-        formattedPatientName: nameInfo.formattedForDisplay // Store formatted version
+        dateOfBirth: tags.PatientBirthDate || ''
       },
       
-      // 🔧 FIX: Enhanced referring physician storage
-      referringPhysicianName: tags.ReferringPhysicianName || tags["0008,0090"] || '',
-      
-      // 🔧 FIX: Enhanced referring physician object
-      referringPhysician: {
-        name: tags.ReferringPhysicianName || tags["0008,0090"] || '',
-        institution: tags.ReferringPhysicianAddress || tags["0008,0092"] || tags.InstitutionName || '',
-        contactInfo: tags.ReferringPhysicianTelephoneNumbers || tags["0008,0094"] || '',
-        address: tags.ReferringPhysicianAddress || tags["0008,0092"] || ''
-      },
-      
+      referringPhysicianName: tags.ReferringPhysicianName || '',
       physicians: {
         referring: {
-          name: tags.ReferringPhysicianName || tags["0008,0090"] || '',
-          email: '', // Not typically in DICOM
-          mobile: tags.ReferringPhysicianTelephoneNumbers || tags["0008,0094"] || '',
-          institution: tags.ReferringPhysicianAddress || tags["0008,0092"] || tags.InstitutionName || ''
+          name: tags.ReferringPhysicianName || '',
+          email: '',
+          mobile: tags.ReferringPhysicianTelephoneNumbers || '',
+          institution: tags.ReferringPhysicianAddress || ''
         },
         requesting: {
-          name: tags.RequestingPhysician || tags["0032,1032"] || '',
-          email: '', // Not typically in DICOM  
-          mobile: tags.RequestingService || '',
-          institution: tags.RequestingService || tags["0032,1033"] || ''
+          name: tags.RequestingPhysician || '',
+          email: '',
+          mobile: '',
+          institution: tags.RequestingService || ''
         }
       },
+      
+      technologist: {
+        name: tags.OperatorName || tags.PerformingPhysicianName || '',
+        mobile: '',
+        comments: '',
+        reasonToSend: tags.ReasonForStudy || tags.RequestedProcedureDescription || ''
+      },
+      
+      studyPriority: tags.StudyPriorityID || 'SELECT',
+      caseType: tags.RequestPriority || 'routine',
       
       equipment: {
         manufacturer: tags.Manufacturer || '',
@@ -791,23 +759,8 @@ async function processStableStudy(job) {
           apiInstancesFound: actualInstanceCount,
           webUIShowsInstances: true,
           apiMethodUsed: actualInstanceCount > 0 ? 'series_lookup' : 'study_metadata_only',
-          customLabIdProvided: !!tags["0011,1010"],
-          customLabIdValue: tags["0011,1010"] || null,
-          // NEW: Store original DICOM name processing info
-          originalDicomPatientName: tags.PatientName || '', // Raw DICOM name
-          nameProcessingMethod: 'preserve_raw_dicom_format',
-          
-          // 🔧 NEW: Referring physician extraction debug info
-          referringPhysicianDebug: {
-            rawReferringPhysicianName: rawTags["0008,0090"]?.Value || 'NOT_FOUND',
-            rawReferringPhysicianNameTag: tags["0008,0090"] || 'NOT_FOUND',
-            rawReferringPhysicianAddress: rawTags["0008,0092"]?.Value || 'NOT_FOUND',
-            rawReferringPhysicianTelephone: rawTags["0008,0094"]?.Value || 'NOT_FOUND',
-            extractedName: tags.ReferringPhysicianName || tags["0008,0090"] || 'NOT_EXTRACTED',
-            extractedInstitution: tags.ReferringPhysicianAddress || tags["0008,0092"] || tags.InstitutionName || 'NOT_EXTRACTED',
-            extractedContact: tags.ReferringPhysicianTelephoneNumbers || tags["0008,0094"] || 'NOT_EXTRACTED',
-            finalStoredName: tags.ReferringPhysicianName || tags["0008,0090"] || ''
-          }
+          customLabIdProvided: !!tags["0011,1010"], // 🆕 ADD: Track if custom Lab ID was provided
+          customLabIdValue: tags["0011,1010"] || null
         }
       }
     };
