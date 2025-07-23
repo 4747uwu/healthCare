@@ -413,7 +413,7 @@ async function processStableStudy(job) {
     
     const studyResponse = await axios.get(studyInfoUrl, {
       headers: { 'Authorization': orthancAuth },
-      timeout: 10000
+      timeout: 50000
     });
     
     const studyInfo = studyResponse.data;
