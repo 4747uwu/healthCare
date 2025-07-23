@@ -32,9 +32,9 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
       - SENDER_EMAIL=${SENDER_EMAIL}
-      - ORTHANC_URL=http://64.227.187.164:8042
-      - ORTHANC_USERNAME=alice
-      - ORTHANC_PASSWORD=alicePassword
+      - ORTHANC_URL=http://157.245.86.199:8042
+      - ORTHANC_USERNAME=admin  
+      - ORTHANC_PASSWORD=admin
       - FRONTEND_URL=http://157.245.86.199  # ✅ Change from 157.245.86.199
     restart: unless-stopped
     
@@ -49,7 +49,7 @@ services:
         - VITE_NODE_ENV=production    
         - VITE_BACKEND_URL=    # ✅ Change IP
         - VITE_WS_URL=/ws              # ✅ Change IP  
-        - VITE_ORTHANC_URL=http://64.227.187.164:8042         # ✅ Change IP
+        - VITE_ORTHANC_URL=http://157.245.86.199:8042         # ✅ Change IP
     ports:
       - "80:80"
     depends_on:
