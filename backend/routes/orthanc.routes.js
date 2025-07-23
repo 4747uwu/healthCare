@@ -12,7 +12,7 @@ import Lab from '../models/labModel.js';
 const router = express.Router();
 
 // --- Configuration ---
-const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
+const ORTHANC_BASE_URL = 'http://localhost:8042';
 const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice';
 const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
 const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
@@ -403,7 +403,7 @@ async function processStableStudy(job) {
     
     const studyResponse = await axios.get(studyInfoUrl, {
       headers: { 'Authorization': orthancAuth },
-      timeout: 10000
+      timeout: 50000
     });
     
     const studyInfo = studyResponse.data;
