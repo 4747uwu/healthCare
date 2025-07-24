@@ -231,6 +231,7 @@ async function findOrCreatePatientFromTags(tags) {
   const nameInfo = processDicomPersonName(tags.PatientName);
   const patientSex = tags.PatientSex;
   const patientBirthDate = tags.PatientBirthDate;
+  const patientAge = tags.PatientAge; // ✅ ADD THIS LINE
 
   if (!patientIdDicom && !nameInfo.fullName) {
     let unknownPatient = await Patient.findOne({ mrn: 'UNKNOWN_STABLE_STUDY' });
@@ -261,29 +262,29 @@ async function findOrCreatePatientFromTags(tags) {
     patient = new Patient({
       mrn: patientIdDicom || `ANON_${Date.now()}`,
       patientID: patientIdDicom || `ANON_${Date.now()}`,
-      patientNameRaw: nameInfo.rawDicomName, // Store raw DICOM name unchanged
+      patientNameRaw: nameInfo.rawDicomName,
       firstName: nameInfo.firstName,
       lastName: nameInfo.lastName,
       computed: {
         fullName: nameInfo.formattedForDisplay,
         namePrefix: nameInfo.namePrefix,
         nameSuffix: nameInfo.nameSuffix,
-        originalDicomName: nameInfo.rawDicomName // Store raw unchanged
+        originalDicomName: nameInfo.rawDicomName
       },
       gender: patientSex || '',
-      dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : ''
+      dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : '',
+      age: patientAge || '', // ✅ ADD THIS LINE
     });
     
     await patient.save();
-    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (Raw: ${nameInfo.rawDicomName}) (${patientIdDicom})`);
+    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (Age: ${patientAge}) (Sex: ${patientSex})`);
   } else {
-    // Update existing patient - PRESERVE raw DICOM name
-    console.log(`🔄 Updating patient: Raw name will be preserved as: "${nameInfo.rawDicomName}"`);
-    
-    // Always update to store the latest raw DICOM name
-    patient.patientNameRaw = nameInfo.rawDicomName; // Store raw unchanged
+    // Update existing patient
+    patient.patientNameRaw = nameInfo.rawDicomName;
     patient.firstName = nameInfo.firstName;
     patient.lastName = nameInfo.lastName;
+    patient.gender = patientSex || '';
+    patient.age = patientAge || ''; // ✅ ADD THIS LINE
     
     if (!patient.computed) patient.computed = {};
     patient.computed.fullName = nameInfo.formattedForDisplay;
@@ -584,6 +585,10 @@ async function processStableStudy(job) {
         tags.PerformingPhysicianName = rawTags["0008,1050"]?.Value || tags.PerformingPhysicianName;
         tags.OperatorName = rawTags["0008,1070"]?.Value || tags.OperatorName;
 
+        tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex;
+        tags.PatientBirthDate = rawTags["0010,0030"]?.Value || tags.PatientBirthDate;
+        tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD THIS 
+
         // 🔧 DEBUG: Log referring physician extraction
         console.log(`[StableStudy] 👨‍⚕️ Referring Physician Debug:`, {
           rawReferringPhysicianName: rawTags["0008,0090"]?.Value,
@@ -715,6 +720,7 @@ async function processStableStudy(job) {
       institutionName: tags.InstitutionName || '',
       workflowStatus: actualInstanceCount > 0 ? 'new_study_received' : 'new_metadata_only',
       
+      
       seriesCount: actualSeriesCount,
       instanceCount: actualInstanceCount,
       seriesImages: `${actualSeriesCount}/${actualInstanceCount}`,
@@ -724,6 +730,7 @@ async function processStableStudy(job) {
         patientName: patientRecord.patientNameRaw, // This will now be the raw DICOM name
         gender: patientRecord.gender || '',
         dateOfBirth: tags.PatientBirthDate || '',
+        age: tags.PatientAge || '',
         // NEW: Store both raw and formatted versions
         rawDicomPatientName: tags.PatientName || '', // Store original DICOM name
         formattedPatientName: nameInfo.formattedForDisplay // Store formatted version
