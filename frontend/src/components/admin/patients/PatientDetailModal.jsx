@@ -4,7 +4,7 @@ import LoadingSpinner from '../../../common/LoadingSpinner';
 import useAllowedRoles from '../../../hooks/useAllowedRoles';
 import { toast } from 'react-hot-toast';
 
-const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
+const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => { // ✅ ADD: patientMongoId prop
   const { 
     hasEditPermission, 
     hasUploadPermission, 
@@ -77,6 +77,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
 
   // Add this near the top with other state declarations
   const [currentPatientId, setCurrentPatientId] = useState(patientId);
+  const [currentPatientMongoId, setCurrentPatientMongoId] = useState(patientMongoId); // ✅ ADD: MongoDB ID state
 
   // Update the useEffect to use currentPatientId
   useEffect(() => {
@@ -85,23 +86,36 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     }
   }, [isOpen, currentPatientId]);
 
-  const fetchPatientDetails = async (fetchPatientId = null) => {
+  const fetchPatientDetails = async (fetchPatientId = null, fetchPatientMongoId = null) => {
     const idToUse = fetchPatientId || currentPatientId;
     setLoading(true);
     setError('');
     
     try {
-      console.log(`🔍 Fetching patient details for ID: ${idToUse}`);
-      let response = await api.get(`/labEdit/patients/${idToUse}`);
+      console.log(`🔍 Fetching patient: ID=${fetchPatientId}, MongoID=${fetchPatientMongoId}`);
+      
+      // ✅ CHANGED: Add MongoDB ID to query params
+      const queryParams = new URLSearchParams();
+      if (fetchPatientMongoId) {
+        queryParams.append('patientMongoId', fetchPatientMongoId);
+      }
+      
+      const url = `/labEdit/patients/${fetchPatientId}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      let response = await api.get(url);
       
       console.log('🔍 Patient Details Response:', response.data);
       
       const data = response.data.data;
       setPatientDetails(data);
       
-      // Update currentPatientId if we fetched with a different ID
-      if (fetchPatientId && fetchPatientId !== currentPatientId) {
-        setCurrentPatientId(fetchPatientId);
+      // ✅ STORE: Both IDs from response
+      const responsePatientMongoId = data.patientInfo?.patientMongoId;
+      const responsePatientId = data.patientInfo?.patientId || data.patientInfo?.patientID;
+      
+      // Update state with both IDs
+      if (responsePatientMongoId && responsePatientId) {
+        setCurrentPatientId(responsePatientId);
+        setCurrentPatientMongoId(responsePatientMongoId); // ✅ ADD: Store MongoDB ID
       }
       
       // 🔧 ENHANCED: Map all new API fields to component state

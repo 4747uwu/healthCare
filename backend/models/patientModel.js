@@ -8,7 +8,7 @@ const PatientSchema = new mongoose.Schema({
         required: [true, 'Application Patient ID is required'],
         trim: true,
         index: true, // Primary lookup index
-        unique: true,
+        
     },
     mrn: { // Medical Record Number from DICOM (0010,0020)
         type: String,
