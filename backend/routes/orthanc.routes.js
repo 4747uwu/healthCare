@@ -540,6 +540,8 @@ async function processStableStudy(job) {
     job.progress = 50;
     
     // 🔧 Get metadata - try multiple approaches
+    let rawTags = {}; // ✅ Define rawTags at the function scope level
+    
     if (firstInstanceId) {
       console.log(`[StableStudy] 🔍 Getting metadata from instance: ${firstInstanceId}`);
       
@@ -551,7 +553,7 @@ async function processStableStudy(job) {
           timeout: 8000
         });
         
-        const rawTags = metadataResponse.data;
+        rawTags = metadataResponse.data; // ✅ Now rawTags is properly assigned
         
         // 🔧 FIX: Extract Value field from each tag
         tags = {};

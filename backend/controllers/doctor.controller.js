@@ -353,7 +353,8 @@ export const getAssignedStudies = async (req, res) => {
                 patientName: patientDisplay,
                 ageGender: ageGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: 'N/A', // Note: sourceLab lookup removed for performance - add back if needed
                 // studyDate: study.studyDate,
@@ -1208,7 +1209,8 @@ export const getPendingStudies = async (req, res) => {
                 patientName: patientName,
                 ageGender: ageGender,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
@@ -1555,7 +1557,8 @@ export const getInProgressStudies = async (req, res) => {
                 patientName: patientDisplay,
                 ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime
@@ -1977,7 +1980,8 @@ break;
                 patientName: patientName,
                 ageGender: ageGender,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+               modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
