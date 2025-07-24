@@ -449,7 +449,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
 
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-            const patient = lookupMaps.patients.get(study.patient?.toString());
+            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 FIXED: Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -511,6 +511,25 @@ export const getAllStudiesForAdmin = async (req, res) => {
             let patientDisplay = "N/A";
             let patientIdForDisplay = study.patientId || "N/A";
             let patientAgeGenderDisplay = "N/A";
+
+                if (study.patientInfo) {
+            patientDisplay = study.patientInfo.patientName || "N/A";
+            patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
+            
+            // ✅ FIXED: Extract age and gender from study.patientInfo
+            const agePart = study.patientInfo.age || "";
+            const genderPart = study.patientInfo.gender || "";
+            
+            if (agePart && genderPart) {
+                patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+            } else if (agePart) {
+                patientAgeGenderDisplay = agePart;
+            } else if (genderPart) {
+                patientAgeGenderDisplay = `/ ${genderPart}`;
+            } else {
+                patientAgeGenderDisplay = "N/A";
+            }
+        }
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
@@ -3802,7 +3821,7 @@ export const getPendingStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-            const patient = lookupMaps.patients.get(study.patient?.toString());
+const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -3861,8 +3880,26 @@ export const getPendingStudies = async (req, res) => {
             let patientDisplay = "N/A";
             let patientIdForDisplay = study.patientId || "N/A";
             let patientAgeGenderDisplay = "N/A";
+            if (study.patientInfo) {
+        patientDisplay = study.patientInfo.patientName || "N/A";
+        patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
+        
+        // ✅ FIXED: Extract age and gender from study.patientInfo
+        const agePart = study.patientInfo.age || "";
+        const genderPart = study.patientInfo.gender || "";
+        
+        if (agePart && genderPart) {
+            patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+        } else if (agePart) {
+            patientAgeGenderDisplay = agePart;
+        } else if (genderPart) {
+            patientAgeGenderDisplay = `/ ${genderPart}`;
+        } else {
+            patientAgeGenderDisplay = "N/A";
+        }
+    }
 
-            if (patient) {
+           else if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
@@ -3874,7 +3911,7 @@ export const getPendingStudies = async (req, res) => {
                                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
             }
 
-            console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
+            // console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
 
 
             return {
@@ -4319,7 +4356,7 @@ export const getInProgressStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps
-            const patient = lookupMaps.patients.get(study.patient?.toString());
+            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -4376,8 +4413,27 @@ export const getInProgressStudies = async (req, res) => {
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
             let patientAgeGenderDisplay = "N/A";
-
-            if (patient) {
+            
+            if (study.patientInfo) {
+        patientDisplay = study.patientInfo.patientName || "N/A";
+        patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
+        
+        // ✅ FIXED: Extract age and gender from study.patientInfo
+        const agePart = study.patientInfo.age || "";
+        const genderPart = study.patientInfo.gender || "";
+        
+        if (agePart && genderPart) {
+            patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+        } else if (agePart) {
+            patientAgeGenderDisplay = agePart;
+        } else if (genderPart) {
+            patientAgeGenderDisplay = `/ ${genderPart}`;
+        } else {
+            patientAgeGenderDisplay = "N/A";
+        }
+    }
+    // ✅ FALLBACK: Use patient lookup data if patientInfo is missing
+    else if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
@@ -4818,7 +4874,7 @@ export const getCompletedStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-            const patient = lookupMaps.patients.get(study.patient?.toString());
+            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -4880,8 +4936,27 @@ export const getCompletedStudies = async (req, res) => {
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
             let patientAgeGenderDisplay = "N/A";
-
-            if (patient) {
+            
+if (study.patientInfo) {
+        patientDisplay = study.patientInfo.patientName || "N/A";
+        patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
+        
+        // ✅ FIXED: Extract age and gender from study.patientInfo
+        const agePart = study.patientInfo.age || "";
+        const genderPart = study.patientInfo.gender || "";
+        
+        if (agePart && genderPart) {
+            patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+        } else if (agePart) {
+            patientAgeGenderDisplay = agePart;
+        } else if (genderPart) {
+            patientAgeGenderDisplay = `/ ${genderPart}`;
+        } else {
+            patientAgeGenderDisplay = "N/A";
+        }
+    }
+    // ✅ FALLBACK: Use patient lookup data if patientInfo is missing
+    else if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
