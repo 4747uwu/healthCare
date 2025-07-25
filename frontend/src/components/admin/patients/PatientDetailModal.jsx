@@ -4,7 +4,7 @@ import LoadingSpinner from '../../../common/LoadingSpinner';
 import useAllowedRoles from '../../../hooks/useAllowedRoles';
 import { toast } from 'react-hot-toast';
 
-const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => { // ✅ ADD: patientMongoId prop
+const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
   const { 
     hasEditPermission, 
     hasUploadPermission, 
@@ -77,7 +77,11 @@ const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => {
 
   // Add this near the top with other state declarations
   const [currentPatientId, setCurrentPatientId] = useState(patientId);
-  const [currentPatientMongoId, setCurrentPatientMongoId] = useState(patientMongoId); // ✅ ADD: MongoDB ID state
+
+  const makeUrlSafe = (patientId) => {
+  return patientId.replace(/\//g, '_SLASH_');
+};
+
 
   // Update the useEffect to use currentPatientId
   useEffect(() => {
@@ -86,36 +90,25 @@ const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => {
     }
   }, [isOpen, currentPatientId]);
 
-  const fetchPatientDetails = async (fetchPatientId = null, fetchPatientMongoId = null) => {
+  const fetchPatientDetails = async (fetchPatientId = null) => {
     const idToUse = fetchPatientId || currentPatientId;
     setLoading(true);
     setError('');
     
     try {
-      console.log(`🔍 Fetching patient: ID=${fetchPatientId}, MongoID=${fetchPatientMongoId}`);
+      console.log(`🔍 Fetching patient details for ID: ${idToUse}`);
+      const safeId = makeUrlSafe(idToUse);
       
-      // ✅ CHANGED: Add MongoDB ID to query params
-      const queryParams = new URLSearchParams();
-      if (fetchPatientMongoId) {
-        queryParams.append('patientMongoId', fetchPatientMongoId);
-      }
-      
-      const url = `/labEdit/patients/${fetchPatientId}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-      let response = await api.get(url);
+      let response = await api.get(`/labEdit/patients/${safeId}`);
       
       console.log('🔍 Patient Details Response:', response.data);
       
       const data = response.data.data;
       setPatientDetails(data);
       
-      // ✅ STORE: Both IDs from response
-      const responsePatientMongoId = data.patientInfo?.patientMongoId;
-      const responsePatientId = data.patientInfo?.patientId || data.patientInfo?.patientID;
-      
-      // Update state with both IDs
-      if (responsePatientMongoId && responsePatientId) {
-        setCurrentPatientId(responsePatientId);
-        setCurrentPatientMongoId(responsePatientMongoId); // ✅ ADD: Store MongoDB ID
+      // Update currentPatientId if we fetched with a different ID
+      if (fetchPatientId && fetchPatientId !== currentPatientId) {
+        setCurrentPatientId(fetchPatientId);
       }
       
       // 🔧 ENHANCED: Map all new API fields to component state
@@ -247,9 +240,11 @@ const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => {
       formData.append('type', uploadType);
       if (currentStudyId) {
         formData.append('studyId', currentStudyId);
+        
       }
+      const safeId = makeUrlSafe(currentPatientId);
 
-      const response = await api.post(`/labEdit/patients/${currentPatientId}/documents`, formData, {
+      const response = await api.post(`/labEdit/patients/${safeId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000
       });
@@ -339,8 +334,9 @@ const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => {
       };
 
       console.log('📤 Sending COMPLETE update data with all new fields:', JSON.stringify(updateData, null, 2));
+      const safeId = makeUrlSafe(currentPatientId);
 
-      const endpoint = isLabStaff ? `/labEdit/patients/${currentPatientId}` : `/labEdit/patients/${currentPatientId}`;
+      const endpoint = isLabStaff ? `/labEdit/patients/${safeId}` : `/labEdit/patients/${safeId}`;
       const response = await api.put(endpoint, updateData);
       
       console.log('✅ Update response:', response.data);
@@ -461,13 +457,14 @@ const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => {
         console.log(`📋 Study report download URL: ${downloadUrl}`);
       } else {
         // For patient documents, find the actual index in patient.documents array
+        const safeId = makeUrlSafe(currentPatientId);
         const patientDocIndex = patientDetails.documents.findIndex(d => d._id === doc._id);
         if (patientDocIndex === -1) {
           toast.dismiss(downloadToast);
           toast.error('❌ Document not found in patient records');
           return;
         }
-        downloadUrl = `/labEdit/patients/${currentPatientId}/documents/${patientDocIndex}/download`;
+        downloadUrl = `/labEdit/patients/${safeId}/documents/${patientDocIndex}/download`;
         console.log(`📄 Patient document download URL: ${downloadUrl}`);
       }
       
@@ -695,18 +692,19 @@ const PatientDetailModal = ({ isOpen, onClose, patientId, patientMongoId }) => {
       return;
     }
   
-    try {
-      let deleteUrl = '';
-      if (doc.source === 'patient') {
-        // Patient document: use patient document delete route
-        deleteUrl = `/labEdit/patients/${patientId}/documents/${index}`;
-      } else if (doc.source === 'study') {
-        // Study report: use new study report delete route
-        deleteUrl = `/labEdit/studies/${doc.studyId}/reports/${doc._id}`;
-      } else {
-        toast.error('Unknown document type');
-        return;
-      }
+      try {
+    let deleteUrl = '';
+    if (doc.source === 'patient') {
+      // 🔧 FIX: Use makeUrlSafe for patient document delete route
+      const safeId = makeUrlSafe(currentPatientId);
+      deleteUrl = `/labEdit/patients/${safeId}/documents/${index}`;
+    } else if (doc.source === 'study') {
+      // Study report: use new study report delete route
+      deleteUrl = `/labEdit/studies/${doc.studyId}/reports/${doc._id}`;
+    } else {
+      toast.error('Unknown document type');
+      return;
+    }
   
       const response = await api.delete(deleteUrl);
   

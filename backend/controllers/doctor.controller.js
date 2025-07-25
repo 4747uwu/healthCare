@@ -245,7 +245,7 @@ export const getAssignedStudies = async (req, res) => {
                 }
             },
 
-             { 
+              { 
         $lookup: { 
             from: 'labs', 
             localField: 'sourceLab', 
