@@ -338,6 +338,8 @@ export const getAssignedStudies = async (req, res) => {
         const formattedStudies = studies.map(study => {
             const patient = Array.isArray(study.patientData) && study.patientData.length > 0 ? 
                 study.patientData[0] : null;
+
+                const sourceLab = study.sourceLab;
             
             // Get the most recent assignment for display purposes - optimized
             let assignmentData = null;
