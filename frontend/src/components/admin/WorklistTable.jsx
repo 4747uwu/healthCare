@@ -217,7 +217,6 @@ const WorklistTable = React.memo(({
   const [selectedPatientId, setSelectedPatientId] = useState(null);
   const [patientDetail, setPatientDetail] = useState(false);
   const canAssignDoctors = userRole === 'admin';
-  const [selectedPatientMongoId, setSelectedPatientMongoId] = useState(null);
 
   useEffect(() => {
     try {
@@ -260,21 +259,10 @@ const WorklistTable = React.memo(({
     setSelectedStudies(prev => prev.includes(studyId) ? prev.filter(id => id !== studyId) : [...prev, studyId]);
   }, []);
 
-  const handlePatientClick = useCallback((study) => {
-    // Extract patient MongoDB ID from the populated patient object or patient field
-    const patientMongoId = study.patient?._id || study.patient; // MongoDB ObjectId
-    const patientStringId = study.patientId; // String ID like "687004087"
-    
-    console.log(`🔍 Opening patient details:`, {
-        patientStringId,
-        patientMongoId,
-        studyId: study._id
-    });
-    
-    setSelectedPatientId(patientStringId);
-    setSelectedPatientMongoId(patientMongoId); // ✅ ADD: Store MongoDB ID
+  const handlePatientClick = useCallback((patientId) => {
+    setSelectedPatientId(patientId);
     setPatientDetailModalOpen(true);
-}, []);
+  }, []);
 
   const handlePatienIdClick = useCallback((patientId, study) => {
     setSelectedPatientId(patientId);
@@ -391,11 +379,7 @@ const WorklistTable = React.memo(({
     }
   }), [enhancedStudies, visibleColumns, selectedStudies, userRole, canAssignDoctors, handleSelectStudy, handlePatientClick, handlePatienIdClick, handleAssignDoctor]);
 
-
-
-
-
-
+   
 const cardGrid = useMemo(() => (
   <div className="block lg:hidden h-full flex flex-col max-h-full overflow-hidden">
     {/* MOBILE TAB NAVIGATION - Fixed */}
@@ -657,19 +641,7 @@ const cardGrid = useMemo(() => (
       </div>
       
       {assignmentModalOpen && selectedStudy && (<DoctorAssignmentModal study={selectedStudy} isOpen={assignmentModalOpen} onClose={() => setAssignmentModalOpen(false)} onAssignComplete={handleAssignmentModalComplete} isBulkAssignment={selectedStudies.length > 1} totalSelected={selectedStudies.length}/>)}
-      {patientDetailModalOpen && selectedPatientId && (
-    <PatientDetailModal 
-        patientId={selectedPatientId}           // String ID: "687004087"
-        patientMongoId={selectedPatientMongoId} // MongoDB ID: "684df01a5a1e82873b52a2db"
-        isOpen={patientDetailModalOpen} 
-        onClose={() => {
-            setPatientDetailModalOpen(false);
-            setSelectedPatientId(null);
-            setSelectedPatientMongoId(null); // ✅ ADD: Clear MongoDB ID
-        }}
-    />
-)}
-
+      {patientDetailModalOpen && selectedPatientId && (<PatientDetailModal patientId={selectedPatientId} isOpen={patientDetailModalOpen} onClose={() => setPatientDetailModalOpen(false)}/>)}
       {patientDetail && selectedPatientId && (<PatientReport patientId={selectedPatientId} study={selectedStudy} isOpen={patientDetail} onClose={() => setPatientDetail(false)}/>)}
     </>
   );
