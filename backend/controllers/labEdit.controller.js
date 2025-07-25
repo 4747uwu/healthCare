@@ -45,6 +45,8 @@ export const getPatientDetailedView = async (req, res) => {
       const { patientId } = req.params;
       const userId = req.user.id;
 
+      const originalPatientId = patientId.replace(/_SLASH_/g, '/');
+
       console.log(`🔍 Fetching detailed view for patient: ${patientId} by user: ${userId}`);
 
       // 🔧 PERFORMANCE: Check cache first
@@ -60,10 +62,10 @@ export const getPatientDetailedView = async (req, res) => {
 
       // 🔧 ENHANCED: More comprehensive parallel queries with NEW FIELDS  
       const [patient, allStudies] = await Promise.all([
-          Patient.findOne({ patientID: patientId })
+          Patient.findOne({ patientID: originalPatientId })
               .populate('clinicalInfo.lastModifiedBy', 'fullName email')
               .lean(),
-          DicomStudy.find({ patientId: patientId })
+          DicomStudy.find({ patientId: originalPatientId })
               .select(`
                   studyInstanceUID studyDate studyTime modality modalitiesInStudy 
                   accessionNumber workflowStatus caseType examDescription examType 
@@ -1207,7 +1209,7 @@ if (updateData.clinicalInfo) {
       console.log('💾 Executing patient update...');
 
       const updatedPatient = await Patient.findOneAndUpdate(
-          { patientID: patientId },
+          { patientID: originalPatientId },
           { $set: patientUpdateData },
           { new: true, lean: true }
       );
