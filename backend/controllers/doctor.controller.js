@@ -244,6 +244,22 @@ export const getAssignedStudies = async (req, res) => {
                     sourceLab: 1
                 }
             },
+
+             { 
+        $lookup: { 
+            from: 'labs', 
+            localField: 'sourceLab', 
+            foreignField: '_id', 
+            as: 'sourceLab',
+            pipeline: [{ 
+                $project: { 
+                    name: 1, 
+                    identifier: 1 
+                } 
+            }] 
+        } 
+    },
+    
             
             // Lookup patient data with optimized projection
             { 
@@ -266,6 +282,12 @@ export const getAssignedStudies = async (req, res) => {
                     }] 
                 } 
             },
+
+             {
+        $addFields: {
+            sourceLab: { $arrayElemAt: ['$sourceLab', 0] }
+        }
+    },
             
             // Apply patientName filter after lookup if needed
             ...(patientName ? [{
@@ -357,7 +379,7 @@ export const getAssignedStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: 'N/A', // Note: sourceLab lookup removed for performance - add back if needed
+                location: sourceLab?.name || 'N/A', // ✅ FIXED: Use actual lab name
                 // studyDate: study.studyDate,
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
