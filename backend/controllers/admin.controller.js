@@ -10,7 +10,7 @@ import mongoose from 'mongoose';
 import WasabiService from '../services/wasabi.service.js';
 import multer from 'multer';
 import sharp from 'sharp'; // For image optimization
-import { calculateSimpleTAT } from '../utils/TATutility.js';
+import { calculateStudyTAT, getLegacyTATFields,updateStudyTAT } from '../utils/TATutility.js';
 
 
 // import websocketService from '../config/webSocket.js'; // 🆕 ADD: Import WebSocket service
@@ -293,7 +293,6 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 $project: {
                     _id: 1,
                     studyInstanceUID: 1,
-                    patientInfo: 1,
                     orthancStudyID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
@@ -450,7 +449,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
 
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 FIXED: Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -509,46 +508,27 @@ export const getAllStudiesForAdmin = async (req, res) => {
             }
             
             // Optimized patient display building with fallback chain
-            // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = study.patientId || "N/A";
+            let patientAgeGenderDisplay = "N/A";
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
+                // Optimized age/gender display
+                const agePart = patient.ageString || "";
+                const genderPart = patient.gender || "";
+                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+            }
+
             // Fast category lookup using pre-compiled map
             const currentCategory = categoryMap[study.workflowStatus] || 'unknown';
-            const tat = study.calculatedTAT || calculateSimpleTAT(study);
-            // const legacyTATFields = getLegacyTATFields(tat);
+            const tat = study.calculatedTAT || calculateStudyTAT(study);
+            const legacyTATFields = getLegacyTATFields(tat);
 
 
             return {
@@ -617,12 +597,12 @@ else if (patient) {
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
                 clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
-                // tat: tat,
-                // ...legacyTATFields,
-                // totalTATDays: tat.totalTATDays,
-                // totalTATFormatted: tat.totalTATFormatted,
-                // isOverdue: tat.isOverdue,
-                // tatPhase: tat.phase,
+                tat: tat,
+                ...legacyTATFields,
+                totalTATDays: tat.totalTATDays,
+                totalTATFormatted: tat.totalTATFormatted,
+                isOverdue: tat.isOverdue,
+                tatPhase: tat.phase,
                 
                 // 🔥 FIXED: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
@@ -1573,8 +1553,8 @@ export const assignDoctorToStudy = async (req, res) => {
                 );
             }
 
-            const freshTAT = calculateSimpleTAT(updatedStudyDoc.toObject());
-            // await updateStudyTAT(studyId, freshTAT, currentSession);
+            const freshTAT = calculateStudyTAT(updatedStudyDoc.toObject());
+            await updateStudyTAT(studyId, freshTAT, currentSession);
 
             console.log(`✅ TAT recalculated after assignment - Upload to Assignment: ${freshTAT.uploadToAssignmentTATFormatted}`);
     
@@ -3684,7 +3664,6 @@ export const getPendingStudies = async (req, res) => {
                     _id: 1,
                     studyInstanceUID: 1,
                     orthancStudyID: 1,
-                    patientInfo: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
                     modality: 1,
@@ -3823,7 +3802,7 @@ export const getPendingStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -3879,44 +3858,23 @@ const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             }
             
             // Optimized patient display with fallback chain
-           // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = study.patientId || "N/A";
+            let patientAgeGenderDisplay = "N/A";
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
+                const agePart = patient.ageString || "";
+                const genderPart = patient.gender || "";
+                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+            }
 
-            // console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
+            console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
 
 
             return {
@@ -4224,7 +4182,6 @@ export const getInProgressStudies = async (req, res) => {
                     _id: 1,
                     studyInstanceUID: 1,
                     orthancStudyID: 1,
-                    patientInfo: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
                     currentCategory: 1,
@@ -4362,7 +4319,7 @@ export const getInProgressStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps
-            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -4416,42 +4373,21 @@ export const getInProgressStudies = async (req, res) => {
             }
             
             // Optimized patient display building
-           // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = "N/A";
+            let patientAgeGenderDisplay = "N/A";
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || "N/A";
 
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
+                const agePart = patient.ageString || "";
+                const genderPart = patient.gender || "";
+                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+            }
 
             return {
                 _id: study._id,
@@ -4739,7 +4675,6 @@ export const getCompletedStudies = async (req, res) => {
                 $project: {
                     _id: 1,
                     studyInstanceUID: 1,
-                    patientInfo: 1,
                     orthancStudyID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
@@ -4883,7 +4818,7 @@ export const getCompletedStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -4942,42 +4877,22 @@ export const getCompletedStudies = async (req, res) => {
             }
             
             // Optimized patient display building with fallback chain
-        // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = "N/A";
+            let patientAgeGenderDisplay = "N/A";
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || "N/A";
 
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
+                // Optimized age/gender display
+                const agePart = patient.ageString || "";
+                const genderPart = patient.gender || "";
+                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+            }
 
             return {
                 _id: study._id,
