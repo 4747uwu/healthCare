@@ -228,13 +228,10 @@ export const downloadFromWasabi = async (req, res) => {
         console.log(`🌊 Wasabi direct download requested for: ${orthancStudyId}`);
         const requestStart = Date.now();
         
-        // ✅ FAST: Get study data with minimal fields
+        // Get study data
         const study = await DicomStudy.findOne(
             { orthancStudyID: orthancStudyId },
-            { 
-                preProcessedDownload: 1, 
-                _id: 1 
-            }
+            { preProcessedDownload: 1, _id: 1 }
         ).lean();
         
         if (!study) {
@@ -254,7 +251,7 @@ export const downloadFromWasabi = async (req, res) => {
             });
         }
         
-        // ✅ FAST: Quick expiry check
+        // Check expiry
         const now = Date.now();
         if (zipInfo.zipExpiresAt && new Date(zipInfo.zipExpiresAt).getTime() <= now) {
             return res.status(410).json({
@@ -265,42 +262,95 @@ export const downloadFromWasabi = async (req, res) => {
         }
         
         console.log(`✅ Study validation completed in ${Date.now() - requestStart}ms`);
+        console.log(`🔍 Original zipUrl: ${zipInfo.zipUrl}`);
         
-        // ✅ FAST: Extract key from existing URL
+        // ✅ CRITICAL FIX: Correct path extraction from zipUrl
         let wasabiKey;
         let bucketName = 'studyzip';
         
-        if (zipInfo.zipUrl.includes('wasabisys.com')) {
+        if (zipInfo.zipUrl && zipInfo.zipUrl.includes('wasabisys.com')) {
+            // Extract the correct path from the stored URL
             const urlParts = new URL(zipInfo.zipUrl);
-            wasabiKey = urlParts.pathname.substring(1);
+            let pathParts = urlParts.pathname.split('/').filter(Boolean); // Remove empty parts
+            
+            console.log(`🔍 URL path parts:`, pathParts);
+            
+            // ✅ CRITICAL FIX: Handle different URL formats correctly
+            if (pathParts[0] === 'studyzip') {
+                // URL format: /studyzip/studies/2025/filename.zip
+                // Remove the bucket name from the path to avoid duplication
+                wasabiKey = pathParts.slice(1).join('/'); // Remove first element (bucket)
+                console.log(`🔧 Removed bucket from path. Key: ${wasabiKey}`);
+            } else {
+                // URL format: /studies/2025/filename.zip (bucket already in hostname/subdomain)
+                wasabiKey = pathParts.join('/');
+                console.log(`🔧 Used full path as key: ${wasabiKey}`);
+            }
         } else {
-            const year = new Date(zipInfo.zipCreatedAt).getFullYear();
+            // Fallback: construct key from filename
+            const year = new Date(zipInfo.zipCreatedAt || Date.now()).getFullYear();
             wasabiKey = `studies/${year}/${zipInfo.zipFileName}`;
+            console.log(`🔧 Constructed fallback key: ${wasabiKey}`);
         }
         
-        // ✅ SPEED: Generate presigned URL with optimized settings
+        console.log(`🎯 Final: bucket=${bucketName}, key=${wasabiKey}`);
+        
+        // ✅ VERIFY: Check if file exists before generating presigned URL
+        try {
+            const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+            await wasabiS3.send(new HeadObjectCommand({
+                Bucket: bucketName,
+                Key: wasabiKey
+            }));
+            console.log(`✅ File confirmed to exist: ${bucketName}/${wasabiKey}`);
+        } catch (headError) {
+            console.error(`❌ File not found: ${bucketName}/${wasabiKey}`, headError);
+            return res.status(404).json({
+                success: false,
+                message: 'ZIP file not found in storage',
+                debug: {
+                    bucket: bucketName,
+                    key: wasabiKey,
+                    originalUrl: zipInfo.zipUrl,
+                    error: headError.message
+                }
+            });
+        }
+        
+        // ✅ GENERATE: Presigned URL with correct parameters
         const { GetObjectCommand } = await import('@aws-sdk/client-s3');
         const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
         
         const urlStart = Date.now();
         
         const getObjectCommand = new GetObjectCommand({
-            Bucket: bucketName,
-            Key: wasabiKey,
-            // ✅ OPTIMIZE: Add response headers for better download
+            Bucket: bucketName, // studyzip
+            Key: wasabiKey,     // studies/2025/filename.zip (NO bucket prefix!)
+            
+            // Response headers for better download experience
             ResponseContentDisposition: `attachment; filename="${zipInfo.zipFileName}"`,
             ResponseContentType: 'application/zip',
             ResponseCacheControl: 'public, max-age=3600'
         });
         
         const presignedUrl = await getSignedUrl(wasabiS3, getObjectCommand, {
-            expiresIn: 3600, // 1 hour
+            expiresIn: 24 * 60 * 60, // 24 hours
             signatureVersion: 'v4'
         });
         
-        console.log(`✅ Presigned URL generated in ${Date.now() - urlStart}ms`);
+        console.log(`✅ Generated presigned URL: ${presignedUrl.substring(0, 100)}...`);
         
-        // ✅ ASYNC: Update download stats without waiting
+        // ✅ VERIFY: Check URL doesn't have duplicate bucket
+        if (presignedUrl.includes('/studyzip/studyzip/')) {
+            console.error('❌ Generated URL still has duplicate bucket!');
+            return res.status(500).json({
+                success: false,
+                message: 'URL generation error - duplicate bucket detected',
+                debug: { bucket: bucketName, key: wasabiKey }
+            });
+        }
+        
+        // ✅ ASYNC: Update download stats
         setImmediate(async () => {
             try {
                 await DicomStudy.findByIdAndUpdate(study._id, {
@@ -313,24 +363,23 @@ export const downloadFromWasabi = async (req, res) => {
         });
         
         const totalTime = Date.now() - requestStart;
-        console.log(`🚀 Total request time: ${totalTime}ms`);
-        
-        // ✅ RESPONSE: Optimized headers
-        res.set({
-            'X-Download-Method': 'wasabi-direct',
-            'X-Response-Time': `${totalTime}ms`,
-            'Cache-Control': 'no-cache'
-        });
         
         res.json({
             success: true,
-            message: 'Download URL ready',
+            message: 'Wasabi download URL generated',
             data: {
                 downloadUrl: presignedUrl,
                 fileName: zipInfo.zipFileName,
-                fileSizeMB: zipInfo.zipSizeMB,
+                fileSizeMB: zipInfo.zipSizeMB || 0,
                 downloadMethod: 'wasabi-direct',
-                responseTime: totalTime
+                responseTime: totalTime,
+                urlExpiresIn: 24 * 60 * 60,
+                urlExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                debug: {
+                    bucket: bucketName,
+                    key: wasabiKey,
+                    originalUrl: zipInfo.zipUrl
+                }
             }
         });
         
@@ -338,7 +387,7 @@ export const downloadFromWasabi = async (req, res) => {
         console.error('❌ Wasabi download error:', error);
         res.status(500).json({
             success: false,
-            message: 'Download failed',
+            message: 'Wasabi download failed',
             error: error.message
         });
     }
