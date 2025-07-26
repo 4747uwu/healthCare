@@ -33,9 +33,41 @@ import {
 import api from '../../services/api'
 import sessionManager from '../../services/sessionManager';
 
+const handleWasabiDownload = async (study) => {
+    try {
+        const loadingToast = toast.loading('Getting Wasabi download URL...');
+        
+        const response = await api.get(`/download/study/${study.orthancStudyID}/wasabi-direct`);
+        
+        toast.dismiss(loadingToast);
+        
+        if (response.data.success) {
+            const { downloadUrl, fileName } = response.data.data;
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            toast.success(`✅ Downloading ${fileName} from Wasabi`);
+        } else {
+            toast.error(response.data.message || 'Wasabi download failed');
+        }
+    } catch (error) {
+        toast.dismiss();
+        console.error('Wasabi download error:', error);
+        toast.error('Failed to get Wasabi download URL');
+    }
+};
+
 const DownloadDropdown = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  const hasWasabiZip = study.downloadOptions?.hasWasabiZip;
 
   const handleLaunchRadiantViewer = useCallback(async () => {
     try {
@@ -120,7 +152,7 @@ const DownloadDropdown = ({ study }) => {
     }
   };
   
-  return (
+   return (
     <div className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)}
@@ -138,20 +170,55 @@ const DownloadDropdown = ({ study }) => {
           <div className="absolute right-0 mt-1 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-20">
             <div className="py-1">
               
-            <button
-              onClick={handleLaunchRadiantViewer}
-              className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors rounded"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553 2.276A2 2 0 0121 14.09V17a2 2 0 01-2 2H5a2 2 0 01-2-2v-2.91a2 2 0 01.447-1.814L8 10m7-6v6m0 0l-3-3m3 3l3-3" />
-              </svg>
-              Radiant Viewer
-            </button>
-              
-              <button onClick={handleDownloadStudy} className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Download ZIP
+              <button
+                onClick={handleLaunchRadiantViewer}
+                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553 2.276A2 2 0 0121 14.09V17a2 2 0 01-2 2H5a2 2 0 01-2-2v-2.91a2 2 0 01.447-1.814L8 10m7-6v6m0 0l-3-3m3 3l3-3" />
+                </svg>
+                Radiant Viewer
               </button>
+              
+              {/* ✅ MOVE: Wasabi button inside dropdown */}
+              {hasWasabiZip && (
+                <button
+                  onClick={() => handleWasabiDownload(study)}
+                  className="flex items-center w-full px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                  </svg>
+                  🌊 Download from Wasabi
+                  <span className="ml-auto text-xs text-gray-500">
+                    {study.downloadOptions.wasabiSizeMB}MB
+                  </span>
+                </button>
+              )}
+              
+              <button 
+                onClick={handleDownloadStudy} 
+                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Download ZIP (Direct)
+              </button>
+              
+              {/* ✅ ADD: Show status if no Wasabi ZIP */}
+              {!hasWasabiZip && (
+                <div className="px-3 py-2 text-xs text-gray-500 italic border-t">
+                  {study.downloadOptions?.zipStatus === 'processing' ? (
+                    '⏳ ZIP being prepared...'
+                  ) : study.downloadOptions?.zipStatus === 'failed' ? (
+                    '❌ ZIP creation failed'
+                  ) : (
+                    '📦 No pre-processed ZIP available'
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </>
@@ -323,17 +390,23 @@ const WorklistTable = React.memo(({
     }
   }, [selectedStudies, studies]);
 
-  const handleAssignmentSuccess = useCallback((studyId, assignedDoctors) => {
+  // ✅ FIXED: Add action parameter to function signature
+const handleAssignmentSuccess = useCallback((studyId, assignedDoctors, action = 'assign') => {
     setImmediateUpdates(prev => ({
-      ...prev,
-      [studyId]: {
-        workflowStatus: 'assigned_to_doctor',
-        assignedDoctors: assignedDoctors,
-        timestamp: Date.now()
-      }
+        ...prev,
+        [studyId]: {
+            workflowStatus: action === 'unassign_selected' ? 'pending_assignment' : 'assigned_to_doctor',
+            assignedDoctors: action === 'unassign_selected' ? [] : assignedDoctors,
+            timestamp: Date.now()
+        }
     }));
-    toast.success(`✅ Study assigned to ${assignedDoctors.map(d => `Dr. ${d.name}`).join(', ')}!`);
-  }, []);
+
+    // ✅ KEY FIX: Only show assignment toast for actual assignments
+    if (action !== 'unassign_selected') {
+        toast.success(`✅ Study Operation Successful`);
+    }
+    // ✅ For unassignments, don't show any toast (modal already shows success message)
+}, []);
 
   const enhancedStudies = useMemo(() => {
     return filteredStudies.map(study => {
@@ -353,10 +426,25 @@ const WorklistTable = React.memo(({
   const handleAssignmentModalComplete = (result) => {
     setAssignmentModalOpen(false);
     if (result?.success) {
-      // onAssignmentComplete?.();
-      handleAssignmentSuccess(result.studyId, result.assignedDoctors);
+        if (result.action === 'unassign_selected') {
+            // ✅ FOR UNASSIGNMENTS: Only update state, NO function call, NO toast
+            setImmediateUpdates(prev => ({
+                ...prev,
+                [result.studyId]: {
+                    workflowStatus: 'pending_assignment',
+                    assignedDoctors: [],
+                    timestamp: Date.now()
+                }
+            }));
+        } else {
+            // ✅ FOR ASSIGNMENTS: Call success handler which will show toast
+            handleAssignmentSuccess(result.studyId, result.assignedDoctors, result.action);
+        }
+        
+        // ✅ Call parent callback if needed
+        // onAssignmentComplete?.();
     }
-  };
+};
 
   const handleUnauthorized = useCallback(() => toast.info(`Marking ${selectedStudies.length} studies as unauthorized`), [selectedStudies]);
   const handleExportWorklist = useCallback(() => toast.success(`Exported ${filteredStudies.length} studies to CSV`), [filteredStudies]);

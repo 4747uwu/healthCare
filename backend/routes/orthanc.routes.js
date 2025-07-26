@@ -3,6 +3,7 @@ import axios from 'axios';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import websocketService from '../config/webSocket.js';
+import zipCreationService from '../services/wasabi.zip.service.js';
 
 // Import Mongoose Models
 import DicomStudy from '../models/dicomStudyModel.js';
@@ -120,9 +121,6 @@ const jobQueue = new StableStudyQueue();
 // --- Helper Functions ---
 
 function processDicomPersonName(dicomNameField) {
-  // Store the original raw DICOM name exactly as received
-  const originalRawName = dicomNameField || '';
-  
   if (!dicomNameField || typeof dicomNameField !== 'string') {
     return {
       fullName: 'Unknown Patient',
@@ -131,9 +129,8 @@ function processDicomPersonName(dicomNameField) {
       middleName: '',
       namePrefix: '',
       nameSuffix: '',
-      originalDicomFormat: originalRawName, // Store raw unchanged
-      formattedForDisplay: 'Unknown Patient',
-      rawDicomName: originalRawName // NEW: Store completely unprocessed name
+      originalDicomFormat: dicomNameField || '',
+      formattedForDisplay: 'Unknown Patient'
     };
   }
 
@@ -148,9 +145,8 @@ function processDicomPersonName(dicomNameField) {
       middleName: '',
       namePrefix: '',
       nameSuffix: '',
-      originalDicomFormat: originalRawName, // Store raw unchanged
-      formattedForDisplay: 'Anonymous Patient',
-      rawDicomName: originalRawName // NEW: Store completely unprocessed name
+      originalDicomFormat: nameString,
+      formattedForDisplay: 'Anonymous Patient'
     };
   }
 
@@ -162,7 +158,7 @@ function processDicomPersonName(dicomNameField) {
   const namePrefix = (parts[3] || '').trim();
   const nameSuffix = (parts[4] || '').trim();
 
-  // Create display name (for UI purposes only)
+  // Create display name
   const nameParts = [];
   if (namePrefix) nameParts.push(namePrefix);
   if (givenName) nameParts.push(givenName);
@@ -179,9 +175,8 @@ function processDicomPersonName(dicomNameField) {
     middleName: middleName,
     namePrefix: namePrefix,
     nameSuffix: nameSuffix,
-    originalDicomFormat: originalRawName, // Store raw unchanged
-    formattedForDisplay: displayName,
-    rawDicomName: originalRawName // NEW: Store completely unprocessed name
+    originalDicomFormat: nameString,
+    formattedForDisplay: displayName
   };
 }
 
@@ -231,26 +226,19 @@ async function findOrCreatePatientFromTags(tags) {
   const nameInfo = processDicomPersonName(tags.PatientName);
   const patientSex = tags.PatientSex;
   const patientBirthDate = tags.PatientBirthDate;
-  const patientAge = tags.PatientAge; // ✅ ADD THIS LINE
 
   if (!patientIdDicom && !nameInfo.fullName) {
     let unknownPatient = await Patient.findOne({ mrn: 'UNKNOWN_STABLE_STUDY' });
     if (!unknownPatient) {
       unknownPatient = await Patient.create({
         mrn: 'UNKNOWN_STABLE_STUDY',
-        patientID: 'UNKNOWN_PATIENT',
-        patientNameRaw: nameInfo.rawDicomName, // Store raw DICOM name unchanged
+        patientID: 'UNKNOWN_PATIENT', // 🔧 FIXED: Use consistent unknown ID
+        patientNameRaw: 'Unknown Patient (Stable Study)',
         firstName: '',
         lastName: '',
         gender: patientSex || '',
         dateOfBirth: patientBirthDate || '',
-        isAnonymous: true,
-        computed: {
-          fullName: nameInfo.formattedForDisplay,
-          namePrefix: nameInfo.namePrefix,
-          nameSuffix: nameInfo.nameSuffix,
-          originalDicomName: nameInfo.rawDicomName // Store raw unchanged
-        }
+        isAnonymous: true
       });
     }
     return unknownPatient;
@@ -259,38 +247,40 @@ async function findOrCreatePatientFromTags(tags) {
   let patient = await Patient.findOne({ mrn: patientIdDicom });
 
   if (!patient) {
+    // 🔧 FIXED: Use DICOM PatientID directly instead of generating new one
     patient = new Patient({
       mrn: patientIdDicom || `ANON_${Date.now()}`,
-      patientID: patientIdDicom || `ANON_${Date.now()}`,
-      patientNameRaw: nameInfo.rawDicomName,
+      patientID: patientIdDicom || `ANON_${Date.now()}`, // 🔧 FIXED: Use DICOM PatientID
+      patientNameRaw: nameInfo.formattedForDisplay,
       firstName: nameInfo.firstName,
       lastName: nameInfo.lastName,
       computed: {
         fullName: nameInfo.formattedForDisplay,
         namePrefix: nameInfo.namePrefix,
         nameSuffix: nameInfo.nameSuffix,
-        originalDicomName: nameInfo.rawDicomName
+        originalDicomName: nameInfo.originalDicomFormat
       },
       gender: patientSex || '',
-      dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : '',
-      age: patientAge || '', // ✅ ADD THIS LINE
+      dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : ''
     });
     
     await patient.save();
-    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (Age: ${patientAge}) (Sex: ${patientSex})`);
+    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (${patientIdDicom})`);
   } else {
-    // Update existing patient
-    patient.patientNameRaw = nameInfo.rawDicomName;
-    patient.firstName = nameInfo.firstName;
-    patient.lastName = nameInfo.lastName;
-    patient.gender = patientSex || '';
-    patient.age = patientAge || ''; // ✅ ADD THIS LINE
-    
-    if (!patient.computed) patient.computed = {};
-    patient.computed.fullName = nameInfo.formattedForDisplay;
-    patient.computed.originalDicomName = nameInfo.rawDicomName; // Store raw unchanged
-    
-    await patient.save();
+    // Update existing patient if name format has improved
+    if (patient.patientNameRaw && patient.patientNameRaw.includes('^') && nameInfo.formattedForDisplay && !nameInfo.formattedForDisplay.includes('^')) {
+      console.log(`🔄 Updating patient name format from "${patient.patientNameRaw}" to "${nameInfo.formattedForDisplay}"`);
+      
+      patient.patientNameRaw = nameInfo.formattedForDisplay;
+      patient.firstName = nameInfo.firstName;
+      patient.lastName = nameInfo.lastName;
+      
+      if (!patient.computed) patient.computed = {};
+      patient.computed.fullName = nameInfo.formattedForDisplay;
+      patient.computed.originalDicomName = nameInfo.originalDicomFormat;
+      
+      await patient.save();
+    }
   }
   
   return patient;
@@ -541,8 +531,6 @@ async function processStableStudy(job) {
     job.progress = 50;
     
     // 🔧 Get metadata - try multiple approaches
-    let rawTags = {}; // ✅ Define rawTags at the function scope level
-    
     if (firstInstanceId) {
       console.log(`[StableStudy] 🔍 Getting metadata from instance: ${firstInstanceId}`);
       
@@ -554,7 +542,7 @@ async function processStableStudy(job) {
           timeout: 8000
         });
         
-        rawTags = metadataResponse.data; // ✅ Now rawTags is properly assigned
+        const rawTags = metadataResponse.data;
         
         // 🔧 FIX: Extract Value field from each tag
         tags = {};
@@ -575,27 +563,6 @@ async function processStableStudy(job) {
         tags.StudyTime = rawTags["0008,0030"]?.Value || tags.StudyTime;
         tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
-        
-        // 🔧 FIX: Extract referring physician fields with proper DICOM tag mapping
-        tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysicianName;
-        tags.ReferringPhysicianAddress = rawTags["0008,0092"]?.Value || tags.ReferringPhysicianAddress;  
-        tags.ReferringPhysicianTelephoneNumbers = rawTags["0008,0094"]?.Value || tags.ReferringPhysicianTelephoneNumbers;
-        tags.RequestingPhysician = rawTags["0032,1032"]?.Value || tags.RequestingPhysician;
-        tags.RequestingService = rawTags["0032,1033"]?.Value || tags.RequestingService;
-        tags.PerformingPhysicianName = rawTags["0008,1050"]?.Value || tags.PerformingPhysicianName;
-        tags.OperatorName = rawTags["0008,1070"]?.Value || tags.OperatorName;
-
-        tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex;
-        tags.PatientBirthDate = rawTags["0010,0030"]?.Value || tags.PatientBirthDate;
-        tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD THIS 
-
-        // 🔧 DEBUG: Log referring physician extraction
-        console.log(`[StableStudy] 👨‍⚕️ Referring Physician Debug:`, {
-          rawReferringPhysicianName: rawTags["0008,0090"]?.Value,
-          extractedReferringPhysicianName: tags.ReferringPhysicianName,
-          rawReferringPhysicianAddress: rawTags["0008,0092"]?.Value,
-          rawReferringPhysicianTelephone: rawTags["0008,0094"]?.Value
-        });
         
         console.log(`[StableStudy] ✅ Got instance metadata:`, {
           PatientName: tags.PatientName,
@@ -704,8 +671,6 @@ async function processStableStudy(job) {
     
     console.log(`[StableStudy] 📊 Final counts - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}`);
     
-    const nameInfo = processDicomPersonName(tags.PatientName); // Make sure this is defined
-
     const studyData = {
       orthancStudyID: orthancStudyId,
       studyInstanceUID: studyInstanceUID,
@@ -720,47 +685,42 @@ async function processStableStudy(job) {
       institutionName: tags.InstitutionName || '',
       workflowStatus: actualInstanceCount > 0 ? 'new_study_received' : 'new_metadata_only',
       
-      
       seriesCount: actualSeriesCount,
       instanceCount: actualInstanceCount,
       seriesImages: `${actualSeriesCount}/${actualInstanceCount}`,
       
       patientInfo: {
         patientID: patientRecord.patientID,
-        patientName: patientRecord.patientNameRaw, // This will now be the raw DICOM name
+        patientName: patientRecord.patientNameRaw,
         gender: patientRecord.gender || '',
-        dateOfBirth: tags.PatientBirthDate || '',
-        age: tags.PatientAge || '',
-        // NEW: Store both raw and formatted versions
-        rawDicomPatientName: tags.PatientName || '', // Store original DICOM name
-        formattedPatientName: nameInfo.formattedForDisplay // Store formatted version
+        dateOfBirth: tags.PatientBirthDate || ''
       },
       
-      // 🔧 FIX: Enhanced referring physician storage
-      referringPhysicianName: tags.ReferringPhysicianName || tags["0008,0090"] || '',
-      
-      // 🔧 FIX: Enhanced referring physician object
-      referringPhysician: {
-        name: tags.ReferringPhysicianName || tags["0008,0090"] || '',
-        institution: tags.ReferringPhysicianAddress || tags["0008,0092"] || tags.InstitutionName || '',
-        contactInfo: tags.ReferringPhysicianTelephoneNumbers || tags["0008,0094"] || '',
-        address: tags.ReferringPhysicianAddress || tags["0008,0092"] || ''
-      },
-      
+      referringPhysicianName: tags.ReferringPhysicianName || '',
       physicians: {
         referring: {
-          name: tags.ReferringPhysicianName || tags["0008,0090"] || '',
-          email: '', // Not typically in DICOM
-          mobile: tags.ReferringPhysicianTelephoneNumbers || tags["0008,0094"] || '',
-          institution: tags.ReferringPhysicianAddress || tags["0008,0092"] || tags.InstitutionName || ''
+          name: tags.ReferringPhysicianName || '',
+          email: '',
+          mobile: tags.ReferringPhysicianTelephoneNumbers || '',
+          institution: tags.ReferringPhysicianAddress || ''
         },
         requesting: {
-          name: tags.RequestingPhysician || tags["0032,1032"] || '',
-          email: '', // Not typically in DICOM  
-          mobile: tags.RequestingService || '',
-          institution: tags.RequestingService || tags["0032,1033"] || ''
+          name: tags.RequestingPhysician || '',
+          email: '',
+          mobile: '',
+          institution: tags.RequestingService || ''
         }
       },
+      
+      technologist: {
+        name: tags.OperatorName || tags.PerformingPhysicianName || '',
+        mobile: '',
+        comments: '',
+        reasonToSend: tags.ReasonForStudy || tags.RequestedProcedureDescription || ''
+      },
+      
+      studyPriority: tags.StudyPriorityID || 'SELECT',
+      caseType: tags.RequestPriority || 'routine',
       
       equipment: {
         manufacturer: tags.Manufacturer || '',
@@ -800,23 +760,8 @@ async function processStableStudy(job) {
           apiInstancesFound: actualInstanceCount,
           webUIShowsInstances: true,
           apiMethodUsed: actualInstanceCount > 0 ? 'series_lookup' : 'study_metadata_only',
-          customLabIdProvided: !!tags["0011,1010"],
-          customLabIdValue: tags["0011,1010"] || null,
-          // NEW: Store original DICOM name processing info
-          originalDicomPatientName: tags.PatientName || '', // Raw DICOM name
-          nameProcessingMethod: 'preserve_raw_dicom_format',
-          
-          // 🔧 NEW: Referring physician extraction debug info
-          referringPhysicianDebug: {
-            rawReferringPhysicianName: rawTags["0008,0090"]?.Value || 'NOT_FOUND',
-            rawReferringPhysicianNameTag: tags["0008,0090"] || 'NOT_FOUND',
-            rawReferringPhysicianAddress: rawTags["0008,0092"]?.Value || 'NOT_FOUND',
-            rawReferringPhysicianTelephone: rawTags["0008,0094"]?.Value || 'NOT_FOUND',
-            extractedName: tags.ReferringPhysicianName || tags["0008,0090"] || 'NOT_EXTRACTED',
-            extractedInstitution: tags.ReferringPhysicianAddress || tags["0008,0092"] || tags.InstitutionName || 'NOT_EXTRACTED',
-            extractedContact: tags.ReferringPhysicianTelephoneNumbers || tags["0008,0094"] || 'NOT_EXTRACTED',
-            finalStoredName: tags.ReferringPhysicianName || tags["0008,0090"] || ''
-          }
+          customLabIdProvided: !!tags["0011,1010"], // 🆕 ADD: Track if custom Lab ID was provided
+          customLabIdValue: tags["0011,1010"] || null
         }
       }
     };
@@ -843,6 +788,28 @@ async function processStableStudy(job) {
     
     await dicomStudyDoc.save();
     console.log(`[StableStudy] ✅ Study saved with ID: ${dicomStudyDoc._id}`);
+    
+    // 🆕 NEW: Queue ZIP creation job if study has instances
+    if (actualInstanceCount > 0) {
+        console.log(`[StableStudy] 📦 Queuing ZIP creation for study: ${orthancStudyId}`);
+        
+        try {
+            const zipJob = await zipCreationService.addZipJob({
+                orthancStudyId: orthancStudyId,
+                studyDatabaseId: dicomStudyDoc._id,
+                studyInstanceUID: studyInstanceUID,
+                instanceCount: actualInstanceCount,
+                seriesCount: actualSeriesCount
+            });
+            
+            console.log(`[StableStudy] 📦 ZIP Job ${zipJob.id} queued for study: ${orthancStudyId}`);
+        } catch (zipError) {
+            console.error(`[StableStudy] ❌ Failed to queue ZIP job:`, zipError.message);
+            // Don't fail the study processing if ZIP queueing fails
+        }
+    } else {
+        console.log(`[StableStudy] ⚠️ Skipping ZIP creation - no instances found`);
+    }
     
     job.progress = 90;
     
@@ -872,8 +839,6 @@ async function processStableStudy(job) {
     } catch (wsError) {
       console.warn(`[StableStudy] ⚠️ Notification failed:`, wsError.message);
     }
-    
-    job.progress = 100;
     
     const result = {
       success: true,
@@ -1108,6 +1073,122 @@ router.get('/job-status/:requestId', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// 🆕 NEW: Manual ZIP creation endpoint
+router.post('/create-zip/:orthancStudyId', async (req, res) => {
+    try {
+        const { orthancStudyId } = req.params;
+        
+        console.log(`[Manual ZIP] 📦 Manual ZIP creation requested for: ${orthancStudyId}`);
+        
+        // Find study in database
+        const study = await DicomStudy.findOne({ orthancStudyID: orthancStudyId });
+        
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found in database'
+            });
+        }
+        
+        // Check if ZIP is already being processed or completed
+        if (study.preProcessedDownload?.zipStatus === 'processing') {
+            return res.json({
+                success: false,
+                message: 'ZIP creation already in progress',
+                status: 'processing',
+                jobId: study.preProcessedDownload.zipJobId
+            });
+        }
+        
+        if (study.preProcessedDownload?.zipStatus === 'completed' && study.preProcessedDownload?.zipUrl) {
+            return res.json({
+                success: true,
+                message: 'ZIP already exists',
+                status: 'completed',
+                zipUrl: study.preProcessedDownload.zipUrl,
+                zipSizeMB: study.preProcessedDownload.zipSizeMB,
+                createdAt: study.preProcessedDownload.zipCreatedAt
+            });
+        }
+        
+        // Queue new ZIP creation job
+        const zipJob = await zipCreationService.addZipJob({
+            orthancStudyId: orthancStudyId,
+            studyDatabaseId: study._id,
+            studyInstanceUID: study.studyInstanceUID,
+            instanceCount: study.instanceCount || 0,
+            seriesCount: study.seriesCount || 0
+        });
+        
+        res.json({
+            success: true,
+            message: 'ZIP creation queued',
+            jobId: zipJob.id,
+            status: 'queued',
+            checkStatusUrl: `/orthanc/zip-status/${zipJob.id}`
+        });
+        
+    } catch (error) {
+        console.error('[Manual ZIP] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to queue ZIP creation',
+            error: error.message
+        });
+    }
+});
+
+// 🆕 NEW: ZIP job status endpoint
+router.get('/zip-status/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const job = zipCreationService.getJob(parseInt(jobId));
+        
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: 'ZIP job not found'
+            });
+        }
+        
+        res.json({
+            success: true,
+            jobId: job.id,
+            status: job.status,
+            progress: job.progress,
+            createdAt: job.createdAt,
+            result: job.result,
+            error: job.error
+        });
+        
+    } catch (error) {
+        console.error('[ZIP Status] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get ZIP status',
+            error: error.message
+        });
+    }
+});
+
+// 🆕 NEW: Initialize Wasabi bucket on startup
+router.get('/init-wasabi', async (req, res) => {
+    try {
+        await zipCreationService.ensureWasabiBucket();
+        res.json({
+            success: true,
+            message: 'Wasabi bucket initialized successfully'
+        });
+    } catch (error) {
+        console.error('[Wasabi Init] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to initialize Wasabi bucket',
+            error: error.message
+        });
+    }
 });
 
 export default router;

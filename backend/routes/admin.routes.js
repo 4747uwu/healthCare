@@ -21,7 +21,8 @@ import {
     getInProgressStudies,
     getCompletedStudies,
     updateStudyInteractionStatus,
-    registerAdmin
+    registerAdmin,
+    unassignDoctorFromStudy
 } from '../controllers/admin.controller.js';
 
 import {
@@ -82,7 +83,8 @@ router.get('/studies/pending', protect, authorize('admin'), getPendingStudies);
 router.get('/studies/inprogress', protect, authorize('admin'), getInProgressStudies);
 router.get('/studies/completed', protect, authorize('admin'), getCompletedStudies);
 router.post('/admins/register', protect, authorize('admin'), registerAdmin);
-
+// ✅ ADD: In admin.routes.js
+router.post('/studies/:studyId/unassign', protect, authorize('admin'), unassignDoctorFromStudy);
 
 
 // Route that allows multiple roles (admin, lab_staff, doctor_account)

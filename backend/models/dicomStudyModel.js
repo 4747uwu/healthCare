@@ -131,6 +131,35 @@ const DicomStudySchema = new mongoose.Schema({
         }
     }],
 
+    preProcessedDownload: {
+    zipUrl: { type: String, sparse: true },
+    zipFileName: { type: String },
+    zipSizeMB: { type: Number },
+    zipCreatedAt: { type: Date },
+    zipBucket: { type: String, default: 'medical-dicom-zips' },
+    zipStatus: {
+        type: String,
+        enum: ['pending', 'processing', 'completed', 'failed', 'expired'],
+        default: 'pending',
+        index: { background: true }
+    },
+    zipJobId: { type: String },
+    zipExpiresAt: { type: Date },
+    zipMetadata: {
+        orthancStudyId: String,
+        instanceCount: Number,
+        seriesCount: Number,
+        compressionRatio: Number,
+        processingTimeMs: Number,
+        createdBy: String,
+        error: String
+    },
+    downloadCount: { type: Number, default: 0 },
+    lastDownloaded: { type: Date }
+},
+
+
+
     studyPriority: {
         type: String,
         enum: ['SELECT', 'Emergency Case', 'Meet referral doctor', 'MLC Case', 'Study Exception'],
@@ -489,6 +518,15 @@ DicomStudySchema.index({
     background: true 
 });
 
+// Add ZIP management index
+DicomStudySchema.index({ 
+    'preProcessedDownload.zipStatus': 1, 
+    'preProcessedDownload.zipExpiresAt': 1 
+}, { 
+    name: 'zip_management_index',
+    background: true 
+});
+    
 // 🔥 PATIENT HISTORY: Patient timeline
 DicomStudySchema.index({ 
     patient: 1, 
