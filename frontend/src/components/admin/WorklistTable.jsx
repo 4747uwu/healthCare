@@ -33,6 +33,7 @@ import {
 import api from '../../services/api'
 import sessionManager from '../../services/sessionManager';
 
+// ✅ ADD: Wasabi download function inside your WorklistTable component
 const handleWasabiDownload = async (study) => {
     try {
         const loadingToast = toast.loading('Getting Wasabi download URL...');
@@ -42,25 +43,44 @@ const handleWasabiDownload = async (study) => {
         toast.dismiss(loadingToast);
         
         if (response.data.success) {
-            const { downloadUrl, fileName } = response.data.data;
+            const { downloadUrl, fileName, fileSizeMB } = response.data.data;
             
-            // Create download link
+            console.log('✅ Wasabi download URL received:', fileName);
+            
+            // ✅ DIRECT BROWSER DOWNLOAD: Create download link for direct browser download
             const link = document.createElement('a');
             link.href = downloadUrl;
             link.download = fileName;
             link.target = '_blank';
+            link.style.display = 'none';
+            
+            // Add to DOM, click, and remove immediately
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             
-            toast.success(`✅ Downloading ${fileName} from Wasabi`);
+            // Show success message
+            toast.success(`🌊 Download started: ${fileName} (${fileSizeMB}MB)`, {
+                duration: 4000,
+                icon: '⚡'
+            });
+            
         } else {
+            console.error('Wasabi download failed:', response.data.message);
             toast.error(response.data.message || 'Wasabi download failed');
         }
     } catch (error) {
         toast.dismiss();
         console.error('Wasabi download error:', error);
-        toast.error('Failed to get Wasabi download URL');
+        
+        // ✅ HANDLE SPECIFIC ERROR CASES
+        if (error.response?.status === 404 && error.response?.data?.status === 'file_missing') {
+            toast.error('ZIP file not found in storage. You can recreate it using direct download.');
+        } else if (error.response?.status === 410) {
+            toast.error('ZIP file has expired. Creating a new one...');
+        } else {
+            toast.error('Failed to get Wasabi download URL');
+        }
     }
 };
 
@@ -68,6 +88,11 @@ const DownloadDropdown = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
   const hasWasabiZip = study.downloadOptions?.hasWasabiZip;
+  
+  console.log('🌊 Wasabi ZIP available:', hasWasabiZip, 'for study:', study.orthancStudyID);
+
+
+  
 
   const handleLaunchRadiantViewer = useCallback(async () => {
     try {
@@ -170,6 +195,7 @@ const DownloadDropdown = ({ study }) => {
           <div className="absolute right-0 mt-1 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-20">
             <div className="py-1">
               
+              {/* ✅ EXISTING: Radiant Viewer */}
               <button
                 onClick={handleLaunchRadiantViewer}
                 className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
@@ -180,11 +206,12 @@ const DownloadDropdown = ({ study }) => {
                 Radiant Viewer
               </button>
               
-              {/* ✅ MOVE: Wasabi button inside dropdown */}
+              {/* ✅ NEW: Wasabi download button - ONLY show if hasWasabiZip is true */}
               {hasWasabiZip && (
                 <button
                   onClick={() => handleWasabiDownload(study)}
                   className="flex items-center w-full px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
+                  title="Download pre-processed ZIP from Wasabi cloud storage"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -192,11 +219,12 @@ const DownloadDropdown = ({ study }) => {
                   </svg>
                   🌊 Download from Wasabi
                   <span className="ml-auto text-xs text-gray-500">
-                    {study.downloadOptions.wasabiSizeMB}MB
+                    {study.downloadOptions?.wasabiSizeMB || 0}MB
                   </span>
                 </button>
               )}
               
+              {/* ✅ EXISTING: Direct download */}
               <button 
                 onClick={handleDownloadStudy} 
                 className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
@@ -204,10 +232,10 @@ const DownloadDropdown = ({ study }) => {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Download ZIP (Direct)
+                Download ZIP (Direct from Orthanc)
               </button>
               
-              {/* ✅ ADD: Show status if no Wasabi ZIP */}
+              {/* ✅ SHOW STATUS: If no Wasabi ZIP available */}
               {!hasWasabiZip && (
                 <div className="px-3 py-2 text-xs text-gray-500 italic border-t">
                   {study.downloadOptions?.zipStatus === 'processing' ? (
