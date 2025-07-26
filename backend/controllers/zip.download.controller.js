@@ -261,22 +261,61 @@ export const downloadFromWasabi = async (req, res) => {
         
         console.log(`✅ Generating Wasabi presigned URL for: ${zipInfo.zipFileName}`);
         
-        // ✅ GENERATE PRESIGNED URL: Extract key from existing URL or create it
+        // ✅ FIX: Extract key from existing URL and use correct bucket
         let wasabiKey;
+        let bucketName = 'studyzip'; // ✅ Use the correct bucket name
         
         if (zipInfo.zipUrl.includes('wasabisys.com')) {
             // Extract key from existing Wasabi URL
             const urlParts = new URL(zipInfo.zipUrl);
             wasabiKey = urlParts.pathname.substring(1); // Remove leading slash
+            
+            // ✅ FIX: Extract bucket from URL if it's different
+            const pathParts = urlParts.hostname.split('.');
+            if (pathParts[0] !== 's3') {
+                bucketName = pathParts[0]; // Use bucket from subdomain
+            } else {
+                // For s3.region.wasabisys.com URLs, bucket is in path
+                bucketName = urlParts.pathname.split('/')[1];
+                wasabiKey = urlParts.pathname.substring(bucketName.length + 2); // Remove /bucket/
+            }
         } else {
             // Fallback: construct key from filename
             const year = new Date(zipInfo.zipCreatedAt).getFullYear();
             wasabiKey = `studies/${year}/${zipInfo.zipFileName}`;
         }
         
+        console.log(`🔍 Using bucket: ${bucketName}, key: ${wasabiKey}`);
+        
+        // ✅ CHECK: Verify file exists before generating presigned URL
+        try {
+            const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+            await wasabiS3.send(new HeadObjectCommand({
+                Bucket: bucketName, // ✅ Use extracted bucket name
+                Key: wasabiKey
+            }));
+            console.log(`✅ File confirmed to exist in Wasabi: ${bucketName}/${wasabiKey}`);
+        } catch (headError) {
+            console.error(`❌ File not found in Wasabi: ${bucketName}/${wasabiKey}`, headError.message);
+            
+            return res.status(404).json({
+                success: false,
+                message: 'ZIP file not found in Wasabi storage',
+                status: 'file_missing',
+                debug: {
+                    bucket: bucketName,
+                    key: wasabiKey,
+                    originalUrl: zipInfo.zipUrl
+                }
+            });
+        }
+        
         // Generate presigned URL (valid for 1 hour)
+        const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+        const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+        
         const getObjectCommand = new GetObjectCommand({
-            Bucket: 'studyzip', // Use your bucket name
+            Bucket: bucketName, // ✅ Use correct bucket
             Key: wasabiKey
         });
         
@@ -289,9 +328,6 @@ export const downloadFromWasabi = async (req, res) => {
             $inc: { 'preProcessedDownload.downloadCount': 1 },
             'preProcessedDownload.lastDownloaded': new Date()
         });
-        
-        // Update workflow status
-        await updateWorkflowStatusForDownload(study, req.user);
         
         // Return presigned URL for frontend to use
         res.json({

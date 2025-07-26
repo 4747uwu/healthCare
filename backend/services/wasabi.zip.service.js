@@ -23,7 +23,7 @@ class ZipCreationService {
         this.nextJobId = 1;
         this.isProcessing = false;
         this.concurrency = 3;
-        this.zipBucket = 'studyzip' || 'medical-dicom-zips';
+        this.zipBucket = 'studyzip';
     }
 
     // Add ZIP creation job to queue
