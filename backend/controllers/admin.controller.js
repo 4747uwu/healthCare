@@ -318,7 +318,8 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     caseType: 1,
                     patient: 1,
                     sourceLab: 1,
-                    patientId: 1
+                    patientId: 1,
+                    preProcessedDownload: 1
                 }
             }
         ];
