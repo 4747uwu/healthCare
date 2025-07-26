@@ -293,13 +293,12 @@ export const downloadFromWasabi = async (req, res) => {
             ResponseCacheControl: 'public, max-age=3600'
         });
         
-        // ✅ LONGER URL VALIDITY: Generate presigned URL with longer expiry
         const presignedUrl = await getSignedUrl(wasabiS3, getObjectCommand, {
-            expiresIn: 24 * 60 * 60, // ✅ 24 HOURS instead of 1 hour
+            expiresIn: 3600, // 1 hour
             signatureVersion: 'v4'
         });
         
-        console.log(`✅ Presigned URL generated in ${Date.now() - urlStart}ms (valid for 24 hours)`);
+        console.log(`✅ Presigned URL generated in ${Date.now() - urlStart}ms`);
         
         // ✅ ASYNC: Update download stats without waiting
         setImmediate(async () => {
@@ -325,15 +324,13 @@ export const downloadFromWasabi = async (req, res) => {
         
         res.json({
             success: true,
-            message: 'Download URL ready (24hr validity)',
+            message: 'Download URL ready',
             data: {
                 downloadUrl: presignedUrl,
                 fileName: zipInfo.zipFileName,
                 fileSizeMB: zipInfo.zipSizeMB,
                 downloadMethod: 'wasabi-direct',
-                responseTime: totalTime,
-                urlExpiresIn: 24 * 60 * 60, // ✅ 24 hours in seconds
-                urlExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+                responseTime: totalTime
             }
         });
         
