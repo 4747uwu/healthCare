@@ -195,6 +195,7 @@ const DownloadDropdown = ({ study }) => {
           <div className="absolute right-0 mt-1 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-20">
             <div className="py-1">
               
+              {/* ✅ EXISTING: Radiant Viewer */}
               <button
                 onClick={handleLaunchRadiantViewer}
                 className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
@@ -205,11 +206,12 @@ const DownloadDropdown = ({ study }) => {
                 Radiant Viewer
               </button>
               
-              {/* ✅ MOVE: Wasabi button inside dropdown */}
+              {/* ✅ NEW: Wasabi download button - ONLY show if hasWasabiZip is true */}
               {hasWasabiZip && (
                 <button
                   onClick={() => handleWasabiDownload(study)}
                   className="flex items-center w-full px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
+                  title="Download pre-processed ZIP from Wasabi cloud storage"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -217,11 +219,12 @@ const DownloadDropdown = ({ study }) => {
                   </svg>
                   🌊 Download from Wasabi
                   <span className="ml-auto text-xs text-gray-500">
-                    {study.downloadOptions.wasabiSizeMB}MB
+                    {study.downloadOptions?.wasabiSizeMB || 0}MB
                   </span>
                 </button>
               )}
               
+              {/* ✅ EXISTING: Direct download */}
               <button 
                 onClick={handleDownloadStudy} 
                 className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
@@ -229,10 +232,10 @@ const DownloadDropdown = ({ study }) => {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Download ZIP (Direct)
+                Download ZIP (Direct from Orthanc)
               </button>
               
-              {/* ✅ ADD: Show status if no Wasabi ZIP */}
+              {/* ✅ SHOW STATUS: If no Wasabi ZIP available */}
               {!hasWasabiZip && (
                 <div className="px-3 py-2 text-xs text-gray-500 italic border-t">
                   {study.downloadOptions?.zipStatus === 'processing' ? (
