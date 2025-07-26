@@ -33,53 +33,106 @@ import {
 import api from '../../services/api'
 import sessionManager from '../../services/sessionManager';
 
-// ✅ ADD: Wasabi download function inside your WorklistTable component
 const handleWasabiDownload = async (study) => {
     try {
+        const startTime = Date.now();
         const loadingToast = toast.loading('Getting Wasabi download URL...');
         
         const response = await api.get(`/download/study/${study.orthancStudyID}/wasabi-direct`);
         
+        const apiTime = Date.now() - startTime;
+        console.log(`🔍 API request took: ${apiTime}ms`);
+        
         toast.dismiss(loadingToast);
         
         if (response.data.success) {
-            const { downloadUrl, fileName, fileSizeMB } = response.data.data;
+            const { 
+                downloadUrl, 
+                fileName, 
+                fileSizeMB, 
+                responseTime,
+                urlExpiresAt,
+                urlExpiresIn 
+            } = response.data.data;
             
-            console.log('✅ Wasabi download URL received:', fileName);
+            console.log(`✅ Backend processing: ${responseTime}ms, Total: ${apiTime}ms`);
+            console.log(`🕒 Download URL valid until: ${new Date(urlExpiresAt).toLocaleString()}`);
             
-            // ✅ DIRECT BROWSER DOWNLOAD: Create download link for direct browser download
+            // ✅ SPEED: Check if file is large and offer options
+            if (fileSizeMB > 100) {
+                const downloadChoice = await new Promise((resolve) => {
+                    const choice = confirm(
+                        `Large file detected (${fileSizeMB}MB).\n\n` +
+                        `Click OK for direct download, or Cancel to copy URL for external download manager.`
+                    );
+                    resolve(choice);
+                });
+                
+                if (!downloadChoice) {
+                    // Copy URL to clipboard for external download manager
+                    try {
+                        await navigator.clipboard.writeText(downloadUrl);
+                        toast.success(`📋 Download URL copied to clipboard!\n\nValid for ${Math.round(urlExpiresIn / 3600)} hours`, {
+                            duration: 8000,
+                            icon: '🔗'
+                        });
+                        return;
+                    } catch (clipboardError) {
+                        // Fallback: show URL in a prompt
+                        prompt(
+                            `Copy this URL for your download manager (valid for ${Math.round(urlExpiresIn / 3600)} hours):`, 
+                            downloadUrl
+                        );
+                        return;
+                    }
+                }
+            }
+            
+            // ✅ SPEED: Direct browser download with optimizations
+            const downloadStart = Date.now();
+            
             const link = document.createElement('a');
             link.href = downloadUrl;
             link.download = fileName;
             link.target = '_blank';
             link.style.display = 'none';
             
-            // Add to DOM, click, and remove immediately
+            // ✅ SPEED: Add download hints for browser optimization
+            link.setAttribute('crossorigin', 'anonymous');
+            link.setAttribute('referrerpolicy', 'no-referrer');
+            
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             
-            // Show success message
-            toast.success(`🌊 Download started: ${fileName} (${fileSizeMB}MB)`, {
-                duration: 4000,
-                icon: '⚡'
-            });
+            const downloadInitTime = Date.now() - downloadStart;
+            console.log(`🚀 Download initiated in: ${downloadInitTime}ms`);
+            
+            // ✅ SHOW DETAILED SUCCESS MESSAGE
+            toast.success(
+                `🌊 Download started: ${fileName}\n` +
+                `📁 Size: ${fileSizeMB}MB\n` +
+                `⏱️ URL valid for: ${Math.round(urlExpiresIn / 3600)} hours`, 
+                {
+                    duration: 6000,
+                    icon: '⚡'
+                }
+            );
             
         } else {
             console.error('Wasabi download failed:', response.data.message);
-            toast.error(response.data.message || 'Wasabi download failed');
+            toast.error(response.data.message || 'Download failed');
         }
     } catch (error) {
         toast.dismiss();
         console.error('Wasabi download error:', error);
         
-        // ✅ HANDLE SPECIFIC ERROR CASES
         if (error.response?.status === 404 && error.response?.data?.status === 'file_missing') {
             toast.error('ZIP file not found in storage. You can recreate it using direct download.');
         } else if (error.response?.status === 410) {
             toast.error('ZIP file has expired. Creating a new one...');
         } else {
-            toast.error('Failed to get Wasabi download URL');
+            toast.error('Failed to get download URL');
         }
     }
 };
