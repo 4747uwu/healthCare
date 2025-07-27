@@ -24,7 +24,7 @@ import OwnerDashboard from './pages/owner/OwnerDashboard';
 import LabBillingDetails from './pages/LabBillingDetails';
 import InvoiceManagement from './pages/owner/InvoiceManagement';
 import InvoiceDetail from './pages/owner/InvoiceDetail';
-import OwnerManagement from './pages/admin/OwnerManagement';
+import OwnerManagement from './pages/OwnerManagement';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { currentUser, loading } = useAuth();
