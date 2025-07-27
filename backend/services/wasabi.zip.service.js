@@ -158,7 +158,7 @@ class CloudflareR2ZipService {
             const zipSizeMB = Math.round((r2Result.size || 0) / 1024 / 1024 * 100) / 100;
             
             // Generate CDN-optimized URLs
-            const cdnUrl = getCDNOptimizedUrl(r2Result.key, {
+            const cdnUrl = await getCDNOptimizedUrl(r2Result.key, {
                 filename: zipFileName,
                 contentType: 'application/zip',
                 cacheControl: true

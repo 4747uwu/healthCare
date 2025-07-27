@@ -1,7 +1,7 @@
 import DicomStudy from '../models/dicomStudyModel.js';
 import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
 import cloudflareR2ZipService from '../services/wasabi.zip.service.js';
-import { r2Config, getCDNOptimizedUrl, getR2PublicUrl, getPresignedUrl } from '../config/cloudflare-r2.js';
+import { r2Config, getCDNOptimizedUrl, getPresignedUrl } from '../config/cloudflare-r2.js';
 
 // Smart download - uses R2 with CDN if available
 export const downloadPreProcessedStudy = async (req, res) => {
@@ -248,7 +248,6 @@ export const downloadFromR2 = async (req, res) => {
         const { orthancStudyId } = req.params;
         
         console.log(`🌐 R2 download requested for: ${orthancStudyId}`);
-        const requestStart = Date.now();
         
         const study = await DicomStudy.findOne(
             { orthancStudyID: orthancStudyId },
@@ -263,8 +262,9 @@ export const downloadFromR2 = async (req, res) => {
         }
         
         const zipInfo = study.preProcessedDownload;
+        const zipKey = zipInfo?.zipKey || zipInfo?.zipMetadata?.r2Key;
         
-        if (!zipInfo || zipInfo.zipStatus !== 'completed' || !zipInfo.zipKey) {
+        if (!zipInfo || zipInfo.zipStatus !== 'completed' || !zipKey) {
             return res.status(404).json({
                 success: false,
                 message: 'Pre-processed ZIP not available in Cloudflare R2',
@@ -272,9 +272,9 @@ export const downloadFromR2 = async (req, res) => {
             });
         }
         
-        console.log(`✅ R2 ZIP available: ${zipInfo.zipFileName} (${zipInfo.zipSizeMB}MB)`);
+        console.log(`✅ R2 ZIP available: ${zipInfo.zipFileName}`);
         
-        // ✅ SMART: Generate URL based on configuration with 30-day expiry
+        // ✅ ALWAYS GENERATE FRESH URL: This means users can download even after 7 days!
         let downloadUrl;
         let downloadMethod;
         let urlExpires = false;
@@ -282,17 +282,17 @@ export const downloadFromR2 = async (req, res) => {
         let expiryDate = null;
         
         if (r2Config.features.enablePresignedUrls) {
-            // ✅ Use presigned URLs with 30-day expiry (recommended for medical data)
-            const expirySeconds = r2Config.presignedSettings.defaultExpirySeconds; // 30 days
-            downloadUrl = await getPresignedUrl(zipInfo.zipKey, expirySeconds);
-            downloadMethod = 'cloudflare-r2-presigned-30day';
+            // ✅ Generate fresh 7-day presigned URL every time
+            const expirySeconds = r2Config.presignedSettings.defaultExpirySeconds; // 7 days
+            downloadUrl = await getPresignedUrl(zipKey, expirySeconds);
+            downloadMethod = 'cloudflare-r2-presigned-7day';
             urlExpires = true;
-            expiresIn = '30 days';
+            expiresIn = '7 days';
             expiryDate = new Date(Date.now() + (expirySeconds * 1000));
-            console.log(`🔐 Generated 30-day presigned URL (expires: ${expiryDate.toISOString()})`);
+            console.log(`🔐 Generated FRESH 7-day presigned URL (expires: ${expiryDate.toISOString()})`);
         } else {
-            // Use public URLs (faster but less secure)
-            downloadUrl = `${r2Config.publicUrlPattern}/${zipInfo.zipKey}`;
+            // Use public URLs
+            downloadUrl = `${r2Config.publicUrlPattern}/${zipKey}`;
             downloadMethod = 'cloudflare-r2-public';
             urlExpires = false;
             console.log(`🌍 Generated public URL`);
@@ -310,44 +310,28 @@ export const downloadFromR2 = async (req, res) => {
             }
         });
         
-        const totalTime = Date.now() - requestStart;
-        
-        res.set({
-            'X-Download-Method': downloadMethod,
-            'X-Storage-Provider': 'cloudflare-r2',
-            'X-URL-Type': r2Config.features.enablePresignedUrls ? 'presigned-30day' : 'public',
-            'X-URL-Expires': urlExpires ? expiryDate.toISOString() : 'never',
-            'X-Response-Time': `${totalTime}ms`,
-            'Cache-Control': 'no-cache'
-        });
-        
         res.json({
             success: true,
-            message: `Cloudflare R2 ${r2Config.features.enablePresignedUrls ? '30-day presigned' : 'public'} download URL ready`,
+            message: `Cloudflare R2 fresh ${r2Config.features.enablePresignedUrls ? '7-day presigned' : 'public'} download URL ready`,
             data: {
                 downloadUrl: downloadUrl,
                 fileName: zipInfo.zipFileName,
                 fileSizeMB: zipInfo.zipSizeMB || 0,
                 downloadMethod: downloadMethod,
-                responseTime: totalTime,
                 
-                // Security info
-                storageProvider: 'cloudflare-r2',
-                urlType: r2Config.features.enablePresignedUrls ? 'presigned-30day' : 'public',
-                securityLevel: r2Config.features.enablePresignedUrls ? 'high' : 'medium',
+                // ✅ REGENERATION INFO
+                urlType: r2Config.features.enablePresignedUrls ? 'presigned-7day-fresh' : 'public',
                 urlExpires: urlExpires,
                 expiresIn: expiresIn,
                 expiryDate: expiryDate,
+                canRegenerateUrl: true, // ✅ Always true!
+                regenerationNote: 'Fresh URL generated on each request',
                 
                 // Performance info
+                storageProvider: 'cloudflare-r2',
                 cdnEnabled: true,
                 bucketName: 'studyzip',
-                expectedSpeed: 'Fast with Cloudflare R2',
-                
-                // Medical data compliance
-                hipaaCompliant: r2Config.features.enablePresignedUrls,
-                accessControlled: r2Config.features.enablePresignedUrls,
-                auditTrail: true
+                expectedSpeed: 'Fast with Cloudflare R2'
             }
         });
         

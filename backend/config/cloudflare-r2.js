@@ -22,18 +22,17 @@ export const r2Config = {
         enableCaching: true
     },
     
-    // ✅ NEW: Presigned URL settings
+    // ✅ FIXED: Maximum 7 days for presigned URLs
     presignedSettings: {
-        defaultExpirySeconds: 2592000, // ✅ 30 days = 30 * 24 * 60 * 60 = 2,592,000 seconds
-        maxExpirySeconds: 2592000,     // Max allowed by R2
-        minExpirySeconds: 3600,        // Minimum 1 hour
-        useExtendedExpiry: true        // Flag to indicate we're using extended expiry
+        defaultExpirySeconds: 604800, // ✅ 7 days = 7 * 24 * 60 * 60 = 604,800 seconds (MAX)
+        maxExpirySeconds: 604800,     // ✅ 7 days is the absolute maximum for S3/R2
+        minExpirySeconds: 3600,       // Minimum 1 hour
+        useExtendedExpiry: true
     },
     
     features: {
-        // ✅ CHOICE: You can switch between public and presigned
-        enablePublicAccess: false, // Set to false for presigned URLs
-        enablePresignedUrls: true, // Set to true for presigned URLs
+        enablePublicAccess: false,
+        enablePresignedUrls: true,
         enableCustomDomain: !!process.env.R2_CUSTOM_DOMAIN,
         enableAnalytics: true,
         enableCDN: true
@@ -61,11 +60,11 @@ export const r2Client = new S3Client({
     signatureVersion: 'v4'
 });
 
-// ✅ UPDATED: Presigned URL function with 30-day default expiry
+// ✅ ENHANCED: Presigned URL function with 7-day default expiry
 export const getPresignedUrl = async (key, expiresIn = null) => {
     try {
-        // ✅ Use 30 days as default if not specified
-        const expiry = expiresIn || r2Config.presignedSettings.defaultExpirySeconds;
+        // ✅ Use 7 days as default if not specified
+        let expiry = expiresIn || r2Config.presignedSettings.defaultExpirySeconds;
         
         // ✅ Validate expiry limits
         const maxExpiry = r2Config.presignedSettings.maxExpirySeconds;
@@ -92,7 +91,7 @@ export const getPresignedUrl = async (key, expiresIn = null) => {
         
         // ✅ Enhanced logging with human-readable time
         const expiryDate = new Date(Date.now() + (expiry * 1000));
-        const humanExpiry = expiry === 2592000 ? '30 days' : 
+        const humanExpiry = expiry === 604800 ? '7 days' : 
                            expiry === 86400 ? '1 day' : 
                            expiry === 3600 ? '1 hour' : 
                            `${Math.round(expiry / 86400)} days`;
@@ -107,15 +106,25 @@ export const getPresignedUrl = async (key, expiresIn = null) => {
     }
 };
 
-// ✅ UPDATED: Smart URL function with 30-day default
+// ✅ FIXED: Helper function to get public URL for R2 object (EXPORTED)
+export const getR2PublicUrl = (key, useCustomDomain = false) => {
+    if (useCustomDomain && r2Config.customDomain) {
+        return `https://${r2Config.customDomain}/${key}`;
+    }
+    
+    // ✅ Use your actual public URL pattern
+    return `${r2Config.publicUrlPattern}/${key}`;
+};
+
+// ✅ UPDATED: Smart URL function with 7-day default
 export const getCDNOptimizedUrl = async (key, options = {}) => {
     if (r2Config.features.enablePresignedUrls) {
-        // ✅ Use 30 days as default for presigned URLs
+        // ✅ Use 7 days as default for presigned URLs
         const expiresIn = options.expiresIn || r2Config.presignedSettings.defaultExpirySeconds;
         return await getPresignedUrl(key, expiresIn);
     } else if (r2Config.features.enablePublicAccess) {
         // Use public URLs (faster, but less secure)
-        return `${r2Config.publicUrlPattern}/${key}`;
+        return getR2PublicUrl(key, r2Config.features.enableCustomDomain);
     } else {
         throw new Error('Neither presigned URLs nor public access is enabled');
     }
@@ -127,22 +136,13 @@ export const getExpiryOptions = () => {
         '1hour': 3600,
         '1day': 86400,
         '7days': 604800,
-        '30days': 2592000,
         'default': r2Config.presignedSettings.defaultExpirySeconds
     };
-};
-
-// Legacy function for backward compatibility
-export const getR2PublicUrl = (key, useCustomDomain = false) => {
-    if (useCustomDomain && r2Config.customDomain) {
-        return `https://${r2Config.customDomain}/${key}`;
-    }
-    return `${r2Config.publicUrlPattern}/${key}`;
 };
 
 console.log('🔧 Cloudflare R2 configuration loaded');
 console.log(`📦 Bucket: ${r2Config.zipBucket}`);
 console.log(`🌐 Public URL: ${r2Config.publicUrlPattern}`);
 console.log(`🔐 Presigned URLs: ${r2Config.features.enablePresignedUrls ? 'ENABLED' : 'DISABLED'}`);
-console.log(`⏰ Default Expiry: ${r2Config.presignedSettings.defaultExpirySeconds}s (30 days)`);
+console.log(`⏰ Default Expiry: ${r2Config.presignedSettings.defaultExpirySeconds}s (7 days MAX)`);
 console.log(`🌍 Public Access: ${r2Config.features.enablePublicAccess ? 'ENABLED' : 'DISABLED'}`);
