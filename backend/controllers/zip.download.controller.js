@@ -29,14 +29,22 @@ export const downloadPreProcessedStudy = async (req, res) => {
             if (!zipInfo.zipExpiresAt || zipInfo.zipExpiresAt > now) {
                 console.log(`✅ Using R2 pre-processed ZIP: ${zipInfo.zipFileName} (${zipInfo.zipSizeMB}MB)`);
                 
+                // Update workflow status - MOVE THIS BEFORE THE REDIRECT
+                console.log(`🔄 About to update workflow status for user:`, {
+                    role: req.user.role,
+                    email: req.user.email,
+                    fullName: req.user.fullName
+                });
+                
+                await updateWorkflowStatusForDownload(study, req.user);
+                
                 // Update download stats
                 await DicomStudy.findByIdAndUpdate(study._id, {
                     $inc: { 'preProcessedDownload.downloadCount': 1 },
                     'preProcessedDownload.lastDownloaded': new Date()
                 });
                 
-                // Update workflow status
-                await updateWorkflowStatusForDownload(study, req.user);
+                console.log(`✅ Updated download stats and workflow status for study: ${study._id}`);
                 
                 // Set appropriate headers for download
                 res.setHeader('Content-Disposition', `attachment; filename="${zipInfo.zipFileName}"`);
@@ -356,17 +364,23 @@ export const downloadFromR2 = async (req, res) => {
             console.log(`🌍 Generated public URL: ${downloadUrl}`);
         }
         
-        // ✅ UPDATE DATABASE: Save the zipKey for future use
+        // ✅ UPDATE DATABASE: Save the zipKey AND update workflow status
         setImmediate(async () => {
             try {
+                // Update download stats and save zipKey
                 await DicomStudy.findByIdAndUpdate(study._id, {
                     $inc: { 'preProcessedDownload.downloadCount': 1 },
                     'preProcessedDownload.lastDownloaded': new Date(),
                     'preProcessedDownload.zipKey': zipKey // ✅ Save the key for next time
                 });
-                console.log('✅ Download stats updated and zipKey saved');
+                
+                // ✅ CRITICAL: Update workflow status for R2 downloads too
+                console.log(`🔄 Updating workflow status for R2 download by ${req.user.role}: ${req.user.fullName || req.user.email}`);
+                await updateWorkflowStatusForDownload(study, req.user);
+                
+                console.log('✅ Download stats updated, zipKey saved, and workflow status updated');
             } catch (updateError) {
-                console.warn('⚠️ Failed to update download stats:', updateError.message);
+                console.warn('⚠️ Failed to update download stats or workflow status:', updateError.message);
             }
         });
         
@@ -414,25 +428,48 @@ async function updateWorkflowStatusForDownload(study, user) {
         let newStatus;
         let statusNote;
         
+        console.log(`🔄 Updating workflow status for download by ${user.role}: ${user.fullName || user.email}`);
+        console.log(`📊 Current study status: ${study.workflowStatus}`);
+        
+        // ✅ ENHANCED: More comprehensive role-based status updates
         if (user.role === 'doctor_account') {
             newStatus = 'report_downloaded_radiologist';
             statusNote = `Pre-processed study downloaded by radiologist from Cloudflare R2: ${user.fullName || user.email}`;
-        } else if (user.role === 'lab_staff' || user.role === 'admin') {
+        } else if (user.role === 'lab_staff') {
             newStatus = 'report_downloaded';
-            statusNote = `Pre-processed study downloaded by ${user.role} from Cloudflare R2: ${user.fullName || user.email}`;
+            statusNote = `Pre-processed study downloaded by lab staff from Cloudflare R2: ${user.fullName || user.email}`;
+        } else if (user.role === 'admin') {
+            newStatus = 'report_downloaded';
+            statusNote = `Pre-processed study downloaded by admin from Cloudflare R2: ${user.fullName || user.email}`;
         }
         
+        // ✅ CRITICAL: Always update status if we have a newStatus
         if (newStatus) {
-            await updateWorkflowStatus({
+            console.log(`✅ Updating status from '${study.workflowStatus}' to '${newStatus}'`);
+            
+            const result = await updateWorkflowStatus({
                 studyId: study._id,
                 status: newStatus,
                 note: statusNote,
                 user: user
             });
             
-            console.log(`✅ Workflow status updated to ${newStatus} (R2)`);
+            console.log(`✅ Workflow status updated successfully:`, result);
+            return result;
+        } else {
+            console.log(`⚠️ No status update needed for role: ${user.role}`);
+            return null;
         }
     } catch (error) {
-        console.error('⚠️ Error updating workflow status:', error);
+        console.error('❌ Error updating workflow status for download:', error);
+        console.error('❌ Error details:', {
+            studyId: study._id,
+            userRole: user.role,
+            currentStatus: study.workflowStatus,
+            error: error.message,
+            stack: error.stack
+        });
+        // Don't throw error - let download continue even if status update fails
+        return null;
     }
 }
