@@ -25,115 +25,134 @@ export const getOwnerDashboard = async (req, res) => {
             ];
         }
         
-        // Get labs with aggregated study statistics
-        const labsAggregation = await Lab.aggregate([
-            { $match: { isActive: true, ...searchQuery } },
-            {
-                $lookup: {
-                    from: 'dicomstudies',
-                    localField: '_id',
-                    foreignField: 'sourceLab',
-                    as: 'studies'
-                }
-            },
-            {
-                $addFields: {
-                    totalStudies: { $size: '$studies' },
-                    thisMonthStudies: {
-                        $size: {
-                            $filter: {
-                                input: '$studies',
-                                cond: {
-                                    $gte: ['$$this.createdAt', new Date(new Date().getFullYear(), new Date().getMonth(), 1)]
+        // ✅ PARALLEL: Execute all queries including modalities
+        const [labsAggregationResult, totalLabsResult, overallStatsResult, modalitiesResult] = await Promise.allSettled([
+            // Existing labs aggregation
+            Lab.aggregate([
+                { $match: { isActive: true, ...searchQuery } },
+                {
+                    $lookup: {
+                        from: 'dicomstudies',
+                        localField: '_id',
+                        foreignField: 'sourceLab',
+                        as: 'studies'
+                    }
+                },
+                {
+                    $addFields: {
+                        totalStudies: { $size: '$studies' },
+                        thisMonthStudies: {
+                            $size: {
+                                $filter: {
+                                    input: '$studies',
+                                    cond: {
+                                        $gte: ['$$this.createdAt', new Date(new Date().getFullYear(), new Date().getMonth(), 1)]
+                                    }
+                                }
+                            }
+                        },
+                        lastMonthStudies: {
+                            $size: {
+                                $filter: {
+                                    input: '$studies',
+                                    cond: {
+                                        $and: [
+                                            { $gte: ['$$this.createdAt', new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)] },
+                                            { $lt: ['$$this.createdAt', new Date(new Date().getFullYear(), new Date().getMonth(), 1)] }
+                                        ]
+                                    }
                                 }
                             }
                         }
-                    },
-                    lastMonthStudies: {
-                        $size: {
-                            $filter: {
-                                input: '$studies',
-                                cond: {
-                                    $and: [
-                                        { $gte: ['$$this.createdAt', new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)] },
-                                        { $lt: ['$$this.createdAt', new Date(new Date().getFullYear(), new Date().getMonth(), 1)] }
+                    }
+                },
+                {
+                    $project: {
+                        name: 1,
+                        identifier: 1,
+                        contactPerson: 1,
+                        contactEmail: 1,
+                        contactPhone: 1,
+                        address: 1,
+                        isActive: 1,
+                        createdAt: 1,
+                        totalStudies: 1,
+                        thisMonthStudies: 1,
+                        lastMonthStudies: 1,
+                        growthRate: {
+                            $cond: {
+                                if: { $gt: ['$lastMonthStudies', 0] },
+                                then: {
+                                    $multiply: [
+                                        { $divide: [
+                                            { $subtract: ['$thisMonthStudies', '$lastMonthStudies'] },
+                                            '$lastMonthStudies'
+                                        ]},
+                                        100
                                     ]
-                                }
+                                },
+                                else: 0
                             }
                         }
                     }
-                }
-            },
-            {
-                $project: {
-                    name: 1,
-                    identifier: 1,
-                    contactPerson: 1,
-                    contactEmail: 1,
-                    contactPhone: 1,
-                    address: 1,
-                    isActive: 1,
-                    createdAt: 1,
-                    totalStudies: 1,
-                    thisMonthStudies: 1,
-                    lastMonthStudies: 1,
-                    growthRate: {
-                        $cond: {
-                            if: { $gt: ['$lastMonthStudies', 0] },
-                            then: {
-                                $multiply: [
-                                    { $divide: [
-                                        { $subtract: ['$thisMonthStudies', '$lastMonthStudies'] },
-                                        '$lastMonthStudies'
-                                    ]},
-                                    100
+                },
+                { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } },
+                { $skip: (page - 1) * limit },
+                { $limit: parseInt(limit) }
+            ]),
+            
+            // Total labs count
+            Lab.countDocuments({ isActive: true, ...searchQuery }),
+            
+            // Overall statistics
+            DicomStudy.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        totalStudies: { $sum: 1 },
+                        thisMonthStudies: {
+                            $sum: {
+                                $cond: [
+                                    { $gte: ['$createdAt', new Date(new Date().getFullYear(), new Date().getMonth(), 1)] },
+                                    1,
+                                    0
                                 ]
-                            },
-                            else: 0
-                        }
+                            }
+                        },
+                        totalRevenue: { $sum: '$billing.amount' },
+                        uniqueLabs: { $addToSet: '$sourceLab' }
+                    }
+                },
+                {
+                    $addFields: {
+                        uniqueLabsCount: { $size: '$uniqueLabs' }
                     }
                 }
-            },
-            { $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 } },
-            { $skip: (page - 1) * limit },
-            { $limit: parseInt(limit) }
+            ]),
+            
+            // ✅ NEW: Get distinct modalities from DicomStudy
+            DicomStudy.distinct('modality')
         ]);
-        
-        // Get total count for pagination
-        const totalLabs = await Lab.countDocuments({ isActive: true, ...searchQuery });
-        
-        // Get overall statistics
-        const overallStats = await DicomStudy.aggregate([
-            {
-                $group: {
-                    _id: null,
-                    totalStudies: { $sum: 1 },
-                    thisMonthStudies: {
-                        $sum: {
-                            $cond: [
-                                { $gte: ['$createdAt', new Date(new Date().getFullYear(), new Date().getMonth(), 1)] },
-                                1,
-                                0
-                            ]
-                        }
-                    },
-                    totalRevenue: { $sum: '$billing.amount' },
-                    uniqueLabs: { $addToSet: '$sourceLab' }
-                }
-            },
-            {
-                $addFields: {
-                    uniqueLabsCount: { $size: '$uniqueLabs' }
-                }
-            }
-        ]);
-        
-        const stats = overallStats[0] || {
+
+        // Handle results
+        const labsAggregation = labsAggregationResult.status === 'fulfilled' ? labsAggregationResult.value : [];
+        const totalLabs = totalLabsResult.status === 'fulfilled' ? totalLabsResult.value : 0;
+        const overallStatsArray = overallStatsResult.status === 'fulfilled' ? overallStatsResult.value : [];
+        const modalities = modalitiesResult.status === 'fulfilled' ? modalitiesResult.value : [];
+
+        const stats = overallStatsArray[0] || {
             totalStudies: 0,
             thisMonthStudies: 0,
             totalRevenue: 0,
             uniqueLabsCount: 0
         };
+        
+        // ✅ FILTER: Remove null/undefined modalities and sort them
+        const cleanModalities = modalities
+            .filter(modality => modality && modality.trim())
+            .sort();
+
+        console.log(`✅ Owner Dashboard: Found ${cleanModalities.length} distinct modalities`);
         
         res.json({
             success: true,
@@ -150,7 +169,9 @@ export const getOwnerDashboard = async (req, res) => {
                     totalStudies: stats.totalStudies,
                     thisMonthStudies: stats.thisMonthStudies,
                     totalRevenue: stats.totalRevenue || 0
-                }
+                },
+                // ✅ NEW: Include modalities in response
+                modalities: cleanModalities
             }
         });
         
