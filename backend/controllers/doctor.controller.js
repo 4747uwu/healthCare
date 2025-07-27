@@ -368,13 +368,13 @@ export const getAssignedStudies = async (req, res) => {
                 patientDisplay = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
                 patientIdDisplay = patient.patientID || 'N/A';
                 
-                if (patient.ageString && patient.gender) {
-                    ageGenderDisplay = `${patient.ageString} / ${patient.gender}`;
-                } else if (patient.ageString) {
-                    ageGenderDisplay = patient.ageString;
-                } else if (patient.gender) {
-                    ageGenderDisplay = patient.gender;
-                }
+                // if (patient.ageString && patient.gender) {
+                //     ageGenderDisplay = `${patient.ageString} / ${patient.gender}`;
+                // } else if (patient.ageString) {
+                //     ageGenderDisplay = patient.ageString;
+                // } else if (patient.gender) {
+                //     ageGenderDisplay = patient.gender;
+                // }
             }
 
             const tat = study.calculatedTAT || calculateStudyTAT(study);
@@ -1242,11 +1242,8 @@ export const getPendingStudies = async (req, res) => {
                 patientName = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
                 patientId = patient.patientID || 'N/A';
                 
-                if (patient.ageString && patient.gender) {
-                    ageGender = `${patient.ageString} / ${patient.gender}`;
-                } else if (patient.ageString || patient.gender) {
-                    ageGender = patient.ageString || patient.gender;
-                }
+                
+            
             }
 
             // Optimized date formatting
@@ -1619,9 +1616,9 @@ export const getInProgressStudies = async (req, res) => {
             if (patient) {
                 patientDisplay = patient.computed?.fullName || patient.patientNameRaw || "N/A";
                 patientIdForDisplay = patient.patientID || "N/A";
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` : (agePart || genderPart || "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` : (agePart || genderPart || "N/A");
             }
             
             return {
