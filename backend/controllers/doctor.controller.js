@@ -3,7 +3,7 @@ import Patient from '../models/patientModel.js';
 import Doctor from '../models/doctorModel.js';
 import NodeCache from 'node-cache';
 import mongoose from 'mongoose'
-import { calculateSimpleTAT} from '../utils/TATutility.js';
+import { calculateStudyTAT, getLegacyTATFields } from '../utils/TATutility.js';
 
 const cache = new NodeCache({ stdTTL: 300 });
 
@@ -221,10 +221,11 @@ export const getAssignedStudies = async (req, res) => {
                     _id: 1,
                     studyInstanceUID: 1,
                     orthancStudyID: 1,
+                                        modalitiesInStudy: 1,
+
                     accessionNumber: 1,
                     workflowStatus: 1,
                     currentCategory: 1,
-                    modalitiesInStudy: 1,
                     modality: 1,
                     examDescription: 1,
                     studyDescription: 1,
@@ -245,7 +246,7 @@ export const getAssignedStudies = async (req, res) => {
                 }
             },
 
-              { 
+                { 
         $lookup: { 
             from: 'labs', 
             localField: 'sourceLab', 
@@ -259,7 +260,6 @@ export const getAssignedStudies = async (req, res) => {
             }] 
         } 
     },
-    
             
             // Lookup patient data with optimized projection
             { 
@@ -367,7 +367,7 @@ export const getAssignedStudies = async (req, res) => {
                 }
             }
 
-            const tat = study.calculatedTAT || calculateSimpleTAT(study);
+            const tat = study.calculatedTAT || calculateStudyTAT(study);
 
             return {
                 _id: study._id,
@@ -381,7 +381,7 @@ export const getAssignedStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A', // ✅ FIXED: Use actual lab name
+                location: 'N/A', // Note: sourceLab lookup removed for performance - add back if needed
                 // studyDate: study.studyDate,
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -1051,7 +1051,8 @@ export const getPendingStudies = async (req, res) => {
                     studyInstanceUID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
-                    modalitiesInStudy: 1,
+                                        modalitiesInStudy: 1,
+
                     modality: 1,
                     examDescription: 1,
                     studyDescription: 1,
@@ -1238,7 +1239,7 @@ export const getPendingStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
+                location: 'N/A', 
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
                 : study.studyDate 
@@ -1451,7 +1452,7 @@ export const getInProgressStudies = async (req, res) => {
             {
                 $project: {
                     _id: 1, orthancStudyID: 1, studyInstanceUID: 1, accessionNumber: 1,
-                    workflowStatus: 1, modality: 1, examDescription: 1, studyDescription: 1,
+                    workflowStatus: 1,modalitiesInStudy: 1, modality: 1, examDescription: 1, studyDescription: 1,
                     seriesCount: 1, instanceCount: 1, seriesImages: 1, studyDate: 1,
                     studyTime: 1, createdAt: 1, caseType: 1, 'assignment.priority': 1,
                     doctorReports: 1, ReportAvailable: 1, 
@@ -1586,7 +1587,7 @@ export const getInProgressStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
+                location: 'N/A', 
                 studyDateTime: study.studyDate && study.studyTime
                     ? formatDicomDateTime(study.studyDate, study.studyTime)
                     : study.studyDate
@@ -1721,51 +1722,79 @@ export const getCompletedStudies = async (req, res) => {
         let filterEndDate = null;
         const now = new Date();
 if (quickDatePreset) {
-switch (quickDatePreset) {
-case '24h':
-case 'last24h':
-// Rolling 24-hour window from the current moment.
-filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-filterEndDate = now;
-break;
-
-case 'today':
-case 'assignedToday':
-// Precisely the start and end of the current calendar day.
-const today = new Date();
-filterStartDate = new Date(today.setHours(0, 0, 0, 0));
-filterEndDate = new Date(today.setHours(23, 59, 59, 999));
-break;
-
-case 'yesterday':
-// Precisely the start and end of yesterday's calendar day.
-const yesterday = new Date();
-yesterday.setDate(yesterday.getDate() - 1); // Go back one day
-filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
-filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
-break;
-
-case 'week':
-case 'thisWeek':
-// Rolling 7-day window from the current moment.
-filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-filterEndDate = now;
-break;
-
-case 'month':
-case 'thisMonth':
-// Rolling 30-day window from the current moment.
-filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-filterEndDate = now;
-break;
-
-case 'custom':
-// Custom range, interpreted as UTC to avoid timezone issues.
-filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
-filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
-break;
+    switch (quickDatePreset) {
+        case '24h':
+        case 'last24h':
+            filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+            filterEndDate = now;
+            break;
+        case 'today':
+        case 'assignedToday':
+            const today = new Date();
+            filterStartDate = new Date(today.setHours(0, 0, 0, 0));
+            filterEndDate = new Date(today.setHours(23, 59, 59, 999));
+            break;
+        case 'yesterday':
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
+            filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
+            break;
+        case 'week':
+        case 'thisWeek':
+            filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+            filterEndDate = now;
+            break;
+        case 'month':
+        case 'thisMonth':
+            filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+            filterEndDate = now;
+            break;
+        case 'custom':
+            filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+            filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
+            break;
+    }
+} else {
+    // 🔧 FIX: Default to today when no date filter specified (SAME as admin)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    filterStartDate = todayStart;
+    filterEndDate = new Date(todayStart.getTime() + 86399999);
 }
+
+if (filterStartDate || filterEndDate) {
+    const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
+    queryFilters[dateField] = {};
+    if (filterStartDate) queryFilters[dateField].$gte = filterStartDate;
+    if (filterEndDate) queryFilters[dateField].$lte = filterEndDate;
 }
+
+// 🔧 FIX: Build the core query with date filtering (SAME as getValues)
+let baseQuery;
+if (filterStartDate && filterEndDate) {
+    console.log(`📅 DOCTOR COMPLETED: Applying ASSIGNMENT DATE filter from ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+    baseQuery = {
+        $or: [
+            { lastAssignedDoctor: { $elemMatch: { doctorId: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } },
+            { assignment: { $elemMatch: { assignedTo: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } }
+        ]
+    };
+} else {
+    baseQuery = {
+        $or: [
+            { 'lastAssignedDoctor.doctorId': doctor._id },
+            { 'assignment.assignedTo': doctor._id }
+        ]
+    };
+}
+
+// 🔧 FIX: Combine base query with status filter
+queryFilters = { 
+    ...baseQuery,
+    workflowStatus: { $in: DOCTOR_STATUS_CATEGORIES.completed }
+};
+
 
 
         // 🔧 STEP 3: Optimized other filters with better type handling
@@ -1816,9 +1845,9 @@ break;
                     studyInstanceUID: 1,
                     accessionNumber: 1,
                     examDescription: 1,
+                    modalitiesInStudy: 1,
                     studyDescription: 1,
                     modality: 1,
-                    modalitiesInStudy: 1,
                     seriesImages: 1,
                     seriesCount: 1,
                     instanceCount: 1,
@@ -2007,10 +2036,10 @@ break;
                 patientName: patientName,
                 ageGender: ageGender,
                 description: study.examDescription || study.studyDescription || 'N/A',
-               modality: study.modalitiesInStudy?.length > 0 ? 
+                modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
+                location: 'N/A', 
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
                 : study.studyDate 
