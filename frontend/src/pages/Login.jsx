@@ -47,6 +47,9 @@ const LoginPage = () => {
         case 'doctor_account':
           navigate('/doctor/dashboard');
           break;
+        case 'owner':
+          navigate('/owner/dashboard');
+          break;
         default:
           navigate('/');
       }
