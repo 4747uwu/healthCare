@@ -129,7 +129,7 @@ const DownloadDropdown = ({ study }) => {
  const hasR2Zip = study.downloadOptions?.hasWasabiZip || 
                    study.downloadOptions?.hasR2Zip || 
                    study.preProcessedDownload?.zipStatus === 'completed';  
-  console.log('🌊 Wasabi ZIP available:', hasWasabiZip, 'for study:', study.orthancStudyID);
+  console.log('🌊 Wasabi ZIP available:', hasR2Zip, 'for study:', study.orthancStudyID);
   console.log('🌐 R2 ZIP available:', hasR2Zip, 'for study:', study.orthancStudyID);
 
   const handleLaunchRadiantViewer = useCallback(async () => {
