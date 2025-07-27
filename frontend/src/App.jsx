@@ -20,6 +20,11 @@ import { WebSocketProvider } from './contexts/webSocketContext';
 import ShareStudy from './pages/ShareStudy';
 import LabsManagement from './pages/LabsManagement'; // 🆕 NEW
 import DoctorsManagement from './pages/DoctorsManagement'; // 🆕 NEW
+import OwnerDashboard from './pages/owner/OwnerDashboard';
+import LabBillingDetails from './pages/LabBillingDetails';
+import InvoiceManagement from './pages/owner/InvoiceManagement';
+import InvoiceDetail from './pages/owner/InvoiceDetail';
+import OwnerManagement from './pages/admin/OwnerManagement';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { currentUser, loading } = useAuth();
@@ -49,6 +54,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     const redirectPath = currentUser.role === 'admin' ? '/admin/dashboard' : 
                           currentUser.role === 'lab_staff' ? '/lab/dashboard' : 
                           currentUser.role === 'doctor_account' ? '/doctor/dashboard' : 
+                          currentUser.role === 'owner' ? '/owner/dashboard' :
                           '/login';
     return <Navigate to={redirectPath} replace />;
   }
@@ -60,7 +66,6 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-
         <div className="min-h-screen bg-gray-50">
           <Routes>
             <Route path="/" element={<Navigate to="/login" replace />} />
@@ -76,6 +81,17 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            
+            {/* ✅ ADD: Owner Management Route */}
+            <Route 
+              path="/admin/owners" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <OwnerManagement />
+                </ProtectedRoute>
+              } 
+            />
+            
             <Route 
               path="/admin/new-lab" 
               element={
@@ -92,7 +108,6 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-
             <Route 
               path="/admin/new-admin" 
               element={
@@ -101,7 +116,6 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-
             <Route 
               path="/admin/doctors" 
               element={
@@ -110,8 +124,6 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-
-            {/* 🆕 NEW: Labs Management Route */}
             <Route 
               path="/admin/labs" 
               element={
@@ -130,6 +142,48 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+
+            {/* ✅ FIXED: Owner Routes with Protection */}
+            <Route 
+              path="/owner/dashboard" 
+              element={
+                <ProtectedRoute allowedRoles={['owner']}>
+                  <OwnerDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/owner/labs/:labId/billing" 
+              element={
+                <ProtectedRoute allowedRoles={['owner']}>
+                  <LabBillingDetails />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/owner/labs/:labId/details" 
+              element={
+                <ProtectedRoute allowedRoles={['owner']}>
+                  <LabBillingDetails />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/owner/invoices" 
+              element={
+                <ProtectedRoute allowedRoles={['owner']}>
+                  <InvoiceManagement />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/owner/invoices/:invoiceId" 
+              element={
+                <ProtectedRoute allowedRoles={['owner']}>
+                  <InvoiceDetail />
+                </ProtectedRoute>
+              } 
+            />
             
             {/* Doctor Routes */}
             <Route 
@@ -144,19 +198,11 @@ function App() {
             <Route 
               path="/change-password" 
               element={
-                <ProtectedRoute allowedRoles={['admin', 'lab_staff', 'doctor_account']}>
+                <ProtectedRoute allowedRoles={['admin', 'lab_staff', 'doctor_account', 'owner']}>
                   <ChangePasswordPage />
                 </ProtectedRoute>
               } 
             />
-            {/* <Route 
-              path="/admin/doctors" 
-              element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <ManageDoctorsPage />
-                </ProtectedRoute>
-              } 
-            /> */}
 
             <Route 
               path="/reports/tat" 

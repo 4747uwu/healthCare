@@ -71,20 +71,31 @@ export const protect = async (req, res, next) => {
     }
 };
 
+// ✅ UPDATE: Add owner role authorization
 export const authorize = (...roles) => {
     return (req, res, next) => {
         if (!req.user) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Not authorized, user not found' 
+            return res.status(401).json({
+                success: false,
+                message: 'Not authorized to access this route'
             });
         }
 
         if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ 
-                success: false, 
-                message: `Access denied. Required roles: ${roles.join(', ')}` 
+            return res.status(403).json({
+                success: false,
+                message: `User role '${req.user.role}' is not authorized to access this route`
             });
+        }
+
+        // ✅ OWNER CHECK: Additional checks for owner role
+        if (req.user.role === 'owner') {
+            if (!req.user.ownerPermissions?.canViewAllLabs) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Owner permissions not properly configured'
+                });
+            }
         }
 
         next();

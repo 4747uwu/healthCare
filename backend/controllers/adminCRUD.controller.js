@@ -5,6 +5,7 @@ import Lab from '../models/labModel.js';
 import DicomStudy from '../models/dicomStudyModel.js';
 import sharp from 'sharp';
 import multer from 'multer';
+import bcrypt from 'bcryptjs';
 
 const storage = multer.memoryStorage();
 
@@ -789,4 +790,387 @@ export const deleteLabForAdmin = async (req, res) => {
     } finally {
         await session.endSession();
     }
+};
+
+// 🆕 GET ALL OWNERS
+export const getAllOwnersForAdmin = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const search = req.query.search || '';
+        const status = req.query.status; // 'active', 'inactive', or undefined for all
+        
+        const skip = (page - 1) * limit;
+        
+        // Build query for owners
+        const query = { role: 'owner' };
+        
+        if (search) {
+            query.$or = [
+                { fullName: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } },
+                { username: { $regex: search, $options: 'i' } }
+            ];
+        }
+        
+        if (status) {
+            query.isActive = status === 'active';
+        }
+        
+        // Get owners
+        const owners = await User.find(query)
+            .select('-password -resetPasswordOTP -resetPasswordOTPExpires -resetPasswordAttempts -resetPasswordLockedUntil')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean();
+        
+        // Get total count
+        const totalOwners = await User.countDocuments(query);
+        
+        // Get statistics
+        const stats = await User.aggregate([
+            { $match: { role: 'owner' } },
+            {
+                $group: {
+                    _id: null,
+                    total: { $sum: 1 },
+                    active: { $sum: { $cond: ['$isActive', 1, 0] } },
+                    inactive: { $sum: { $cond: ['$isActive', 0, 1] } }
+                }
+            }
+        ]);
+        
+        res.status(200).json({
+            success: true,
+            data: owners,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(totalOwners / limit),
+                totalRecords: totalOwners,
+                limit,
+                hasNextPage: page < Math.ceil(totalOwners / limit),
+                hasPrevPage: page > 1
+            },
+            stats: stats[0] || { total: 0, active: 0, inactive: 0 }
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching owners:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch owners',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// 🆕 GET SINGLE OWNER
+export const getOwnerForAdmin = async (req, res) => {
+    try {
+        const { ownerId } = req.params;
+        
+        const owner = await User.findById(ownerId)
+            .select('-password -resetPasswordOTP -resetPasswordOTPExpires -resetPasswordAttempts -resetPasswordLockedUntil')
+            .lean();
+        
+        if (!owner || owner.role !== 'owner') {
+            return res.status(404).json({
+                success: false,
+                message: 'Owner not found'
+            });
+        }
+        
+        // Get owner's activity statistics (invoices generated, etc.)
+        const activityStats = await mongoose.connection.db.collection('billinginvoices').aggregate([
+            {
+                $match: {
+                    generatedBy: new mongoose.Types.ObjectId(ownerId)
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalInvoicesGenerated: { $sum: 1 },
+                    totalAmountGenerated: { $sum: '$breakdown.totalAmount' },
+                    lastInvoiceDate: { $max: '$generatedAt' }
+                }
+            }
+        ]).toArray();
+        
+        const stats = activityStats[0] || { 
+            totalInvoicesGenerated: 0, 
+            totalAmountGenerated: 0, 
+            lastInvoiceDate: null 
+        };
+        
+        res.status(200).json({
+            success: true,
+            data: {
+                ...owner,
+                activityStats: stats
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Error fetching owner:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch owner details',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// 🆕 CREATE OWNER
+export const createOwnerForAdmin = async (req, res) => {
+    try {
+        const {
+            username,
+            email,
+            password,
+            fullName,
+            isActive = true,
+            ownerPermissions = {
+                canViewAllLabs: true,
+                canManageBilling: true,
+                canSetPricing: true,
+                canGenerateReports: true
+            }
+        } = req.body;
+        
+        // Validation
+        if (!username || !email || !password || !fullName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Username, email, password, and full name are required'
+            });
+        }
+        
+        // Check if username or email already exists
+        const existingUser = await User.findOne({
+            $or: [
+                { username: username.toLowerCase() },
+                { email: email.toLowerCase() }
+            ]
+        });
+        
+        if (existingUser) {
+            return res.status(400).json({
+                success: false,
+                message: existingUser.username === username.toLowerCase() 
+                    ? 'Username already exists' 
+                    : 'Email already exists'
+            });
+        }
+        
+        // Create owner account
+        const newOwner = new User({
+            username: username.toLowerCase(),
+            email: email.toLowerCase(),
+            password,
+            fullName,
+            role: 'owner',
+            isActive: isActive === 'true' || isActive === true,
+            ownerPermissions
+        });
+        
+        await newOwner.save();
+        
+        // Remove password from response
+        const ownerResponse = newOwner.toObject();
+        delete ownerResponse.password;
+        delete ownerResponse.resetPasswordOTP;
+        delete ownerResponse.resetPasswordOTPExpires;
+        delete ownerResponse.resetPasswordAttempts;
+        delete ownerResponse.resetPasswordLockedUntil;
+        
+        console.log('✅ Owner account created successfully:', newOwner.email);
+        
+        res.status(201).json({
+            success: true,
+            message: 'Owner account created successfully',
+            data: ownerResponse
+        });
+        
+    } catch (error) {
+        console.error('❌ Error creating owner:', error);
+        
+        if (error.code === 11000) {
+            const field = Object.keys(error.keyPattern)[0];
+            return res.status(400).json({
+                success: false,
+                message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to create owner account',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// 🆕 UPDATE OWNER
+export const updateOwnerForAdmin = async (req, res) => {
+    try {
+        const { ownerId } = req.params;
+        const {
+            username,
+            email,
+            fullName,
+            isActive,
+            ownerPermissions,
+            newPassword
+        } = req.body;
+        
+        const owner = await User.findById(ownerId);
+        
+        if (!owner || owner.role !== 'owner') {
+            return res.status(404).json({
+                success: false,
+                message: 'Owner not found'
+            });
+        }
+        
+        // Build update object
+        const updateData = {};
+        
+        if (username) {
+            // Check if username is already taken by another user
+            const existingUser = await User.findOne({
+                username: username.toLowerCase(),
+                _id: { $ne: ownerId }
+            });
+            
+            if (existingUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Username already exists'
+                });
+            }
+            
+            updateData.username = username.toLowerCase();
+        }
+        
+        if (email) {
+            // Check if email is already taken by another user
+            const existingUser = await User.findOne({
+                email: email.toLowerCase(),
+                _id: { $ne: ownerId }
+            });
+            
+            if (existingUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Email already exists'
+                });
+            }
+            
+            updateData.email = email.toLowerCase();
+        }
+        
+        if (fullName) updateData.fullName = fullName;
+        if (isActive !== undefined) updateData.isActive = isActive === 'true' || isActive === true;
+        if (ownerPermissions) updateData.ownerPermissions = ownerPermissions;
+        
+        // Handle password update
+        if (newPassword && newPassword.trim() !== '') {
+            if (newPassword.length < 6) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Password must be at least 6 characters long'
+                });
+            }
+            
+            const salt = await bcrypt.genSalt(parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10);
+            updateData.password = await bcrypt.hash(newPassword, salt);
+        }
+        
+        const updatedOwner = await User.findByIdAndUpdate(
+            ownerId,
+            updateData,
+            { new: true, runValidators: true }
+        ).select('-password -resetPasswordOTP -resetPasswordOTPExpires -resetPasswordAttempts -resetPasswordLockedUntil');
+        
+        console.log('✅ Owner updated successfully:', updatedOwner.email);
+        
+        res.status(200).json({
+            success: true,
+            message: 'Owner updated successfully',
+            data: updatedOwner
+        });
+        
+    } catch (error) {
+        console.error('❌ Error updating owner:', error);
+        
+        if (error.code === 11000) {
+            const field = Object.keys(error.keyPattern)[0];
+            return res.status(400).json({
+                success: false,
+                message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to update owner',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// 🆕 DELETE OWNER
+export const deleteOwnerForAdmin = async (req, res) => {
+    try {
+        const { ownerId } = req.params;
+        
+        const owner = await User.findById(ownerId);
+        
+        if (!owner || owner.role !== 'owner') {
+            return res.status(404).json({
+                success: false,
+                message: 'Owner not found'
+            });
+        }
+        
+        // Check if this is the last owner account
+        const ownerCount = await User.countDocuments({ role: 'owner', isActive: true });
+        
+        if (ownerCount <= 1) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot delete the last active owner account. At least one owner must remain.'
+            });
+        }
+        
+        // Delete owner account
+        await User.findByIdAndDelete(ownerId);
+        
+        console.log('✅ Owner deleted successfully:', owner.email);
+        
+        res.status(200).json({
+            success: true,
+            message: 'Owner deleted successfully'
+        });
+        
+    } catch (error) {
+        console.error('❌ Error deleting owner:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to delete owner',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// ✅ UPDATE the default export to include new owner functions:
+export default {
+    // ... existing functions ...
+    getAllOwnersForAdmin,
+    getOwnerForAdmin,
+    createOwnerForAdmin,
+    updateOwnerForAdmin,
+    deleteOwnerForAdmin
 };

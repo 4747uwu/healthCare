@@ -34,7 +34,12 @@ import {
     getLabForAdmin,
     updateLabForAdmin,
     deleteLabForAdmin,
-    uploadDoctorSignature as uploadSignature
+    uploadDoctorSignature as uploadSignature,
+    getAllOwnersForAdmin,  // ✅ ADD
+    getOwnerForAdmin,      // ✅ ADD
+    createOwnerForAdmin,   // ✅ ADD
+    updateOwnerForAdmin,   // ✅ ADD
+    deleteOwnerForAdmin  
 } from '../controllers/adminCRUD.controller.js';
 
 import { protect, authorize } from '../middleware/authMiddleware.js';
@@ -96,8 +101,13 @@ router.patch('/doctors/:doctorId/toggle-status', toggleDoctorStatus);
 router.post('/doctors/:doctorId/send-email', sendDoctorEmail);
 router.get('/doctors/:doctorId/stats', getDoctorStats);
 router.post('/doctors/:doctorId/reset-password', resetDoctorPassword)
+router.get('/owners', getAllOwnersForAdmin);
+router.get('/owners/:ownerId', getOwnerForAdmin);
+router.post('/owners', createOwnerForAdmin);
+router.put('/owners/:ownerId', updateOwnerForAdmin);
+router.delete('/owners/:ownerId', deleteOwnerForAdmin);
 
-/ router.post('/doctors/register-with-signature', 
+ router.post('/doctors/register-with-signature', 
         protect, 
         authorize('admin'), 
         uploadDoctorSignature,

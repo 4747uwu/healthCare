@@ -34,7 +34,7 @@ const UserSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['lab_staff', 'admin', 'doctor_account'],
+        enum: ['lab_staff', 'admin', 'doctor_account', 'owner'], // ✅ ADD: owner role
         required: [true, 'User role is required'],
     },
     isLoggedIn: {
@@ -72,7 +72,13 @@ const UserSchema = new mongoose.Schema({
     resetPasswordLockedUntil: {
         type: Date,
         select: false
-    }
+    },
+    ownerPermissions: {
+        canViewAllLabs: { type: Boolean, default: false },
+        canManageBilling: { type: Boolean, default: false },
+        canSetPricing: { type: Boolean, default: false },
+        canGenerateReports: { type: Boolean, default: false }
+    },
 }, { timestamps: true });
 
 UserSchema.pre('save', async function (next) {
@@ -87,6 +93,17 @@ UserSchema.pre('save', async function (next) {
 UserSchema.methods.comparePassword = async function (enteredPassword) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
+UserSchema.pre('save', function(next) {
+    if (this.role === 'owner') {
+        this.ownerPermissions = {
+            canViewAllLabs: true,
+            canManageBilling: true,
+            canSetPricing: true,
+            canGenerateReports: true
+        };
+    }
+    next();
+});
 
 const User = mongoose.model('User', UserSchema);
 export default User; 
