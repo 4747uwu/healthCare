@@ -25,7 +25,7 @@ export const getOwnerDashboard = async (req, res) => {
             ];
         }
         
-        // ✅ PARALLEL: Execute all queries including modalities
+        // ✅ PARALLEL: Execute all queries including modalities with correct handling
         const [labsAggregationResult, totalLabsResult, overallStatsResult, modalitiesResult] = await Promise.allSettled([
             // Existing labs aggregation
             Lab.aggregate([
@@ -130,15 +130,35 @@ export const getOwnerDashboard = async (req, res) => {
                 }
             ]),
             
-            // ✅ NEW: Get distinct modalities from DicomStudy
-            DicomStudy.distinct('modality')
+            // ✅ FIXED: Get distinct modalities with proper handling
+            DicomStudy.aggregate([
+                {
+                    $addFields: {
+                        effectiveModality: {
+                            $cond: {
+                                if: { $and: [{ $ne: ["$modalitiesInStudy", null] }, { $gt: [{ $size: "$modalitiesInStudy" }, 0] }] },
+                                then: { $arrayElemAt: ["$modalitiesInStudy", 0] },
+                                else: { $ifNull: ["$modality", "Unknown"] }
+                            }
+                        }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$effectiveModality"
+                    }
+                },
+                {
+                    $sort: { _id: 1 }
+                }
+            ])
         ]);
 
         // Handle results
         const labsAggregation = labsAggregationResult.status === 'fulfilled' ? labsAggregationResult.value : [];
         const totalLabs = totalLabsResult.status === 'fulfilled' ? totalLabsResult.value : 0;
         const overallStatsArray = overallStatsResult.status === 'fulfilled' ? overallStatsResult.value : [];
-        const modalities = modalitiesResult.status === 'fulfilled' ? modalitiesResult.value : [];
+        const modalitiesAggResult = modalitiesResult.status === 'fulfilled' ? modalitiesResult.value : [];
 
         const stats = overallStatsArray[0] || {
             totalStudies: 0,
@@ -147,12 +167,13 @@ export const getOwnerDashboard = async (req, res) => {
             uniqueLabsCount: 0
         };
         
-        // ✅ FILTER: Remove null/undefined modalities and sort them
-        const cleanModalities = modalities
-            .filter(modality => modality && modality.trim())
+        // ✅ FILTER: Extract modalities from aggregation result
+        const modalities = modalitiesAggResult
+            .map(item => item._id)
+            .filter(modality => modality && modality.trim() && modality !== 'Unknown')
             .sort();
 
-        console.log(`✅ Owner Dashboard: Found ${cleanModalities.length} distinct modalities`);
+        console.log(`✅ Owner Dashboard: Found ${modalities.length} distinct modalities:`, modalities);
         
         res.json({
             success: true,
@@ -171,7 +192,7 @@ export const getOwnerDashboard = async (req, res) => {
                     totalRevenue: stats.totalRevenue || 0
                 },
                 // ✅ NEW: Include modalities in response
-                modalities: cleanModalities
+                modalities: modalities
             }
         });
         
@@ -206,7 +227,7 @@ export const getLabDetails = async (req, res) => {
             });
         }
         
-        // Get studies for the period with modality breakdown
+        // ✅ FIXED: Get studies with proper modality handling like in admin controller
         const studiesAggregation = await DicomStudy.aggregate([
             {
                 $match: {
@@ -215,15 +236,28 @@ export const getLabDetails = async (req, res) => {
                 }
             },
             {
+                $addFields: {
+                    // ✅ FIX: Use the same modality logic as admin controller
+                    effectiveModality: {
+                        $cond: {
+                            if: { $and: [{ $ne: ["$modalitiesInStudy", null] }, { $gt: [{ $size: "$modalitiesInStudy" }, 0] }] },
+                            then: { $arrayElemAt: ["$modalitiesInStudy", 0] }, // Take first modality from array
+                            else: { $ifNull: ["$modality", "N/A"] } // Fallback to single modality or N/A
+                        }
+                    }
+                }
+            },
+            {
                 $group: {
-                    _id: '$modality',
+                    _id: "$effectiveModality", // ✅ FIXED: Group by effectiveModality instead of $modality
                     count: { $sum: 1 },
                     studies: { $push: {
                         _id: '$_id',
                         studyInstanceUID: '$studyInstanceUID',
                         patientName: '$patientInfo.patientName',
                         studyDate: '$studyDate',
-                        createdAt: '$createdAt'
+                        createdAt: '$createdAt',
+                        modality: "$effectiveModality" // ✅ ADD: Include the effective modality
                     }}
                 }
             },
@@ -232,19 +266,25 @@ export const getLabDetails = async (req, res) => {
             }
         ]);
         
+        console.log(`📊 Found ${studiesAggregation.length} modality groups:`, 
+            studiesAggregation.map(g => `${g._id}: ${g.count} studies`).join(', '));
+        
         // Calculate total studies
         const totalStudies = studiesAggregation.reduce((sum, modality) => sum + modality.count, 0);
         
         // Get current billing configuration
         const billingConfig = await BillingConfig.findOne({ isActive: true });
         
-        // Calculate billing amount for each modality
+        // ✅ FIXED: Calculate billing amount for each modality with correct modality names
         const modalityBilling = studiesAggregation.map(modalityData => {
+            const modalityName = modalityData._id || 'Unknown';
             const pricePerStudy = billingConfig ? 
-                billingConfig.getPriceForStudy(modalityData._id, labId) : 100;
+                billingConfig.getPriceForStudy(modalityName, labId) : 100;
+            
+            console.log(`💰 Pricing for ${modalityName}: ₹${pricePerStudy} per study`);
             
             return {
-                modality: modalityData._id,
+                modality: modalityName, // ✅ FIXED: Use correct modality name
                 studyCount: modalityData.count,
                 pricePerStudy: pricePerStudy,
                 subtotal: modalityData.count * pricePerStudy,
@@ -257,6 +297,8 @@ export const getLabDetails = async (req, res) => {
         const taxRate = billingConfig?.defaultSettings?.taxRate || 18;
         const taxAmount = subtotal * (taxRate / 100);
         const totalAmount = subtotal + taxAmount;
+        
+        console.log(`✅ Lab ${lab.name} billing summary: ${totalStudies} studies, ₹${totalAmount.toFixed(2)} total`);
         
         res.json({
             success: true,
@@ -424,7 +466,7 @@ export const generateInvoice = async (req, res) => {
             });
         }
         
-        // Get studies for the period
+        // ✅ FIXED: Get studies with proper modality handling
         const studies = await DicomStudy.find({
             sourceLab: labId,
             createdAt: { $gte: periodStart, $lte: periodEnd }
@@ -437,36 +479,45 @@ export const generateInvoice = async (req, res) => {
             });
         }
         
-        // Calculate billing for each study
+        // ✅ FIXED: Calculate billing for each study with correct modality
         const studiesBilled = studies.map(study => {
-            const pricePerStudy = billingConfig.getPriceForStudy(study.modality, labId);
+            // ✅ FIX: Use the same modality logic as admin controller
+            const effectiveModality = study.modalitiesInStudy?.length > 0 ? 
+                study.modalitiesInStudy.join(', ') : (study.modality || 'N/A');
+            
+            const pricePerStudy = billingConfig.getPriceForStudy(effectiveModality, labId);
+            
+            console.log(`📋 Study ${study.studyInstanceUID}: ${effectiveModality} - ₹${pricePerStudy}`);
             
             return {
                 study: study._id,
                 studyInstanceUID: study.studyInstanceUID,
                 patientName: study.patientInfo?.patientName || study.patient?.patientNameRaw || 'Unknown',
                 studyDate: study.studyDate,
-                modality: study.modality,
+                modality: effectiveModality, // ✅ FIXED: Use effective modality
                 pricePerStudy: pricePerStudy,
                 discountApplied: 0,
                 finalPrice: pricePerStudy
             };
         });
         
-        // Create modality breakdown
+        // ✅ FIXED: Create modality breakdown with correct modalities
         const modalityBreakdown = {};
         studiesBilled.forEach(study => {
-            if (!modalityBreakdown[study.modality]) {
-                modalityBreakdown[study.modality] = {
-                    modality: study.modality,
+            const modalityKey = study.modality;
+            if (!modalityBreakdown[modalityKey]) {
+                modalityBreakdown[modalityKey] = {
+                    modality: modalityKey,
                     studyCount: 0,
                     pricePerStudy: study.pricePerStudy,
                     subtotal: 0
                 };
             }
-            modalityBreakdown[study.modality].studyCount++;
-            modalityBreakdown[study.modality].subtotal += study.finalPrice;
+            modalityBreakdown[modalityKey].studyCount++;
+            modalityBreakdown[modalityKey].subtotal += study.finalPrice;
         });
+        
+        console.log(`📊 Invoice modality breakdown:`, Object.keys(modalityBreakdown));
         
         // Generate invoice number
         const invoiceNumber = await BillingInvoice.generateInvoiceNumber();
@@ -502,6 +553,8 @@ export const generateInvoice = async (req, res) => {
         
         // Populate lab information
         await invoice.populate('lab', 'name identifier contactPerson contactEmail contactPhone address');
+        
+        console.log(`✅ Invoice ${invoiceNumber} generated successfully`);
         
         res.json({
             success: true,
