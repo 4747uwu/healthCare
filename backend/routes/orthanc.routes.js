@@ -225,6 +225,7 @@ async function findOrCreatePatientFromTags(tags) {
   const patientIdDicom = tags.PatientID;
   const nameInfo = processDicomPersonName(tags.PatientName);
   const patientSex = tags.PatientSex;
+  const patientAge = tags.PatientAge;
   const patientBirthDate = tags.PatientBirthDate;
 
   if (!patientIdDicom && !nameInfo.fullName) {
