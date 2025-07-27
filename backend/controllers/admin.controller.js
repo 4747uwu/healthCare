@@ -634,15 +634,16 @@ else if (patient) {
                 // 🔥 FIXED: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
 
-                 downloadOptions: {
-            hasWasabiZip: hasWasabiZip,
-            wasabiFileName: study.preProcessedDownload?.zipFileName || null,
-            wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
-            wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
-            wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
-            wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
-            zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
-        },
+                downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 
                 // 🔥 ADDED: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {

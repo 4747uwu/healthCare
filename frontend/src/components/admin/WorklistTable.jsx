@@ -126,12 +126,11 @@ const handleWasabiDownload = async (study) => {
 const DownloadDropdown = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
-  const hasWasabiZip = study.downloadOptions?.hasWasabiZip;
-  
+ const hasR2Zip = study.downloadOptions?.hasWasabiZip || 
+                   study.downloadOptions?.hasR2Zip || 
+                   study.preProcessedDownload?.zipStatus === 'completed';  
   console.log('🌊 Wasabi ZIP available:', hasWasabiZip, 'for study:', study.orthancStudyID);
-
-
-  
+  console.log('🌐 R2 ZIP available:', hasR2Zip, 'for study:', study.orthancStudyID);
 
   const handleLaunchRadiantViewer = useCallback(async () => {
     try {
@@ -246,7 +245,7 @@ const DownloadDropdown = ({ study }) => {
               </button>
               
               {/* ✅ NEW: Wasabi download button - ONLY show if hasWasabiZip is true */}
-              {hasWasabiZip && (
+ {hasR2Zip && (
     <button
       onClick={() => handleWasabiDownload(study)}
       className="flex items-center w-full px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
@@ -275,17 +274,17 @@ const DownloadDropdown = ({ study }) => {
               </button>
               
               {/* ✅ SHOW STATUS: If no Wasabi ZIP available */}
-              {!hasWasabiZip && (
-                <div className="px-3 py-2 text-xs text-gray-500 italic border-t">
-                  {study.downloadOptions?.zipStatus === 'processing' ? (
-                    '⏳ ZIP being prepared...'
-                  ) : study.downloadOptions?.zipStatus === 'failed' ? (
-                    '❌ ZIP creation failed'
-                  ) : (
-                    '📦 No pre-processed ZIP available'
-                  )}
-                </div>
-              )}
+              {!hasR2Zip && (
+    <div className="px-3 py-2 text-xs text-gray-500 italic border-t">
+      {study.downloadOptions?.zipStatus === 'processing' ? (
+        '⏳ ZIP being prepared...'
+      ) : study.downloadOptions?.zipStatus === 'failed' ? (
+        '❌ ZIP creation failed'
+      ) : (
+        '📦 No pre-processed ZIP available'
+      )}
+    </div>
+)}
             </div>
           </div>
         </>
