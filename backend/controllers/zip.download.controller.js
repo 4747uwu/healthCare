@@ -250,31 +250,91 @@ export const downloadFromR2 = async (req, res) => {
         console.log(`🌐 R2 download requested for: ${orthancStudyId}`);
         
         const study = await DicomStudy.findOne(
-            { orthancStudyID: orthancStudyId },
-            { preProcessedDownload: 1, _id: 1 }
+            { orthancStudyID: orthancStudyId }
         ).lean();
         
+        console.log('🔍 DEBUG - Study found:', !!study);
+        if (study) {
+            console.log('🔍 DEBUG - PreProcessed Download:', JSON.stringify(study.preProcessedDownload, null, 2));
+        }
+        
         if (!study) {
+            console.log('❌ Study not found in database for orthancStudyId:', orthancStudyId);
             return res.status(404).json({
                 success: false,
-                message: 'Study not found'
+                message: 'Study not found in database',
+                orthancStudyId: orthancStudyId
             });
         }
         
         const zipInfo = study.preProcessedDownload;
-        const zipKey = zipInfo?.zipKey || zipInfo?.zipMetadata?.r2Key;
         
-        if (!zipInfo || zipInfo.zipStatus !== 'completed' || !zipKey) {
+        if (!zipInfo) {
+            console.log('❌ No preProcessedDownload found');
             return res.status(404).json({
                 success: false,
-                message: 'Pre-processed ZIP not available in Cloudflare R2',
-                status: 'not_available'
+                message: 'No ZIP information found for this study',
+                status: 'no_zip_info'
             });
         }
         
-        console.log(`✅ R2 ZIP available: ${zipInfo.zipFileName}`);
+        if (zipInfo.zipStatus !== 'completed') {
+            console.log('❌ ZIP status is not completed:', zipInfo.zipStatus);
+            return res.status(404).json({
+                success: false,
+                message: `ZIP status is '${zipInfo.zipStatus}', not 'completed'`,
+                status: zipInfo.zipStatus || 'unknown'
+            });
+        }
         
-        // ✅ ALWAYS GENERATE FRESH URL: This means users can download even after 7 days!
+        // ✅ ENHANCED: Extract key from multiple possible locations
+        let zipKey = zipInfo?.zipKey || 
+                    zipInfo?.zipMetadata?.r2Key || 
+                    zipInfo?.zipMetadata?.zipKey;
+        
+        // ✅ CRITICAL FIX: Extract key from zipFileName
+        if (!zipKey && zipInfo.zipFileName) {
+            // Your files are stored in: studies/2025/filename.zip
+            const year = new Date().getFullYear();
+            zipKey = `studies/${year}/${zipInfo.zipFileName}`;
+            console.log(`🔧 Constructed zipKey from filename: ${zipKey}`);
+        }
+        
+        // ✅ FALLBACK: Extract key from zipUrl if available
+        if (!zipKey && zipInfo.zipUrl) {
+            try {
+                const urlObj = new URL(zipInfo.zipUrl);
+                const pathMatch = urlObj.pathname.match(/\/studyzip\/(.+?)(\?|$)/);
+                if (pathMatch) {
+                    zipKey = pathMatch[1];
+                    console.log(`🔧 Extracted zipKey from URL: ${zipKey}`);
+                }
+            } catch (urlError) {
+                console.warn('⚠️ Failed to extract key from URL:', urlError.message);
+            }
+        }
+        
+        console.log('🔍 DEBUG - Final ZIP Key:', zipKey);
+        
+        if (!zipKey) {
+            console.log('❌ No ZIP key found in any location');
+            return res.status(404).json({
+                success: false,
+                message: 'ZIP key not found - cannot locate file in R2',
+                status: 'no_zip_key',
+                debug: {
+                    hasZipInfo: !!zipInfo,
+                    zipStatus: zipInfo?.zipStatus,
+                    hasZipUrl: !!zipInfo?.zipUrl,
+                    hasZipFileName: !!zipInfo?.zipFileName,
+                    zipFileName: zipInfo?.zipFileName
+                }
+            });
+        }
+        
+        console.log(`✅ R2 ZIP available: ${zipInfo.zipFileName} with key: ${zipKey}`);
+        
+        // ✅ GENERATE FRESH PRESIGNED URL using the found key
         let downloadUrl;
         let downloadMethod;
         let urlExpires = false;
@@ -282,7 +342,6 @@ export const downloadFromR2 = async (req, res) => {
         let expiryDate = null;
         
         if (r2Config.features.enablePresignedUrls) {
-            // ✅ Generate fresh 7-day presigned URL every time
             const expirySeconds = r2Config.presignedSettings.defaultExpirySeconds; // 7 days
             downloadUrl = await getPresignedUrl(zipKey, expirySeconds);
             downloadMethod = 'cloudflare-r2-presigned-7day';
@@ -291,20 +350,21 @@ export const downloadFromR2 = async (req, res) => {
             expiryDate = new Date(Date.now() + (expirySeconds * 1000));
             console.log(`🔐 Generated FRESH 7-day presigned URL (expires: ${expiryDate.toISOString()})`);
         } else {
-            // Use public URLs
             downloadUrl = `${r2Config.publicUrlPattern}/${zipKey}`;
             downloadMethod = 'cloudflare-r2-public';
             urlExpires = false;
-            console.log(`🌍 Generated public URL`);
+            console.log(`🌍 Generated public URL: ${downloadUrl}`);
         }
         
-        // Update download stats
+        // ✅ UPDATE DATABASE: Save the zipKey for future use
         setImmediate(async () => {
             try {
                 await DicomStudy.findByIdAndUpdate(study._id, {
                     $inc: { 'preProcessedDownload.downloadCount': 1 },
-                    'preProcessedDownload.lastDownloaded': new Date()
+                    'preProcessedDownload.lastDownloaded': new Date(),
+                    'preProcessedDownload.zipKey': zipKey // ✅ Save the key for next time
                 });
+                console.log('✅ Download stats updated and zipKey saved');
             } catch (updateError) {
                 console.warn('⚠️ Failed to update download stats:', updateError.message);
             }
@@ -318,20 +378,22 @@ export const downloadFromR2 = async (req, res) => {
                 fileName: zipInfo.zipFileName,
                 fileSizeMB: zipInfo.zipSizeMB || 0,
                 downloadMethod: downloadMethod,
-                
-                // ✅ REGENERATION INFO
                 urlType: r2Config.features.enablePresignedUrls ? 'presigned-7day-fresh' : 'public',
                 urlExpires: urlExpires,
                 expiresIn: expiresIn,
                 expiryDate: expiryDate,
-                canRegenerateUrl: true, // ✅ Always true!
+                canRegenerateUrl: true,
                 regenerationNote: 'Fresh URL generated on each request',
-                
-                // Performance info
                 storageProvider: 'cloudflare-r2',
                 cdnEnabled: true,
                 bucketName: 'studyzip',
-                expectedSpeed: 'Fast with Cloudflare R2'
+                expectedSpeed: 'Fast with Cloudflare R2',
+                debug: {
+                    zipKey: zipKey,
+                    zipStatus: zipInfo.zipStatus,
+                    zipSizeMB: zipInfo.zipSizeMB,
+                    keySource: zipInfo?.zipKey ? 'database' : 'constructed'
+                }
             }
         });
         
@@ -340,7 +402,8 @@ export const downloadFromR2 = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Cloudflare R2 download failed',
-            error: error.message
+            error: error.message,
+            stack: error.stack
         });
     }
 };

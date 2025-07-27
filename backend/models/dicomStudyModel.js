@@ -143,6 +143,7 @@ const DicomStudySchema = new mongoose.Schema({
         default: 'pending',
         index: { background: true }
     },
+    zipKey: { type: String },
     zipJobId: { type: String },
     zipExpiresAt: { type: Date },
     zipMetadata: {
@@ -526,7 +527,7 @@ DicomStudySchema.index({
     name: 'zip_management_index',
     background: true 
 });
-    
+
 // 🔥 PATIENT HISTORY: Patient timeline
 DicomStudySchema.index({ 
     patient: 1, 
