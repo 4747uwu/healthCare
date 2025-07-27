@@ -34,55 +34,94 @@ import api from '../../services/api'
 import sessionManager from '../../services/sessionManager';
 
 // ✅ ADD: Wasabi download function inside your WorklistTable component
+// ✅ UPDATED: R2 CDN download function
 const handleWasabiDownload = async (study) => {
     try {
-        const loadingToast = toast.loading('Getting Wasabi download URL...');
+        const loadingToast = toast.loading('Getting R2 CDN download URL...');
         
-        const response = await api.get(`/download/study/${study.orthancStudyID}/wasabi-direct`);
+        // ✅ CHANGED: Use R2 endpoint instead of Wasabi
+        const response = await api.get(`/download/study/${study.orthancStudyID}/r2-direct`);
         
         toast.dismiss(loadingToast);
         
         if (response.data.success) {
-            const { downloadUrl, fileName, fileSizeMB } = response.data.data;
+            const { downloadUrl, fileName, fileSizeMB, expectedSpeed, storageProvider } = response.data.data;
             
-            console.log('✅ Wasabi download URL received:', fileName);
+            console.log('✅ R2 CDN download URL received:', fileName);
             
-            // ✅ DIRECT BROWSER DOWNLOAD: Create download link for direct browser download
+            // Large file handling with R2 info
+            if (fileSizeMB > 100) {
+                const downloadChoice = confirm(
+                    `Large file detected: ${fileName} (${fileSizeMB}MB)\n\n` +
+                    `🚀 Storage: ${storageProvider} with CDN\n` +
+                    `⚡ Expected speed: ${expectedSpeed}\n` +
+                    `🌐 Global CDN: Enabled\n\n` +
+                    `Click OK for direct download, or Cancel to copy URL.`
+                );
+                
+                if (!downloadChoice) {
+                    try {
+                        await navigator.clipboard.writeText(downloadUrl);
+                        toast.success(
+                            `📋 R2 CDN URL copied!\n\n` +
+                            `🚀 Cloudflare R2 with global CDN\n` +
+                            `⚡ ${expectedSpeed}\n` +
+                            `🔗 Permanent URL (no expiry)`,
+                            { duration: 8000, icon: '🌐' }
+                        );
+                        return;
+                    } catch (clipboardError) {
+                        prompt('Copy this R2 CDN URL:', downloadUrl);
+                        return;
+                    }
+                }
+            }
+            
+            // Direct browser download
             const link = document.createElement('a');
             link.href = downloadUrl;
             link.download = fileName;
             link.target = '_blank';
             link.style.display = 'none';
             
-            // Add to DOM, click, and remove immediately
+            // R2 + CDN attributes
+            link.setAttribute('data-storage-provider', 'cloudflare-r2');
+            link.setAttribute('data-cdn-enabled', 'true');
+            link.setAttribute('crossorigin', 'anonymous');
+            
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             
-            // Show success message
-            toast.success(`🌊 Download started: ${fileName} (${fileSizeMB}MB)`, {
-                duration: 4000,
-                icon: '⚡'
-            });
+            // Enhanced success message
+            toast.success(
+                `🚀 R2 CDN Download started: ${fileName}\n` +
+                `📁 Size: ${fileSizeMB}MB\n` +
+                `⚡ ${expectedSpeed}\n` +
+                `🌐 Cloudflare Global CDN`,
+                { duration: 6000, icon: '🌐' }
+            );
             
         } else {
-            console.error('Wasabi download failed:', response.data.message);
-            toast.error(response.data.message || 'Wasabi download failed');
+            console.error('R2 CDN download failed:', response.data.message);
+            toast.error(response.data.message || 'R2 download failed');
         }
     } catch (error) {
         toast.dismiss();
-        console.error('Wasabi download error:', error);
+        console.error('R2 CDN download error:', error);
         
-        // ✅ HANDLE SPECIFIC ERROR CASES
-        if (error.response?.status === 404 && error.response?.data?.status === 'file_missing') {
-            toast.error('ZIP file not found in storage. You can recreate it using direct download.');
+        if (error.response?.status === 404) {
+            toast.error('ZIP file not found in R2. Creating new one...');
         } else if (error.response?.status === 410) {
             toast.error('ZIP file has expired. Creating a new one...');
         } else {
-            toast.error('Failed to get Wasabi download URL');
+            toast.error('Failed to get R2 CDN download URL');
         }
     }
 };
+
+// ✅ UPDATED: Button text for R2
+
 
 const DownloadDropdown = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -208,21 +247,21 @@ const DownloadDropdown = ({ study }) => {
               
               {/* ✅ NEW: Wasabi download button - ONLY show if hasWasabiZip is true */}
               {hasWasabiZip && (
-                <button
-                  onClick={() => handleWasabiDownload(study)}
-                  className="flex items-center w-full px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
-                  title="Download pre-processed ZIP from Wasabi cloud storage"
-                >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                  </svg>
-                  🌊 Download from Wasabi
-                  <span className="ml-auto text-xs text-gray-500">
-                    {study.downloadOptions?.wasabiSizeMB || 0}MB
-                  </span>
-                </button>
-              )}
+    <button
+      onClick={() => handleWasabiDownload(study)}
+      className="flex items-center w-full px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
+      title="Download pre-processed ZIP from Cloudflare R2 with global CDN"
+    >
+      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+      </svg>
+      🌐 Download from R2 CDN
+      <span className="ml-auto text-xs text-gray-500">
+        {study.downloadOptions?.wasabiSizeMB || 0}MB
+      </span>
+    </button>
+)}
               
               {/* ✅ EXISTING: Direct download */}
               <button 

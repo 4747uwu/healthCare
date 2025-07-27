@@ -3,7 +3,7 @@ import axios from 'axios';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import websocketService from '../config/webSocket.js';
-import zipCreationService from '../services/wasabi.zip.service.js';
+import CloudflareR2ZipService from '../services/wasabi.zip.service.js';
 
 // Import Mongoose Models
 import DicomStudy from '../models/dicomStudyModel.js';
@@ -794,7 +794,7 @@ async function processStableStudy(job) {
         console.log(`[StableStudy] 📦 Queuing ZIP creation for study: ${orthancStudyId}`);
         
         try {
-            const zipJob = await zipCreationService.addZipJob({
+            const zipJob = await CloudflareR2ZipService.addZipJob({
                 orthancStudyId: orthancStudyId,
                 studyDatabaseId: dicomStudyDoc._id,
                 studyInstanceUID: studyInstanceUID,
@@ -1114,7 +1114,7 @@ router.post('/create-zip/:orthancStudyId', async (req, res) => {
         }
         
         // Queue new ZIP creation job
-        const zipJob = await zipCreationService.addZipJob({
+        const zipJob = await CloudflareR2ZipService.addZipJob({
             orthancStudyId: orthancStudyId,
             studyDatabaseId: study._id,
             studyInstanceUID: study.studyInstanceUID,
@@ -1144,7 +1144,7 @@ router.post('/create-zip/:orthancStudyId', async (req, res) => {
 router.get('/zip-status/:jobId', async (req, res) => {
     try {
         const { jobId } = req.params;
-        const job = zipCreationService.getJob(parseInt(jobId));
+        const job = CloudflareR2ZipService.getJob(parseInt(jobId));
         
         if (!job) {
             return res.status(404).json({
@@ -1174,18 +1174,18 @@ router.get('/zip-status/:jobId', async (req, res) => {
 });
 
 // 🆕 NEW: Initialize Wasabi bucket on startup
-router.get('/init-wasabi', async (req, res) => {
+router.get('/init-r2', async (req, res) => {
     try {
-        await zipCreationService.ensureWasabiBucket();
+        await CloudflareR2ZipService.ensureR2Bucket();
         res.json({
             success: true,
-            message: 'Wasabi bucket initialized successfully'
+            message: 'R2 bucket initialized successfully'
         });
     } catch (error) {
-        console.error('[Wasabi Init] ❌ Error:', error);
+        console.error('[R2 Init] ❌ Error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to initialize Wasabi bucket',
+            message: 'Failed to initialize R2 bucket',
             error: error.message
         });
     }

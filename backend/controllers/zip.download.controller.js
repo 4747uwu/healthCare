@@ -1,17 +1,14 @@
 import DicomStudy from '../models/dicomStudyModel.js';
 import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
-import zipCreationService from '../services/wasabi.zip.service.js';
-// ✅ ADD: Import getSignedUrl for presigned URLs
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { wasabiS3 } from '../config/wasabi.js';
+import cloudflareR2ZipService from '../services/wasabi.zip.service.js';
+import { r2Config, getCDNOptimizedUrl, getR2PublicUrl } from '../config/cloudflare-r2.js';
 
-// Smart download - uses pre-processed ZIP if available
+// Smart download - uses R2 with CDN if available
 export const downloadPreProcessedStudy = async (req, res) => {
     try {
         const { orthancStudyId } = req.params;
         
-        console.log(`🔍 Pre-processed download requested for: ${orthancStudyId} by user: ${req.user.role}`);
+        console.log(`🔍 R2 pre-processed download requested for: ${orthancStudyId} by user: ${req.user.role}`);
         
         // Find study with ZIP info
         const study = await DicomStudy.findOne({ orthancStudyID: orthancStudyId }).lean();
@@ -23,14 +20,14 @@ export const downloadPreProcessedStudy = async (req, res) => {
             });
         }
         
-        // Check if pre-processed ZIP is available
+        // Check if pre-processed ZIP is available in R2
         const zipInfo = study.preProcessedDownload;
         
         if (zipInfo && zipInfo.zipStatus === 'completed' && zipInfo.zipUrl) {
             // Check if ZIP hasn't expired
             const now = new Date();
             if (!zipInfo.zipExpiresAt || zipInfo.zipExpiresAt > now) {
-                console.log(`✅ Using pre-processed ZIP: ${zipInfo.zipFileName} (${zipInfo.zipSizeMB}MB)`);
+                console.log(`✅ Using R2 pre-processed ZIP: ${zipInfo.zipFileName} (${zipInfo.zipSizeMB}MB)`);
                 
                 // Update download stats
                 await DicomStudy.findByIdAndUpdate(study._id, {
@@ -44,11 +41,21 @@ export const downloadPreProcessedStudy = async (req, res) => {
                 // Set appropriate headers for download
                 res.setHeader('Content-Disposition', `attachment; filename="${zipInfo.zipFileName}"`);
                 res.setHeader('Content-Type', 'application/zip');
-                res.setHeader('X-Download-Method', 'pre-processed-wasabi');
+                res.setHeader('X-Download-Method', 'cloudflare-r2-cdn');
                 res.setHeader('X-ZIP-Size-MB', zipInfo.zipSizeMB.toString());
+                res.setHeader('X-Storage-Provider', 'cloudflare-r2');
+                res.setHeader('X-CDN-Enabled', 'true');
                 
-                // Redirect to Wasabi URL for direct download
-                return res.redirect(zipInfo.zipUrl);
+                // Use CDN-optimized URL for best performance
+                const cdnUrl = zipInfo.zipUrl.includes('r2.dev') || zipInfo.zipUrl.includes(r2Config.customDomain)
+                    ? zipInfo.zipUrl
+                    : getCDNOptimizedUrl(zipInfo.zipKey || zipInfo.zipFileName, {
+                        filename: zipInfo.zipFileName,
+                        contentType: 'application/zip'
+                    });
+                
+                // Redirect to R2 CDN URL for direct download
+                return res.redirect(cdnUrl);
             } else {
                 console.log(`⚠️ Pre-processed ZIP expired, returning status`);
                 return res.status(410).json({
@@ -60,53 +67,57 @@ export const downloadPreProcessedStudy = async (req, res) => {
                 });
             }
         } else if (zipInfo && zipInfo.zipStatus === 'processing') {
-            console.log(`⏳ ZIP still processing`);
+            console.log(`⏳ ZIP still processing in R2`);
             
             return res.status(202).json({
                 success: false,
                 status: 'processing',
-                message: 'ZIP file is being prepared. Please try again in a few moments.',
+                message: 'ZIP file is being prepared in Cloudflare R2. Please try again in a few moments.',
                 estimatedCompletion: 'Processing...',
                 jobId: zipInfo.zipJobId,
                 checkStatusUrl: `/orthanc/zip-status/${zipInfo.zipJobId}`,
-                fallbackUrl: `/orthanc-download/study/${orthancStudyId}/download-direct`
+                fallbackUrl: `/orthanc-download/study/${orthancStudyId}/download-direct`,
+                storageProvider: 'cloudflare-r2'
             });
         } else if (zipInfo && zipInfo.zipStatus === 'failed') {
-            console.log(`❌ ZIP creation failed`);
+            console.log(`❌ R2 ZIP creation failed`);
             
             return res.status(500).json({
                 success: false,
                 status: 'failed',
-                message: 'ZIP creation failed',
+                message: 'ZIP creation failed in Cloudflare R2',
                 error: zipInfo.zipMetadata?.error || 'Unknown error',
-                fallbackUrl: `/orthanc-download/study/${orthancStudyId}/download-direct`
+                fallbackUrl: `/orthanc-download/study/${orthancStudyId}/download-direct`,
+                storageProvider: 'cloudflare-r2'
             });
         } else {
             // No pre-processed ZIP available
-            console.log(`📦 No pre-processed ZIP available for: ${orthancStudyId}`);
+            console.log(`📦 No pre-processed ZIP available in R2 for: ${orthancStudyId}`);
             
             return res.status(404).json({
                 success: false,
                 status: 'not_available',
-                message: 'Pre-processed ZIP not available',
+                message: 'Pre-processed ZIP not available in Cloudflare R2',
                 canCreate: true,
                 createUrl: `/orthanc/create-zip/${orthancStudyId}`,
-                fallbackUrl: `/orthanc-download/study/${orthancStudyId}/download-direct`
+                fallbackUrl: `/orthanc-download/study/${orthancStudyId}/download-direct`,
+                storageProvider: 'cloudflare-r2'
             });
         }
         
     } catch (error) {
-        console.error('Error in pre-processed download:', error);
+        console.error('Error in R2 pre-processed download:', error);
         res.status(500).json({
             success: false,
-            message: 'Pre-processed download failed',
+            message: 'R2 pre-processed download failed',
             error: error.message,
-            fallbackUrl: `/orthanc-download/study/${req.params.orthancStudyId}/download-direct`
+            fallbackUrl: `/orthanc-download/study/${req.params.orthancStudyId}/download-direct`,
+            storageProvider: 'cloudflare-r2'
         });
     }
 };
 
-// Get download info
+// Get download info for R2
 export const getDownloadInfo = async (req, res) => {
     try {
         const { orthancStudyId } = req.params;
@@ -139,8 +150,12 @@ export const getDownloadInfo = async (req, res) => {
                 instanceCount: study.instanceCount || 0,
                 jobId: zipInfo.zipJobId,
                 error: zipInfo.zipMetadata?.error,
+                storageProvider: zipInfo.zipMetadata?.storageProvider || 'cloudflare-r2',
+                cdnEnabled: zipInfo.zipMetadata?.cdnEnabled || true,
+                customDomain: zipInfo.zipMetadata?.customDomain || false,
                 downloadMethods: {
                     preProcessed: `/api/download/study/${orthancStudyId}/pre-processed`,
+                    r2Direct: `/api/download/study/${orthancStudyId}/r2-direct`,
                     direct: `/api/orthanc-download/study/${orthancStudyId}/download-direct`,
                     create: `/api/orthanc/create-zip/${orthancStudyId}`,
                     info: `/api/download/study/${orthancStudyId}/info`
@@ -149,16 +164,16 @@ export const getDownloadInfo = async (req, res) => {
         });
         
     } catch (error) {
-        console.error('Error getting download info:', error);
+        console.error('Error getting R2 download info:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to get download information',
+            message: 'Failed to get R2 download information',
             error: error.message
         });
     }
 };
 
-// Create ZIP manually
+// Create ZIP manually in R2
 export const createZipManually = async (req, res) => {
     try {
         const { orthancStudyId } = req.params;
@@ -176,24 +191,27 @@ export const createZipManually = async (req, res) => {
         if (study.preProcessedDownload?.zipStatus === 'processing') {
             return res.json({
                 success: false,
-                message: 'ZIP creation already in progress',
+                message: 'ZIP creation already in progress in Cloudflare R2',
                 status: 'processing',
-                jobId: study.preProcessedDownload.zipJobId
+                jobId: study.preProcessedDownload.zipJobId,
+                storageProvider: 'cloudflare-r2'
             });
         }
         
         if (study.preProcessedDownload?.zipStatus === 'completed' && study.preProcessedDownload?.zipUrl) {
             return res.json({
                 success: true,
-                message: 'ZIP already exists',
+                message: 'ZIP already exists in Cloudflare R2',
                 status: 'completed',
                 zipUrl: study.preProcessedDownload.zipUrl,
-                zipSizeMB: study.preProcessedDownload.zipSizeMB
+                zipSizeMB: study.preProcessedDownload.zipSizeMB,
+                storageProvider: 'cloudflare-r2',
+                cdnEnabled: true
             });
         }
         
-        // Queue new ZIP creation job
-        const zipJob = await zipCreationService.addZipJob({
+        // Queue new ZIP creation job for R2
+        const zipJob = await cloudflareR2ZipService.addZipJob({
             orthancStudyId: orthancStudyId,
             studyDatabaseId: study._id,
             studyInstanceUID: study.studyInstanceUID,
@@ -203,32 +221,38 @@ export const createZipManually = async (req, res) => {
         
         res.json({
             success: true,
-            message: 'ZIP creation queued',
+            message: 'ZIP creation queued for Cloudflare R2',
             jobId: zipJob.id,
             status: 'queued',
             checkStatusUrl: `/api/orthanc/zip-status/${zipJob.id}`,
-            downloadUrl: `/api/download/study/${orthancStudyId}/pre-processed`
+            downloadUrl: `/api/download/study/${orthancStudyId}/pre-processed`,
+            storageProvider: 'cloudflare-r2',
+            cdnEnabled: true
         });
         
     } catch (error) {
-        console.error('Error creating ZIP:', error);
+        console.error('Error creating R2 ZIP:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to queue ZIP creation',
+            message: 'Failed to queue ZIP creation in Cloudflare R2',
             error: error.message
         });
     }
 };
 
-// ✅ ADD: Direct Wasabi download with presigned URL
-export const downloadFromWasabi = async (req, res) => {
+// Replace the downloadFromWasabi function with downloadFromR2
+export const downloadFromR2 = async (req, res) => {
     try {
         const { orthancStudyId } = req.params;
         
-        console.log(`🌊 Wasabi direct download requested for: ${orthancStudyId} by user: ${req.user.role}`);
+        console.log(`🌐 R2 CDN download requested for: ${orthancStudyId}`);
+        const requestStart = Date.now();
         
-        // Find study with ZIP info
-        const study = await DicomStudy.findOne({ orthancStudyID: orthancStudyId }).lean();
+        // Get study data
+        const study = await DicomStudy.findOne(
+            { orthancStudyID: orthancStudyId },
+            { preProcessedDownload: 1, _id: 1 }
+        ).lean();
         
         if (!study) {
             return res.status(404).json({
@@ -237,124 +261,100 @@ export const downloadFromWasabi = async (req, res) => {
             });
         }
         
-        // Check if ZIP exists in Wasabi
         const zipInfo = study.preProcessedDownload;
         
         if (!zipInfo || zipInfo.zipStatus !== 'completed' || !zipInfo.zipUrl) {
             return res.status(404).json({
                 success: false,
-                message: 'Pre-processed ZIP not available in Wasabi',
+                message: 'Pre-processed ZIP not available in Cloudflare R2',
                 status: 'not_available'
             });
         }
         
-        // Check if ZIP hasn't expired
-        const now = new Date();
-        if (zipInfo.zipExpiresAt && zipInfo.zipExpiresAt <= now) {
+        // Check expiry (R2 files can last much longer)
+        const now = Date.now();
+        if (zipInfo.zipExpiresAt && new Date(zipInfo.zipExpiresAt).getTime() <= now) {
             return res.status(410).json({
                 success: false,
-                message: 'Pre-processed ZIP has expired',
-                status: 'expired',
-                expiredAt: zipInfo.zipExpiresAt
+                message: 'ZIP has expired',
+                status: 'expired'
             });
         }
         
-        console.log(`✅ Generating Wasabi presigned URL for: ${zipInfo.zipFileName}`);
+        console.log(`✅ R2 ZIP available: ${zipInfo.zipFileName} (${zipInfo.zipSizeMB}MB)`);
         
-        // ✅ FIX: Extract key from existing URL and use correct bucket
-        let wasabiKey;
-        let bucketName = 'studyzip'; // ✅ Use the correct bucket name
+        // Generate fresh CDN URL for optimal performance
+        let downloadUrl = zipInfo.zipUrl;
         
-        if (zipInfo.zipUrl.includes('wasabisys.com')) {
-            // Extract key from existing Wasabi URL
-            const urlParts = new URL(zipInfo.zipUrl);
-            wasabiKey = urlParts.pathname.substring(1); // Remove leading slash
-            
-            // ✅ FIX: Extract bucket from URL if it's different
-            const pathParts = urlParts.hostname.split('.');
-            if (pathParts[0] !== 's3') {
-                bucketName = pathParts[0]; // Use bucket from subdomain
-            } else {
-                // For s3.region.wasabisys.com URLs, bucket is in path
-                bucketName = urlParts.pathname.split('/')[1];
-                wasabiKey = urlParts.pathname.substring(bucketName.length + 2); // Remove /bucket/
-            }
-        } else {
-            // Fallback: construct key from filename
-            const year = new Date(zipInfo.zipCreatedAt).getFullYear();
-            wasabiKey = `studies/${year}/${zipInfo.zipFileName}`;
-        }
-        
-        console.log(`🔍 Using bucket: ${bucketName}, key: ${wasabiKey}`);
-        
-        // ✅ CHECK: Verify file exists before generating presigned URL
-        try {
-            const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
-            await wasabiS3.send(new HeadObjectCommand({
-                Bucket: bucketName, // ✅ Use extracted bucket name
-                Key: wasabiKey
-            }));
-            console.log(`✅ File confirmed to exist in Wasabi: ${bucketName}/${wasabiKey}`);
-        } catch (headError) {
-            console.error(`❌ File not found in Wasabi: ${bucketName}/${wasabiKey}`, headError.message);
-            
-            return res.status(404).json({
-                success: false,
-                message: 'ZIP file not found in Wasabi storage',
-                status: 'file_missing',
-                debug: {
-                    bucket: bucketName,
-                    key: wasabiKey,
-                    originalUrl: zipInfo.zipUrl
-                }
+        // If we have R2 key, generate fresh CDN URL
+        if (zipInfo.zipKey || zipInfo.zipMetadata?.r2Key) {
+            const key = zipInfo.zipKey || zipInfo.zipMetadata.r2Key;
+            downloadUrl = getCDNOptimizedUrl(key, {
+                filename: zipInfo.zipFileName,
+                contentType: 'application/zip',
+                cacheControl: true,
+                r2Optimize: true
             });
+            console.log(`🚀 Generated fresh CDN URL: ${downloadUrl.substring(0, 80)}...`);
         }
-        
-        // Generate presigned URL (valid for 1 hour)
-        const { GetObjectCommand } = await import('@aws-sdk/client-s3');
-        const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
-        
-        const getObjectCommand = new GetObjectCommand({
-            Bucket: bucketName, // ✅ Use correct bucket
-            Key: wasabiKey
-        });
-        
-        const presignedUrl = await getSignedUrl(wasabiS3, getObjectCommand, {
-            expiresIn: 3600 // 1 hour
-        });
         
         // Update download stats
-        await DicomStudy.findByIdAndUpdate(study._id, {
-            $inc: { 'preProcessedDownload.downloadCount': 1 },
-            'preProcessedDownload.lastDownloaded': new Date()
+        setImmediate(async () => {
+            try {
+                await DicomStudy.findByIdAndUpdate(study._id, {
+                    $inc: { 'preProcessedDownload.downloadCount': 1 },
+                    'preProcessedDownload.lastDownloaded': new Date()
+                });
+            } catch (updateError) {
+                console.warn('⚠️ Failed to update download stats:', updateError.message);
+            }
         });
         
-        // Return presigned URL for frontend to use
+        const totalTime = Date.now() - requestStart;
+        
+        // Enhanced response with R2 + CDN info
+        res.set({
+            'X-Download-Method': 'cloudflare-r2-cdn',
+            'X-Storage-Provider': 'cloudflare-r2',
+            'X-CDN-Enabled': 'true',
+            'X-Response-Time': `${totalTime}ms`,
+            'Cache-Control': 'no-cache'
+        });
+        
         res.json({
             success: true,
-            message: 'Wasabi download URL generated',
+            message: 'Cloudflare R2 + CDN download URL ready',
             data: {
-                downloadUrl: presignedUrl,
+                downloadUrl: downloadUrl,
                 fileName: zipInfo.zipFileName,
-                fileSizeMB: zipInfo.zipSizeMB,
-                downloadMethod: 'wasabi-direct',
-                expiresAt: zipInfo.zipExpiresAt,
-                downloadCount: (zipInfo.downloadCount || 0) + 1,
-                presignedUrlExpiresIn: 3600 // 1 hour
+                fileSizeMB: zipInfo.zipSizeMB || 0,
+                downloadMethod: 'cloudflare-r2-cdn',
+                responseTime: totalTime,
+                
+                // R2 + CDN specific info
+                storageProvider: 'cloudflare-r2',
+                cdnEnabled: true,
+                bucketName: 'studyzip',
+                expectedSpeed: 'Lightning fast with Cloudflare global CDN',
+                cacheOptimized: true,
+                
+                // URL validity
+                urlExpires: false, // R2 public URLs don't expire
+                permanentUrl: true
             }
         });
         
     } catch (error) {
-        console.error('❌ Error in Wasabi direct download:', error);
+        console.error('❌ R2 CDN download error:', error);
         res.status(500).json({
             success: false,
-            message: 'Wasabi download failed',
+            message: 'Cloudflare R2 CDN download failed',
             error: error.message
         });
     }
 };
 
-// Helper function to update workflow status
+// Helper function to update workflow status (unchanged)
 async function updateWorkflowStatusForDownload(study, user) {
     try {
         let newStatus;
@@ -362,10 +362,10 @@ async function updateWorkflowStatusForDownload(study, user) {
         
         if (user.role === 'doctor_account') {
             newStatus = 'report_downloaded_radiologist';
-            statusNote = `Pre-processed study downloaded by radiologist: ${user.fullName || user.email}`;
+            statusNote = `Pre-processed study downloaded by radiologist from Cloudflare R2: ${user.fullName || user.email}`;
         } else if (user.role === 'lab_staff' || user.role === 'admin') {
             newStatus = 'report_downloaded';
-            statusNote = `Pre-processed study downloaded by ${user.role}: ${user.fullName || user.email}`;
+            statusNote = `Pre-processed study downloaded by ${user.role} from Cloudflare R2: ${user.fullName || user.email}`;
         }
         
         if (newStatus) {
@@ -376,7 +376,7 @@ async function updateWorkflowStatusForDownload(study, user) {
                 user: user
             });
             
-            console.log(`✅ Workflow status updated to ${newStatus}`);
+            console.log(`✅ Workflow status updated to ${newStatus} (R2)`);
         }
     } catch (error) {
         console.error('⚠️ Error updating workflow status:', error);
