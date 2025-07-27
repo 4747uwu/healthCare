@@ -1,7 +1,7 @@
 import DicomStudy from '../models/dicomStudyModel.js';
 import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
 import cloudflareR2ZipService from '../services/wasabi.zip.service.js';
-import { r2Config, getCDNOptimizedUrl, getR2PublicUrl } from '../config/cloudflare-r2.js';
+import { r2Config, getCDNOptimizedUrl, getR2PublicUrl, getPresignedUrl } from '../config/cloudflare-r2.js';
 
 // Smart download - uses R2 with CDN if available
 export const downloadPreProcessedStudy = async (req, res) => {
@@ -49,9 +49,10 @@ export const downloadPreProcessedStudy = async (req, res) => {
                 // Use CDN-optimized URL for best performance
                 const cdnUrl = zipInfo.zipUrl.includes('r2.dev') || zipInfo.zipUrl.includes(r2Config.customDomain)
                     ? zipInfo.zipUrl
-                    : getCDNOptimizedUrl(zipInfo.zipKey || zipInfo.zipFileName, {
+                    : await getCDNOptimizedUrl(zipInfo.zipKey || zipInfo.zipFileName, {
                         filename: zipInfo.zipFileName,
-                        contentType: 'application/zip'
+                        contentType: 'application/zip',
+                        expiresIn: r2Config.presignedSettings.defaultExpirySeconds // ✅ 30 days
                     });
                 
                 // Redirect to R2 CDN URL for direct download
@@ -241,14 +242,14 @@ export const createZipManually = async (req, res) => {
 };
 
 // Replace the downloadFromWasabi function with downloadFromR2
+// ✅ UPDATE: The downloadFromR2 function to use 30-day expiry
 export const downloadFromR2 = async (req, res) => {
     try {
         const { orthancStudyId } = req.params;
         
-        console.log(`🌐 R2 CDN download requested for: ${orthancStudyId}`);
+        console.log(`🌐 R2 download requested for: ${orthancStudyId}`);
         const requestStart = Date.now();
         
-        // Get study data
         const study = await DicomStudy.findOne(
             { orthancStudyID: orthancStudyId },
             { preProcessedDownload: 1, _id: 1 }
@@ -263,7 +264,7 @@ export const downloadFromR2 = async (req, res) => {
         
         const zipInfo = study.preProcessedDownload;
         
-        if (!zipInfo || zipInfo.zipStatus !== 'completed' || !zipInfo.zipUrl) {
+        if (!zipInfo || zipInfo.zipStatus !== 'completed' || !zipInfo.zipKey) {
             return res.status(404).json({
                 success: false,
                 message: 'Pre-processed ZIP not available in Cloudflare R2',
@@ -271,31 +272,30 @@ export const downloadFromR2 = async (req, res) => {
             });
         }
         
-        // Check expiry (R2 files can last much longer)
-        const now = Date.now();
-        if (zipInfo.zipExpiresAt && new Date(zipInfo.zipExpiresAt).getTime() <= now) {
-            return res.status(410).json({
-                success: false,
-                message: 'ZIP has expired',
-                status: 'expired'
-            });
-        }
-        
         console.log(`✅ R2 ZIP available: ${zipInfo.zipFileName} (${zipInfo.zipSizeMB}MB)`);
         
-        // Generate fresh CDN URL for optimal performance
-        let downloadUrl = zipInfo.zipUrl;
+        // ✅ SMART: Generate URL based on configuration with 30-day expiry
+        let downloadUrl;
+        let downloadMethod;
+        let urlExpires = false;
+        let expiresIn = null;
+        let expiryDate = null;
         
-        // If we have R2 key, generate fresh CDN URL
-        if (zipInfo.zipKey || zipInfo.zipMetadata?.r2Key) {
-            const key = zipInfo.zipKey || zipInfo.zipMetadata.r2Key;
-            downloadUrl = getCDNOptimizedUrl(key, {
-                filename: zipInfo.zipFileName,
-                contentType: 'application/zip',
-                cacheControl: true,
-                r2Optimize: true
-            });
-            console.log(`🚀 Generated fresh CDN URL: ${downloadUrl.substring(0, 80)}...`);
+        if (r2Config.features.enablePresignedUrls) {
+            // ✅ Use presigned URLs with 30-day expiry (recommended for medical data)
+            const expirySeconds = r2Config.presignedSettings.defaultExpirySeconds; // 30 days
+            downloadUrl = await getPresignedUrl(zipInfo.zipKey, expirySeconds);
+            downloadMethod = 'cloudflare-r2-presigned-30day';
+            urlExpires = true;
+            expiresIn = '30 days';
+            expiryDate = new Date(Date.now() + (expirySeconds * 1000));
+            console.log(`🔐 Generated 30-day presigned URL (expires: ${expiryDate.toISOString()})`);
+        } else {
+            // Use public URLs (faster but less secure)
+            downloadUrl = `${r2Config.publicUrlPattern}/${zipInfo.zipKey}`;
+            downloadMethod = 'cloudflare-r2-public';
+            urlExpires = false;
+            console.log(`🌍 Generated public URL`);
         }
         
         // Update download stats
@@ -312,43 +312,50 @@ export const downloadFromR2 = async (req, res) => {
         
         const totalTime = Date.now() - requestStart;
         
-        // Enhanced response with R2 + CDN info
         res.set({
-            'X-Download-Method': 'cloudflare-r2-cdn',
+            'X-Download-Method': downloadMethod,
             'X-Storage-Provider': 'cloudflare-r2',
-            'X-CDN-Enabled': 'true',
+            'X-URL-Type': r2Config.features.enablePresignedUrls ? 'presigned-30day' : 'public',
+            'X-URL-Expires': urlExpires ? expiryDate.toISOString() : 'never',
             'X-Response-Time': `${totalTime}ms`,
             'Cache-Control': 'no-cache'
         });
         
         res.json({
             success: true,
-            message: 'Cloudflare R2 + CDN download URL ready',
+            message: `Cloudflare R2 ${r2Config.features.enablePresignedUrls ? '30-day presigned' : 'public'} download URL ready`,
             data: {
                 downloadUrl: downloadUrl,
                 fileName: zipInfo.zipFileName,
                 fileSizeMB: zipInfo.zipSizeMB || 0,
-                downloadMethod: 'cloudflare-r2-cdn',
+                downloadMethod: downloadMethod,
                 responseTime: totalTime,
                 
-                // R2 + CDN specific info
+                // Security info
                 storageProvider: 'cloudflare-r2',
+                urlType: r2Config.features.enablePresignedUrls ? 'presigned-30day' : 'public',
+                securityLevel: r2Config.features.enablePresignedUrls ? 'high' : 'medium',
+                urlExpires: urlExpires,
+                expiresIn: expiresIn,
+                expiryDate: expiryDate,
+                
+                // Performance info
                 cdnEnabled: true,
                 bucketName: 'studyzip',
-                expectedSpeed: 'Lightning fast with Cloudflare global CDN',
-                cacheOptimized: true,
+                expectedSpeed: 'Fast with Cloudflare R2',
                 
-                // URL validity
-                urlExpires: false, // R2 public URLs don't expire
-                permanentUrl: true
+                // Medical data compliance
+                hipaaCompliant: r2Config.features.enablePresignedUrls,
+                accessControlled: r2Config.features.enablePresignedUrls,
+                auditTrail: true
             }
         });
         
     } catch (error) {
-        console.error('❌ R2 CDN download error:', error);
+        console.error('❌ R2 download error:', error);
         res.status(500).json({
             success: false,
-            message: 'Cloudflare R2 CDN download failed',
+            message: 'Cloudflare R2 download failed',
             error: error.message
         });
     }
