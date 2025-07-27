@@ -236,7 +236,8 @@ async function findOrCreatePatientFromTags(tags) {
         patientNameRaw: 'Unknown Patient (Stable Study)',
         firstName: '',
         lastName: '',
-        gender: patientSex || '',
+        gender: patientSex || '', // ✅ ADD: Gender
+        age: patientAge || '',
         dateOfBirth: patientBirthDate || '',
         isAnonymous: true
       });
@@ -260,7 +261,8 @@ async function findOrCreatePatientFromTags(tags) {
         nameSuffix: nameInfo.nameSuffix,
         originalDicomName: nameInfo.originalDicomFormat
       },
-      gender: patientSex || '',
+      gender: patientSex || '', // ✅ ADD: Gender from DICOM
+      age: patientAge || '',
       dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : ''
     });
     
@@ -563,11 +565,15 @@ async function processStableStudy(job) {
         tags.StudyTime = rawTags["0008,0030"]?.Value || tags.StudyTime;
         tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
+        tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex; // ✅ ADD: Patient Sex/Gender
+tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Patient Age
         
         console.log(`[StableStudy] ✅ Got instance metadata:`, {
           PatientName: tags.PatientName,
           PatientID: tags.PatientID,
           StudyDescription: tags.StudyDescription,
+          PatientAge: tags.PatientAge, // ✅ ADD: Log patient age
+    PatientSex: tags.PatientSex,
           Modality: tags.Modality,
           // 🔧 FIX: Log the private tag values
           PrivateTags: {
@@ -695,6 +701,8 @@ async function processStableStudy(job) {
         gender: patientRecord.gender || '',
         dateOfBirth: tags.PatientBirthDate || ''
       },
+      age: patientRecord.age || tags.PatientAge || '', // ✅ ADD: Age field
+  gender: patientRecord.gender || tags.PatientSex || '',
       
       referringPhysicianName: tags.ReferringPhysicianName || '',
       physicians: {

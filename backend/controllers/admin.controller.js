@@ -10,7 +10,7 @@ import mongoose from 'mongoose';
 import WasabiService from '../services/wasabi.service.js';
 import multer from 'multer';
 import sharp from 'sharp'; // For image optimization
-import { calculateSimpleTAT } from '../utils/TATutility.js';
+import { calculateStudyTAT, getLegacyTATFields,updateStudyTAT } from '../utils/TATutility.js';
 
 
 // import websocketService from '../config/webSocket.js'; // 🆕 ADD: Import WebSocket service
@@ -162,60 +162,163 @@ export const getAllStudiesForAdmin = async (req, res) => {
         const queryFilters = {};
         let filterStartDate = null;
         let filterEndDate = null;
+         const IST_OFFSET = 5.5 * 60 * 60 * 1000; 
         
         // Optimized date filtering with pre-calculated timestamps
         if (req.query.quickDatePreset || req.query.dateFilter) {
             const preset = req.query.quickDatePreset || req.query.dateFilter;
             const now = Date.now(); // Use timestamp for better performance
             
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
+           switch (preset) {
+            case 'last24h':
+                // Last 24 hours from current IST time
+                const nowIST = new Date(Date.now() + IST_OFFSET);
+                filterEndDate = new Date(Date.now()); // Current UTC time
+                filterStartDate = new Date(Date.now() - 86400000); // 24 hours ago UTC
+                break;
 
-                    case 'today':
-                        // 🔧 FIXED: Add missing 'today' case
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        filterStartDate = todayStart;
-                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                        break;
+            case 'today':
+                // ✅ FIX: Today in IST timezone
+                const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+                
+                // Create start of day in IST (00:00:00 IST)
+                const todayStartIST = new Date(
+                    currentTimeIST.getFullYear(),
+                    currentTimeIST.getMonth(),
+                    currentTimeIST.getDate(),
+                    0, 0, 0, 0
+                );
+                
+                // Create end of day in IST (23:59:59.999 IST)
+                const todayEndIST = new Date(
+                    currentTimeIST.getFullYear(),
+                    currentTimeIST.getMonth(),
+                    currentTimeIST.getDate(),
+                    23, 59, 59, 999
+                );
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+                
+                console.log(`🕐 Today IST: ${todayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${todayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+                console.log(`🌍 Today UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+                break;
 
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
+            case 'yesterday':
+                // ✅ FIX: Yesterday in IST timezone
+                const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+                const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000); // Subtract 1 day
+                
+                // Create start of yesterday in IST
+                const yesterdayStartIST = new Date(
+                    yesterdayIST.getFullYear(),
+                    yesterdayIST.getMonth(),
+                    yesterdayIST.getDate(),
+                    0, 0, 0, 0
+                );
+                
+                // Create end of yesterday in IST
+                const yesterdayEndIST = new Date(
+                    yesterdayIST.getFullYear(),
+                    yesterdayIST.getMonth(),
+                    yesterdayIST.getDate(),
+                    23, 59, 59, 999
+                );
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+                
+                console.log(`🕐 Yesterday IST: ${yesterdayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${yesterdayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+                console.log(`🌍 Yesterday UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+                break;
+
+            case 'thisWeek':
+                // ✅ FIX: This week in IST timezone
+                const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+                
+                // Get start of week (Sunday) in IST
+                const dayOfWeek = currentTimeISTWeek.getDay(); // 0 = Sunday, 1 = Monday, etc.
+                const weekStartIST = new Date(
+                    currentTimeISTWeek.getFullYear(),
+                    currentTimeISTWeek.getMonth(),
+                    currentTimeISTWeek.getDate() - dayOfWeek,
+                    0, 0, 0, 0
+                );
+                
+                // End is current time in IST
+                const weekEndIST = new Date(currentTimeISTWeek.getTime());
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+                break;
+
+            case 'thisMonth':
+                // ✅ FIX: This month in IST timezone
+                const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+                
+                // Get start of month in IST
+                const monthStartIST = new Date(
+                    currentTimeISTMonth.getFullYear(),
+                    currentTimeISTMonth.getMonth(),
+                    1,
+                    0, 0, 0, 0
+                );
+                
+                // End is current time in IST
+                const monthEndIST = new Date(currentTimeISTMonth.getTime());
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+                break;
+
+            case 'custom':
+                if (req.query.customDateFrom || req.query.customDateTo) {
+                    // ✅ FIX: Handle custom dates - assume they're entered in IST
+                    if (req.query.customDateFrom) {
+                        // Parse as IST date
+                        const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                        filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
                     }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-            }
+                    
+                    if (req.query.customDateTo) {
+                        // Parse as IST date
+                        const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                        filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                    }
+                } else {
+                    // Default to last 24 hours
+                    filterEndDate = new Date();
+                    filterStartDate = new Date(Date.now() - 86400000);
+                }
+                break;
+
+            default:
+                // Default to last 24 hours
+                filterEndDate = new Date();
+                filterStartDate = new Date(Date.now() - 86400000);
+        }
         } else {
-    // 🔧 FIXED: Default to today when no date filter specified (same as getValues)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    filterStartDate = todayStart;
-    filterEndDate = new Date(todayStart.getTime() + 86399999);
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
 }
 
         // Apply date filter with proper indexing
@@ -293,7 +396,6 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 $project: {
                     _id: 1,
                     studyInstanceUID: 1,
-                    patientInfo: 1,
                     orthancStudyID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
@@ -319,7 +421,8 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     patient: 1,
                     sourceLab: 1,
                     patientId: 1,
-                    preProcessedDownload: 1
+                    age:1,
+                    gender:1
                 }
             }
         ];
@@ -451,14 +554,8 @@ export const getAllStudiesForAdmin = async (req, res) => {
 
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
-
-            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
-                        study.preProcessedDownload?.zipUrl &&
-                        (!study.preProcessedDownload?.zipExpiresAt || 
-                         study.preProcessedDownload.zipExpiresAt > new Date());
-    
 
             // 🔥 FIXED: Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
@@ -516,46 +613,24 @@ export const getAllStudiesForAdmin = async (req, res) => {
             }
             
             // Optimized patient display building with fallback chain
-            // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = study.patientId || "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
+                
+            }
 
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
             // Fast category lookup using pre-compiled map
             const currentCategory = categoryMap[study.workflowStatus] || 'unknown';
-            const tat = study.calculatedTAT || calculateSimpleTAT(study);
-            // const legacyTATFields = getLegacyTATFields(tat);
+            const tat = study.calculatedTAT || calculateStudyTAT(study);
+            const legacyTATFields = getLegacyTATFields(tat);
 
 
             return {
@@ -633,17 +708,6 @@ else if (patient) {
                 
                 // 🔥 FIXED: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
-
-                downloadOptions: {
-        hasWasabiZip: hasWasabiZip,
-        hasR2Zip: hasWasabiZip,
-        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
-        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
-        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
-        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
-        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
-        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
-    },
                 
                 // 🔥 ADDED: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -746,61 +810,126 @@ export const getValues = async (req, res) => {
         let filterEndDate = null;
         
         // Optimized date filtering with pre-calculated timestamps
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
+        // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
 
-                
-                case 'today':
-                        // 🔧 FIXED: Consistent today handling
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        filterStartDate = todayStart;
-                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                        break;
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
 
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
             }
-        } else {
-    // 🔧 FIXED: Default to today when no date filter specified (consistent across all functions)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    filterStartDate = todayStart;
-    filterEndDate = new Date(todayStart.getTime() + 86399999);
-}
+            break;
 
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
@@ -1591,8 +1720,8 @@ export const assignDoctorToStudy = async (req, res) => {
                 );
             }
 
-            const freshTAT = calculateSimpleTAT(updatedStudyDoc.toObject());
-            // await updateStudyTAT(studyId, freshTAT, currentSession);
+            const freshTAT = calculateStudyTAT(updatedStudyDoc.toObject());
+            await updateStudyTAT(studyId, freshTAT, currentSession);
 
             console.log(`✅ TAT recalculated after assignment - Upload to Assignment: ${freshTAT.uploadToAssignmentTATFormatted}`);
     
@@ -3607,54 +3736,126 @@ export const getPendingStudies = async (req, res) => {
         let filterStartDate = null;
         let filterEndDate = null;
         
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-                    break;
-                case 'today':
-                    const today = new Date();
-                    filterStartDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-                    filterEndDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-                    break;
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999);
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
+        // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
+
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
             }
-        } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        }
+            break;
+
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
 
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
@@ -3702,7 +3903,6 @@ export const getPendingStudies = async (req, res) => {
                     _id: 1,
                     studyInstanceUID: 1,
                     orthancStudyID: 1,
-                    patientInfo: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
                     modality: 1,
@@ -3728,7 +3928,9 @@ export const getPendingStudies = async (req, res) => {
                     patient: 1,
                     sourceLab: 1,
                     lastAssignmentAt: 1,
-                    patientId: 1
+                    patientId: 1,
+                    age:1,
+                    gender:1
                 }
             }
         ];
@@ -3841,7 +4043,7 @@ export const getPendingStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -3897,42 +4099,22 @@ const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             }
             
             // Optimized patient display with fallback chain
-           // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = study.patientId || "N/A";
+const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
-
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+            }
 
             // console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
 
@@ -4139,56 +4321,126 @@ export const getInProgressStudies = async (req, res) => {
         let filterStartDate = null;
         let filterEndDate = null;
         
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-                    break;
-                case 'today':
-                    const todayStart = new Date();
-                    todayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = todayStart;
-                    filterEndDate = new Date(todayStart.getTime() + 86399999);
-                    break;
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999);
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-            }
-        } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        }
+       // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
 
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
+            }
+            break;
+
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
@@ -4242,7 +4494,6 @@ export const getInProgressStudies = async (req, res) => {
                     _id: 1,
                     studyInstanceUID: 1,
                     orthancStudyID: 1,
-                    patientInfo: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
                     currentCategory: 1,
@@ -4268,7 +4519,9 @@ export const getInProgressStudies = async (req, res) => {
                     caseType: 1,
                     patient: 1,
                     sourceLab: 1,
-                    lastAssignmentAt: 1
+                    lastAssignmentAt: 1,
+                    age: 1,
+                    gender: 1
                 }
             }
         ];
@@ -4380,7 +4633,7 @@ export const getInProgressStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps
-            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -4434,42 +4687,23 @@ export const getInProgressStudies = async (req, res) => {
             }
             
             // Optimized patient display building
-           // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || "N/A";
 
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+            }
 
             return {
                 _id: study._id,
@@ -4655,56 +4889,126 @@ export const getCompletedStudies = async (req, res) => {
         let filterEndDate = null;
         
         // Optimized date filtering with pre-calculated timestamps
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'today':
-                    const todayStart = new Date();
-                    todayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = todayStart;
-                    filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-            }
-        } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        }
+       // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
 
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
+            }
+            break;
+
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
@@ -4757,7 +5061,6 @@ export const getCompletedStudies = async (req, res) => {
                 $project: {
                     _id: 1,
                     studyInstanceUID: 1,
-                    patientInfo: 1,
                     orthancStudyID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
@@ -4785,7 +5088,9 @@ export const getCompletedStudies = async (req, res) => {
                     patient: 1,
                     sourceLab: 1,
                     lastAssignmentAt: 1,
-                    timingInfo: 1
+                    timingInfo: 1,
+                    age: 1,
+                    gender: 1
                 }
             }
         ];
@@ -4901,7 +5206,7 @@ export const getCompletedStudies = async (req, res) => {
         
         const formattedStudies = studies.map(study => {
             // Get related data from maps (faster than repeated lookups)
-            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
+            const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
@@ -4960,42 +5265,24 @@ export const getCompletedStudies = async (req, res) => {
             }
             
             // Optimized patient display building with fallback chain
-        // 🔧 FIXED: Add 'else if' to prevent overwriting patientInfo data
-let patientDisplay = "N/A";
-let patientIdForDisplay = study.patientId || "N/A";
-let patientAgeGenderDisplay = "N/A";
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
 
-if (study.patientInfo) {
-    patientDisplay = study.patientInfo.patientName || "N/A";
-    patientIdForDisplay = study.patientInfo.patientID || study.patientId || "N/A";
-    
-    // ✅ FIXED: Extract age and gender from study.patientInfo
-    const agePart = study.patientInfo.age || "";
-    const genderPart = study.patientInfo.gender || "";
-    
-    if (agePart && genderPart) {
-        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-    } else if (agePart) {
-        patientAgeGenderDisplay = agePart;
-    } else if (genderPart) {
-        patientAgeGenderDisplay = `/ ${genderPart}`;
-    } else {
-        patientAgeGenderDisplay = "N/A";
-    }
-}
-// ✅ CRITICAL FIX: Add 'else if' here instead of just 'if'
-else if (patient) {
-    patientDisplay = patient.computed?.fullName || 
-                    patient.patientNameRaw || 
-                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-    patientIdForDisplay = patient.patientID || patientIdForDisplay;
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                patientIdForDisplay = patient.patientID || "N/A";
 
-    // Only set age/gender from patient if patientInfo doesn't exist
-    const agePart = patient.ageString || "";
-    const genderPart = patient.gender || "";
-    patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                           agePart || (genderPart ? `/ ${genderPart}` : "N/A");
-}
+                // Optimized age/gender display
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+            }
 
             return {
                 _id: study._id,
@@ -5381,7 +5668,6 @@ export const updateStudyInteractionStatus = async (req, res) => {
     }
 };
 
-// ✅ ADD: In admin.controller.js (if not already exists)
 export const unassignDoctorFromStudy = async (req, res) => {
   try {
     const { studyId } = req.params;
@@ -5398,32 +5684,78 @@ export const unassignDoctorFromStudy = async (req, res) => {
       });
     }
 
+    // 🔍 LOG: Initial workflow status
+    const initialStatus = study.workflowStatus;
+    console.log(`📊 INITIAL workflow status: ${initialStatus}`);
+
     // Remove doctor from lastAssignedDoctor array
     if (Array.isArray(study.lastAssignedDoctor)) {
+      const beforeLength = study.lastAssignedDoctor.length;
       study.lastAssignedDoctor = study.lastAssignedDoctor.filter(
         assignment => assignment.doctorId.toString() !== doctorId
       );
+      console.log(`📊 lastAssignedDoctor array: ${beforeLength} → ${study.lastAssignedDoctor.length}`);
     } else if (study.lastAssignedDoctor?.doctorId?.toString() === doctorId) {
+      console.log(`📊 Removing single lastAssignedDoctor`);
       study.lastAssignedDoctor = null;
     }
 
-    // Remove from assignment array if exists
+    // 🔧 FIXED: Remove from assignment array - check both User._id and Doctor._id
     if (Array.isArray(study.assignment)) {
-      study.assignment = study.assignment.filter(
-        assignment => assignment.assignedTo?.toString() !== doctorId
-      );
+      const beforeLength = study.assignment.length;
+      
+      // 🔧 CRITICAL: Get the doctor's userAccount ID for proper filtering
+      const doctor = await Doctor.findById(doctorId).populate('userAccount');
+      const userAccountId = doctor?.userAccount?._id?.toString();
+      
+      console.log(`🔍 Doctor userAccount ID: ${userAccountId}`);
+      console.log(`🔍 Current assignment entries:`, study.assignment.map(a => ({
+        assignedTo: a.assignedTo?.toString(),
+        assignedAt: a.assignedAt
+      })));
+      
+      // Filter out assignments that match either the doctor ID or user account ID
+      study.assignment = study.assignment.filter(assignment => {
+        const assignedToId = assignment.assignedTo?.toString();
+        const matchesDoctorId = assignedToId === doctorId;
+        const matchesUserAccountId = assignedToId === userAccountId;
+        
+        console.log(`🔍 Assignment ${assignedToId}: doctorMatch=${matchesDoctorId}, userMatch=${matchesUserAccountId}`);
+        
+        return !matchesDoctorId && !matchesUserAccountId;
+      });
+      
+      console.log(`📊 assignment array: ${beforeLength} → ${study.assignment.length}`);
     }
 
-    // Update workflow status if no doctors remain assigned
-    const hasRemainingAssignments = Array.isArray(study.lastAssignedDoctor) 
-      ? study.lastAssignedDoctor.length > 0
-      : !!study.lastAssignedDoctor;
+    // 🔧 NEW: Update workflow status based on remaining assignments
+    const hasRemainingAssignments = (Array.isArray(study.lastAssignedDoctor) && study.lastAssignedDoctor.length > 0) ||
+                                   (Array.isArray(study.assignment) && study.assignment.length > 0) ||
+                                   study.lastAssignedDoctor;
 
     if (!hasRemainingAssignments) {
+      console.log(`📊 No remaining assignments, setting status to pending_assignment`);
       study.workflowStatus = 'pending_assignment';
+    } else {
+      console.log(`📊 ${study.assignment?.length || 0} assignments remaining, keeping current status`);
     }
 
-    await study.save();
+    // 🔍 LOG: Status BEFORE save
+    console.log(`📊 Status BEFORE save: ${study.workflowStatus}`);
+    console.log(`📊 Modified fields:`, study.modifiedPaths());
+
+    // 🔍 CRITICAL: Save the changes
+    const savedStudy = await study.save();
+
+    // 🔍 LOG: Status AFTER save
+    console.log(`📊 Status AFTER save: ${savedStudy.workflowStatus}`);
+    
+    // Check if status changed as expected
+    if (savedStudy.workflowStatus !== initialStatus) {
+      console.log(`✅ STATUS UPDATED: ${initialStatus} → ${savedStudy.workflowStatus}`);
+    } else {
+      console.log(`ℹ️ STATUS UNCHANGED: ${savedStudy.workflowStatus} (other assignments remain)`);
+    }
 
     // Also remove from doctor's assignedStudies
     await Doctor.updateOne(
@@ -5442,9 +5774,10 @@ export const unassignDoctorFromStudy = async (req, res) => {
       success: true,
       message: 'Doctor unassigned successfully',
       study: {
-        _id: study._id,
-        workflowStatus: study.workflowStatus,
-        assignedDoctors: study.lastAssignedDoctor || []
+        _id: savedStudy._id,
+        workflowStatus: savedStudy.workflowStatus,
+        assignedDoctors: savedStudy.lastAssignedDoctor || [],
+        remainingAssignments: savedStudy.assignment?.length || 0
       }
     });
 

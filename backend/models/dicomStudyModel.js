@@ -48,6 +48,14 @@ const DicomStudySchema = new mongoose.Schema({
         type: String, 
         index: { sparse: true, background: true } // 🔥 Sparse index for optional fields
     },
+    age: {
+        type: String
+    },
+    gender: {
+        type: String
+    },
+    
+
     
     // 🔧 CRITICAL: Workflow management
     workflowStatus: {
