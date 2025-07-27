@@ -242,7 +242,10 @@ export const getAssignedStudies = async (req, res) => {
                     assignment: 1,
                     lastAssignedDoctor: 1,
                     patient: 1,
-                    sourceLab: 1
+                    sourceLab: 1,
+                    age:1,
+                    gender:1,
+                    preProcessedDownload: 1
                 }
             },
 
@@ -340,6 +343,11 @@ export const getAssignedStudies = async (req, res) => {
                 study.patientData[0] : null;
 
                 const sourceLab = study.sourceLab;
+
+                const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
             
             // Get the most recent assignment for display purposes - optimized
             let assignmentData = null;
@@ -352,7 +360,9 @@ export const getAssignedStudies = async (req, res) => {
             // Optimized patient display building
             let patientDisplay = 'N/A';
             let patientIdDisplay = 'N/A';
-            let ageGenderDisplay = 'N/A';
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
@@ -376,7 +386,7 @@ export const getAssignedStudies = async (req, res) => {
                 accessionNumber: study.accessionNumber,
                 patientId: patientIdDisplay,
                 patientName: patientDisplay,
-                ageGender: ageGenderDisplay,
+                ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
                 modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
@@ -421,6 +431,17 @@ export const getAssignedStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+
+                downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 workflowStatus: study.workflowStatus,
                 caseType: study.caseType || 'routine',
                 currentCategory: study.currentCategory,
@@ -1068,7 +1089,10 @@ export const getPendingStudies = async (req, res) => {
                     lastAssignedDoctor: 1,
                     patient: 1,
                     sourceLab: 1,
-                    patientInfo: 1 // Keep denormalized patient data
+                    patientInfo: 1, // Keep denormalized patient data
+                    age:1,
+                    gender:1,
+                    preProcessedDownload: 1
                 }
             },
             
@@ -1192,6 +1216,11 @@ export const getPendingStudies = async (req, res) => {
             // Get related data from maps (faster than repeated lookups)
             const patientData = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
             
             // Use denormalized patient data first, fallback to lookup
             const patient = patientData || study.patientInfo;
@@ -1205,7 +1234,9 @@ export const getPendingStudies = async (req, res) => {
             // Optimized patient display building
             let patientName = 'N/A';
             let patientId = 'N/A';
-            let ageGender = 'N/A';
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientName = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
@@ -1234,7 +1265,7 @@ export const getPendingStudies = async (req, res) => {
                 accessionNumber: study.accessionNumber,
                 patientId: patientId,
                 patientName: patientName,
-                ageGender: ageGender,
+                ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
                 modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
@@ -1278,6 +1309,17 @@ export const getPendingStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+
+                downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 workflowStatus: study.workflowStatus,
                 clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
@@ -1457,7 +1499,9 @@ export const getInProgressStudies = async (req, res) => {
                     studyTime: 1, createdAt: 1, caseType: 1, 'assignment.priority': 1,
                     doctorReports: 1, ReportAvailable: 1, 
                     'assignment.assignedAt': 1, lastAssignedDoctor: 1, 'reportInfo.startedAt': 1,
-                    patient: 1, sourceLab: 1, patientInfo: 1 // Keep for fallback
+                    patient: 1, sourceLab: 1, patientInfo: 1,  age:1,
+                    gender:1,
+                    preProcessedDownload: 1 // Keep for fallback
                 }
             },
             { $addFields: { currentCategory: 'inprogress' } }
@@ -1555,6 +1599,10 @@ export const getInProgressStudies = async (req, res) => {
         const formattedStudies = studies.map(study => {
             const patient = lookupMaps.patients.get(study.patient?.toString()) || study.patientInfo;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
 
             const assignmentData = (study.assignment?.length > 0)
                 ? study.assignment[study.assignment.length - 1]
@@ -1564,7 +1612,9 @@ export const getInProgressStudies = async (req, res) => {
 
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            let patientAgeGenderDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || patient.patientNameRaw || "N/A";
@@ -1624,6 +1674,17 @@ export const getInProgressStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
+
                 currentCategory: study.currentCategory,
                 clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
                 createdAt: study.createdAt,
@@ -1866,7 +1927,10 @@ queryFilters = {
                     'reportInfo.reporterName': 1,
                     patient: 1,
                     sourceLab: 1,
-                    patientInfo: 1 // Keep for fallback
+                    patientInfo: 1, // Keep for fallback
+                    age: 1,
+                    gender: 1,
+                    preProcessedDownload: 1
                 }
             },
             
@@ -2008,6 +2072,10 @@ queryFilters = {
             // Get related data from maps (faster than repeated lookups)
             const patient = lookupMaps.patients.get(study.patient?.toString()) || study.patientInfo;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
             
             // Handle assignment data efficiently
             const assignmentData = (study.assignment && study.assignment.length > 0) ? 
@@ -2018,8 +2086,9 @@ queryFilters = {
             // Optimized patient display building
             const patientName = patient?.computed?.fullName || patient?.patientNameRaw || 'N/A';
             const patientId = patient?.patientID || 'N/A';
-            const ageGender = (patient?.ageString && patient?.gender) ? 
-                             `${patient.ageString} / ${patient.gender}` : 'N/A';
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             // Optimized date formatting
             const studyDateTime = study.studyDate && study.studyTime ? 
@@ -2034,7 +2103,7 @@ queryFilters = {
                 accessionNumber: study.accessionNumber,
                 patientId: patientId,
                 patientName: patientName,
-                ageGender: ageGender,
+                ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
                 modality: study.modalitiesInStudy?.length > 0 ? 
          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
@@ -2078,6 +2147,17 @@ queryFilters = {
                     }).replace(',', '');
                 })()
                 : null,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 workflowStatus: study.workflowStatus,
                 clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
