@@ -1,57 +1,55 @@
 import { S3Client } from '@aws-sdk/client-s3';
 
-// ✅ HARDCODED: Your actual Cloudflare R2 Configuration
+// ✅ HARDCODED: Your actual Cloudflare R2 Configuration with credentials
 export const r2Config = {
-    // ✅ HARDCODED: Your actual account endpoint from the screenshot
     endpoint: 'https://b39c632fcc14248dfcf837983059a2cd.r2.cloudflarestorage.com',
     
-    // R2 credentials from environment
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    // ✅ HARDCODED: Your actual R2 credentials
+    accessKeyId: '84a50df7100eea000b6ddd0c2ddce67a',
+    secretAccessKey: '1a925bae4d85529b3c8e68460b29d03de672a4d9fbba2a7fd430af0edc4f2a91',
     
-    // ✅ HARDCODED: Your actual bucket name from screenshot
     zipBucket: 'studyzip',
-    
-    // ✅ HARDCODED: Your public URL pattern (from S3 API shown in screenshot)
     publicUrlPattern: 'https://pub-studyzip.r2.dev',
-    
-    // ✅ HARDCODED: Custom domain configuration
     customDomain: process.env.R2_CUSTOM_DOMAIN || null,
     
-    // ✅ HARDCODED: S3 API endpoint for your bucket
-    s3ApiEndpoint: 'https://b39c632fcc14248dfcf837983059a2cd.r2.cloudflarestorage.com/studyzip',
+    // ✅ FIXED: R2 always uses 'auto' as region
+    region: 'auto',
     
-    // Region from screenshot
-    region: 'apac', // Asia-Pacific as shown
-    
-    // CDN settings optimized for medical imaging
     cdnSettings: {
-        cacheMaxAge: 86400,        // 24 hours browser cache
-        edgeCacheMaxAge: 2592000,  // 30 days edge cache (R2 has generous limits)
-        enableCompression: false,  // Don't compress ZIP files
+        cacheMaxAge: 86400,
+        edgeCacheMaxAge: 2592000,
+        enableCompression: false,
         enableCaching: true
     },
     
-    // R2 Features
     features: {
         enablePublicAccess: true,
         enableCustomDomain: !!process.env.R2_CUSTOM_DOMAIN,
-        enablePresignedUrls: false, // R2 supports direct public access
+        enablePresignedUrls: false,
         enableAnalytics: true,
-        enableCDN: true // Built-in CDN
+        enableCDN: true
     }
 };
 
-// ✅ HARDCODED: Create R2 S3-compatible client with your endpoint
+// ✅ ENHANCED: Validate hardcoded credentials
+console.log('🔍 DEBUG: R2 Credential Validation:');
+console.log(`🔑 Access Key: ${r2Config.accessKeyId.substring(0,8)}...`);
+console.log(`🔐 Secret Key: ${r2Config.secretAccessKey.substring(0,8)}...`);
+
+if (!r2Config.accessKeyId || !r2Config.secretAccessKey) {
+    console.error('❌ CRITICAL: R2 credentials missing!');
+    throw new Error('Missing R2 credentials');
+}
+
+// ✅ FIXED: Proper R2 client configuration with hardcoded credentials
 export const r2Client = new S3Client({
-    region: 'auto', // R2 uses 'auto' as region
+    region: 'auto', // ✅ CRITICAL: R2 uses 'auto'
     endpoint: r2Config.endpoint,
     credentials: {
         accessKeyId: r2Config.accessKeyId,
         secretAccessKey: r2Config.secretAccessKey,
     },
-    // R2-specific configuration
-    forcePathStyle: true, // Required for R2
+    forcePathStyle: true,
     signatureVersion: 'v4'
 });
 
@@ -94,7 +92,9 @@ export const getCDNOptimizedUrl = (key, options = {}) => {
     return queryString ? `${baseUrl}?${queryString}` : baseUrl;
 };
 
-console.log('🔧 Cloudflare R2 configuration loaded for studyzip bucket');
-console.log(`🌐 Public URL pattern: ${r2Config.publicUrlPattern}`);
+console.log('🔧 Cloudflare R2 configuration loaded with hardcoded credentials');
 console.log(`📦 Bucket: ${r2Config.zipBucket}`);
-console.log(`🌍 Region: ${r2Config.region}`);
+console.log(`🌐 Endpoint: ${r2Config.endpoint}`);
+console.log(`🔑 Access Key: ${r2Config.accessKeyId.substring(0,8)}...`);
+console.log(`🔐 Secret Key: ***HARDCODED***`);
+console.log('✅ R2 credentials are now hardcoded and ready!');
