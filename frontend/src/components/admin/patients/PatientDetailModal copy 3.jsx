@@ -13,7 +13,6 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     isAdmin,
     isDoctor 
   } = useAllowedRoles();
-  console.log(patientId)
 
   const [patientDetails, setPatientDetails] = useState(null);
   const [loading, setLoading] = useState(true);
