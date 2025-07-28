@@ -2075,25 +2075,9 @@ patientId: patientIdString, //
         await DicomStudy.findByIdAndUpdate(
           studyId,
           {
-            $push: { uploadedReports: studyDocumentRef },
-            $set: { 
-              ReportAvailable: true,
-              ...(documentType === 'report' || documentType === 'clinical') && study.workflowStatus === 'report_in_progress' 
-                ? { workflowStatus: 'report_finalized' } 
-                : {}
-            },
-            ...(documentType === 'report' || documentType === 'clinical') && study.workflowStatus === 'report_in_progress'
-              ? {
-                  $push: {
-                    statusHistory: {
-                      status: 'report_finalized',
-                      changedAt: new Date(),
-                      changedBy: userId,
-                      note: `Report uploaded: ${file.originalname}`
-                    }
-                  }
-                }
-              : {}
+            $push: { uploadedReports: studyDocumentRef }
+            
+          
           }
         );
 
