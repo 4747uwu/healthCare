@@ -666,7 +666,7 @@ const TATReport = () => {
                     </div>
                     <div className="flex items-center">
                       <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
-                      <span>>24h</span>
+                      <span>24h</span>
                     </div>
                   </div>
                 </div>
