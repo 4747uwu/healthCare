@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
-import { useAuth } from '../../hooks/useAuth';
-import UniversalNavbar from '../../components/layout/AdminNavbar';
-import TATReportTable from '../../components/admin/TATReportTable';
-import api from '../../services/api';
+import { useAuth } from '../hooks/useAuth';
+import UniversalNavbar from '../components/layout/AdminNavbar';
+import TATReportTable from '../components/admin/TATReportTable';
+import api from '../services/api';
 
 const TATReport = () => {
   const { currentUser } = useAuth();
