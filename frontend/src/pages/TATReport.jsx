@@ -26,12 +26,30 @@ const TATReport = () => {
   useEffect(() => {
     const fetchLocations = async () => {
       try {
-        const response = await api.get('/tat/locations');
+        console.log('🔍 Fetching locations...'); // Debug log
+        
+        // ✅ MAKE SURE: API base URL is correct
+        const response = await api.get('/api/tat/locations'); // ✅ VERIFY: This path matches your route
+        
+        console.log('📍 Locations response:', response.data); // Debug log
+        
         if (response.data.success) {
           setLocations(response.data.locations);
+          console.log(`✅ Loaded ${response.data.locations.length} locations`);
+        } else {
+          console.error('❌ Locations API returned success: false');
+          toast.error('Failed to load locations');
         }
       } catch (error) {
-        console.error('Error fetching locations:', error);
+        console.error('❌ Error fetching locations:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data
+        });
+        
+        toast.error(`Failed to load locations: ${error.response?.status || 'Network error'}`);
       }
     };
 
@@ -40,10 +58,15 @@ const TATReport = () => {
 
   // Fetch TAT data with enhanced filters
   const fetchTATData = useCallback(async () => {
-    if (!selectedLocation) return;
+    if (!selectedLocation) {
+      console.log('⚠️ No location selected, skipping TAT data fetch');
+      return;
+    }
 
     setLoading(true);
     try {
+      console.log('🔍 Fetching TAT data...', { selectedLocation, dateType, fromDate, toDate });
+      
       const params = {
         location: selectedLocation,
         dateType,
@@ -57,13 +80,31 @@ const TATReport = () => {
         params.modality = selectedModalities.join(',');
       }
 
-      const response = await api.get('/tat/report', { params });
+      console.log('📤 TAT request params:', params);
+
+      // ✅ VERIFY: This should match your backend route
+      const response = await api.get('/api/tat/report', { params });
+      
+      console.log('📊 TAT response:', response.data);
       
       if (response.data.success) {
         setStudies(response.data.studies);
+        console.log(`✅ Loaded ${response.data.studies.length} studies`);
+      } else {
+        console.error('❌ TAT API returned success: false');
+        toast.error('Failed to load TAT data');
+        setStudies([]);
       }
     } catch (error) {
-      console.error('Error fetching TAT data:', error);
+      console.error('❌ Error fetching TAT data:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
+      
+      toast.error(`Failed to load TAT data: ${error.response?.status || 'Network error'}`);
       setStudies([]);
     } finally {
       setLoading(false);

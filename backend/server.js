@@ -28,6 +28,7 @@ import sharingRoutes from './routes/sharing.routes.js';
 // import orthancProaxyRoutes from './routes/orthanc.proxy.routes.js'
 import zipdownloadRoutes from './routes/zipdownload.route.js';
 import ownerRoutes from './routes/owner.routes.js';
+import tatRoutes from './routes/TAT.routes.js';
 
 
 
@@ -205,6 +206,7 @@ app.use('/api/footer', footer);
 app.use('/api/sharing', sharingRoutes);
 app.use('/api/download', zipdownloadRoutes)
 app.use('/api/owner', ownerRoutes);
+app.use('/api/tat', tatRoutes)
 
 // app.use('/api/orthanc-proxy', orthancProaxyRoutes);
 
