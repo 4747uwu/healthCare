@@ -5,6 +5,9 @@ import { useAuth } from '../hooks/useAuth';
 import UniversalNavbar from '../components/layout/AdminNavbar';
 import api from '../services/api';
 
+// ✅ FIXED: Update TATReport.jsx with proper type checking
+// filepath: d:\website\devops\digital ocean\frontend\src\pages\TATReport.jsx
+
 const TATReport = () => {
   const { currentUser } = useAuth();
   
@@ -169,14 +172,27 @@ const TATReport = () => {
     setCurrentPage(page);
   };
 
-  // Helper functions
-  const safeValue = (value, defaultVal = '-') => value || defaultVal;
+  // ✅ FIXED: Helper functions with proper type checking
+  const safeValue = (value, defaultVal = '-') => {
+    // Handle null, undefined, empty string, or other falsy values
+    if (value === null || value === undefined || value === '') return defaultVal;
+    // Convert to string if it's not already
+    return String(value);
+  };
 
-  const getTATStatusColor = (tatString) => {
-    if (!tatString || tatString === '-') return 'bg-gray-100 text-gray-700 border border-gray-200';
+  const getTATStatusColor = (tatValue) => {
+    // ✅ FIXED: Proper type checking and conversion
+    if (!tatValue || tatValue === '-' || tatValue === null || tatValue === undefined) {
+      return 'bg-gray-100 text-gray-700 border border-gray-200';
+    }
     
+    // Convert to string first, then extract numbers
+    const tatString = String(tatValue);
     const minutes = parseInt(tatString.replace(/[^\d]/g, ''));
-    if (isNaN(minutes)) return 'bg-gray-100 text-gray-700 border border-gray-200';
+    
+    if (isNaN(minutes) || minutes === 0) {
+      return 'bg-gray-100 text-gray-700 border border-gray-200';
+    }
     
     if (minutes <= 60) return 'bg-green-100 text-green-800 border border-green-200';
     if (minutes <= 240) return 'bg-blue-100 text-blue-800 border border-blue-200';
@@ -186,7 +202,10 @@ const TATReport = () => {
   };
 
   const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
+    // ✅ FIXED: Safe string conversion
+    const statusString = status ? String(status).toLowerCase() : '';
+    
+    switch (statusString) {
       case 'final_report_downloaded':
       case 'report_finalized':
       case 'completed':
@@ -208,13 +227,41 @@ const TATReport = () => {
     }
   };
 
-  const formatDateTime = (dateString) => {
-    if (!dateString) return '-';
+  const formatDateTime = (dateValue) => {
+    if (!dateValue) return '-';
+    
     try {
-      const date = new Date(dateString);
+      // Handle both string and Date object
+      const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+      
+      if (isNaN(date.getTime())) {
+        return '-';
+      }
+      
       return format(date, 'MMM dd, yyyy • HH:mm');
     } catch (error) {
+      console.warn('Date formatting error:', error, 'Value:', dateValue);
       return '-';
+    }
+  };
+
+  // ✅ FIXED: Safe value extraction for nested objects
+  const getSafeNestedValue = (obj, path, defaultValue = '-') => {
+    try {
+      const keys = path.split('.');
+      let current = obj;
+      
+      for (const key of keys) {
+        if (current === null || current === undefined) {
+          return defaultValue;
+        }
+        current = current[key];
+      }
+      
+      return current !== null && current !== undefined ? String(current) : defaultValue;
+    } catch (error) {
+      console.warn('Error accessing nested value:', error, 'Path:', path, 'Object:', obj);
+      return defaultValue;
     }
   };
 
@@ -498,17 +545,17 @@ const TATReport = () => {
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2 whitespace-nowrap">
                         <div className="font-mono text-xs text-gray-700">
-                          {study.billedOnStudyDate}
+                          {safeValue(study.billedOnStudyDate)}
                         </div>
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2 whitespace-nowrap">
                         <div className="font-mono text-xs text-gray-700">
-                          {study.uploadDate}
+                          {safeValue(study.uploadDate)}
                         </div>
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2 whitespace-nowrap">
                         <div className="font-mono text-xs text-gray-700">
-                          {study.assignedDate}
+                          {safeValue(study.assignedDate)}
                         </div>
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2 whitespace-nowrap">
@@ -516,24 +563,26 @@ const TATReport = () => {
                           {study.reportDate ? formatDateTime(study.reportDate) : '-'}
                         </div>
                       </td>
+                      
+                      {/* ✅ FIXED: TAT columns with safe nested value access */}
                       <td className="border-r border-gray-100 px-2 py-2 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(study.fullTatDetails?.uploadToAssignmentTAT)}`}>
-                          {study.fullTatDetails?.uploadToAssignmentTAT || 'N/A'}
+                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.uploadToAssignmentTAT'))}`}>
+                          {getSafeNestedValue(study, 'fullTatDetails.uploadToAssignmentTAT', 'N/A')}
                         </span>
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(study.fullTatDetails?.studyToReportTATFormatted)}`}>
-                          {study.fullTatDetails?.studyToReportTATFormatted || 'N/A'}
+                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.studyToReportTATFormatted'))}`}>
+                          {getSafeNestedValue(study, 'fullTatDetails.studyToReportTATFormatted', 'N/A')}
                         </span>
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(study.fullTatDetails?.uploadToReportTATFormatted)}`}>
-                          {study.fullTatDetails?.uploadToReportTATFormatted || 'N/A'}
+                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.uploadToReportTATFormatted'))}`}>
+                          {getSafeNestedValue(study, 'fullTatDetails.uploadToReportTATFormatted', 'N/A')}
                         </span>
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2 text-center whitespace-nowrap">
-                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(study.fullTatDetails?.assignmentToReportTATFormatted)}`}>
-                          {study.fullTatDetails?.assignmentToReportTATFormatted || 'N/A'}
+                        <span className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.assignmentToReportTATFormatted'))}`}>
+                          {getSafeNestedValue(study, 'fullTatDetails.assignmentToReportTATFormatted', 'N/A')}
                         </span>
                       </td>
                       <td className="border-r border-gray-100 px-2 py-2">
