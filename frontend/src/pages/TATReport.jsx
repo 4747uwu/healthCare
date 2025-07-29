@@ -1,329 +1,187 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
-import UniversalNavbar from '../components/layout/AdminNavbar';
-import TATReportTable from '../components/admin/TATReportTable';
-import api from '../services/api';
+import { useAuth } from '../../hooks/useAuth';
+import UniversalNavbar from '../../components/layout/AdminNavbar';
+import TATReportTable from '../../components/admin/TATReportTable';
+import api from '../../services/api';
 
-const TATReportPage = () => {
-  // State for filters and data
+const TATReport = () => {
+  const { currentUser } = useAuth();
+  
+  // State management
   const [studies, setStudies] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
-  const [statuses, setStatuses] = useState([]);
-  const [dateTypeOptions, setDateTypeOptions] = useState([
-    { value: 'studyDate', label: 'Study Date' },
-    { value: 'uploadDate', label: 'Upload Date' },
-    { value: 'assignedDate', label: 'Assigned Date' },
-    { value: 'reportDate', label: 'Report Date' }
-  ]);
-  
-  // Filter states
+  const [loading, setLoading] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState('');
-  const [selectedDateType, setSelectedDateType] = useState('studyDate');
-  const [selectedStatus, setSelectedStatus] = useState('');
-  const [fromDate, setFromDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedModalities, setSelectedModalities] = useState([]);
+  const [recordsPerPage, setRecordsPerPage] = useState(100);
   
-  // Summary data
-  const [summary, setSummary] = useState({
-    totalStudies: 0,
-    averageStudyToReport: 0,
-    averageUploadToReport: 0,
-    averageAssignToReport: 0
-  });
+  // Date filters
+  const [dateType, setDateType] = useState('uploadDate');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
-  // Define fetchTATData outside useEffect using useCallback
+  // Fetch locations with search capability
+  useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        const response = await api.get('/tat/locations');
+        if (response.data.success) {
+          setLocations(response.data.locations);
+        }
+      } catch (error) {
+        console.error('Error fetching locations:', error);
+      }
+    };
+
+    fetchLocations();
+  }, []);
+
+  // Fetch TAT data with enhanced filters
   const fetchTATData = useCallback(async () => {
     if (!selectedLocation) return;
-    
+
     setLoading(true);
     try {
-      const response = await api.get('/reports/tat', {
-        params: {
-          location: selectedLocation,
-          dateType: selectedDateType,
-          fromDate,
-          toDate,
-          status: selectedStatus
-        }
-      });
-      console.log('TAT Report Data:', response.data);
+      const params = {
+        location: selectedLocation,
+        dateType,
+        fromDate,
+        toDate,
+        limit: recordsPerPage
+      };
+
+      // Add modality filter if selected
+      if (selectedModalities.length > 0) {
+        params.modality = selectedModalities.join(',');
+      }
+
+      const response = await api.get('/tat/report', { params });
       
       if (response.data.success) {
-        setStudies(response.data.studies || []);
-        setSummary({
-          totalStudies: response.data.summary?.totalStudies || 0,
-          averageStudyToReport: response.data.summary?.averageStudyToReport || 0,
-          averageUploadToReport: response.data.summary?.averageUploadToReport || 0,
-          averageAssignToReport: response.data.summary?.averageAssignToReport || 0
-        });
-      } else {
-        toast.error(response.data.message || 'Failed to load TAT data');
-        setStudies([]);
-        setSummary({
-          totalStudies: 0,
-          averageStudyToReport: 0,
-          averageUploadToReport: 0,
-          averageAssignToReport: 0
-        });
+        setStudies(response.data.studies);
       }
     } catch (error) {
       console.error('Error fetching TAT data:', error);
-      toast.error('Failed to load TAT report');
       setStudies([]);
-      setSummary({
-        totalStudies: 0,
-        averageStudyToReport: 0,
-        averageUploadToReport: 0,
-        averageAssignToReport: 0
-      });
     } finally {
       setLoading(false);
     }
-  }, [selectedLocation, selectedDateType, selectedStatus, fromDate, toDate]);
+  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities, recordsPerPage]);
 
-  // Load locations and statuses on component mount
+  // Fetch data when filters change
   useEffect(() => {
-    const fetchMasterData = async () => {
-      try {
-        const [locationsResponse, statusesResponse] = await Promise.all([
-          api.get('/reports/locations'),
-          api.get('/reports/statuses')
-        ]);
-        
-        setLocations(locationsResponse.data.locations || []);
-        setStatuses(statusesResponse.data.statuses || []);
-        
-        // Set default location if available
-        if (locationsResponse.data.locations?.length > 0) {
-          setSelectedLocation(locationsResponse.data.locations[0].value);
-        }
-      } catch (error) {
-        console.error('Error fetching master data:', error);
-        toast.error('Failed to load locations and statuses');
-      }
-    };
-    
-    fetchMasterData();
-  }, []);
-
-  // Fetch TAT report data when filters change
-  useEffect(() => {
-    fetchTATData();
+    if (selectedLocation) {
+      fetchTATData();
+    }
   }, [fetchTATData]);
 
-  // Handle search with current filters
-  const handleSearch = () => {
-    fetchTATData();
+  // Handle filter changes
+  const handleLocationChange = (location) => {
+    setSelectedLocation(location);
   };
 
-  // Handle clear filters
-  const handleClear = () => {
-    if (locations.length > 0) {
-      setSelectedLocation(locations[0].value);
-    } else {
-      setSelectedLocation('');
-    }
-    setSelectedDateType('studyDate');
-    setSelectedStatus('');
-    setFromDate(format(new Date(), 'yyyy-MM-dd'));
-    setToDate(format(new Date(), 'yyyy-MM-dd'));
+  const handleModalityFilter = (modalities) => {
+    setSelectedModalities(modalities);
   };
 
-  // Export report as CSV/Excel
-  const handleExport = async () => {
-    try {
-      const response = await api.get('/reports/tat/export', {
-        params: {
-          location: selectedLocation,
-          dateType: selectedDateType,
-          fromDate,
-          toDate,
-          status: selectedStatus
-        },
-        responseType: 'blob' // Important for binary downloads
-      });
-      
-      // Create a download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `TAT_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      
-      toast.success('Report exported successfully');
-    } catch (error) {
-      console.error('Error exporting TAT report:', error);
-      toast.error('Failed to export report');
-    }
+  const handleRecordsPerPageChange = (newRecordsPerPage) => {
+    setRecordsPerPage(newRecordsPerPage);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50 flex flex-col">
       <UniversalNavbar />
       
-      {/* Header */}
-      <div className="bg-gray-600 text-white py-4 mt-2 rounded-t-lg shadow-md">
-        <div className="container mx-auto px-4">
-          <h1 className="text-2xl font-bold">OVERALL TAT REPORT</h1>
-        </div>
-      </div>
-      
-      {/* Filter Section */}
-      <div className="bg-white border-b border-gray-200 py-4">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Location Filter */}
-            <div className="flex items-center">
-              <label className="mr-2 text-sm font-medium text-gray-700">
-                Location <span className="text-red-500">*</span>
-              </label>
-              <select
-                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
-                value={selectedLocation}
-                onChange={(e) => setSelectedLocation(e.target.value)}
-              >
-                {locations.map((location) => (
-                  <option key={location.value} value={location.value}>
-                    {location.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {/* Date Type */}
-            <div>
-              <select
-                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
-                value={selectedDateType}
-                onChange={(e) => setSelectedDateType(e.target.value)}
-              >
-                {dateTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {/* From Date */}
-            <div>
-              <input
-                type="date"
-                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-              />
-            </div>
-            
-            {/* To Date */}
-            <div>
-              <input
-                type="date"
-                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-              />
-            </div>
-            
-            {/* Status */}
-            <div>
-              <select
-                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-              >
-                <option value="">SELECT STATUS</option>
-                {statuses.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {/* Additional Filters (Can be added as needed) */}
-            <div>
-              <select
-                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-36"
-                defaultValue=""
-              >
-                <option value="">SELECT</option>
-                <option value="option1">Option 1</option>
-                <option value="option2">Option 2</option>
-              </select>
-            </div>
-            
-            {/* Action Buttons */}
-            <div className="ml-auto flex gap-2">
-              <button
-                onClick={handleSearch}
-                className="bg-blue-900 text-white px-4 py-2 rounded flex items-center"
-              >
-                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                SEARCH
-              </button>
-              <button
-                onClick={handleClear}
-                className="bg-red-500 text-white px-4 py-2 rounded flex items-center"
-              >
-                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                CLEAR
-              </button>
+      <div className="flex-1 p-6 overflow-hidden">
+        <div className="h-full flex flex-col">
+          {/* Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-900">TAT Performance Report</h1>
+            <p className="text-gray-600">Analyze turnaround times and study performance metrics</p>
+          </div>
+
+          {/* Filter Controls */}
+          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6 shadow-sm">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              {/* Date Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Date Type</label>
+                <select
+                  value={dateType}
+                  onChange={(e) => setDateType(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="uploadDate">Upload Date</option>
+                  <option value="studyDate">Study Date</option>
+                  <option value="assignedDate">Assigned Date</option>
+                  <option value="reportDate">Report Date</option>
+                </select>
+              </div>
+
+              {/* From Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">From Date</label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* To Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">To Date</label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Generate Button */}
+              <div className="flex items-end">
+                <button
+                  onClick={fetchTATData}
+                  disabled={!selectedLocation || loading}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    'Generate Report'
+                  )}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-      
-      {/* Report Content */}
-      <div className="container mx-auto px-4 py-6 max-w-full">
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+
+          {/* TAT Table with new features */}
+          <div className="flex-1 min-h-0">
+            <TATReportTable
+              studies={studies}
+              onLocationChange={handleLocationChange}
+              locations={locations}
+              selectedLocation={selectedLocation}
+              onModalityFilter={handleModalityFilter}
+              selectedModalities={selectedModalities}
+              onRecordsPerPageChange={handleRecordsPerPageChange}
+              recordsPerPage={recordsPerPage}
+            />
           </div>
-        ) : (
-          <>
-            {/* Summary Cards */}
-            
-            
-            {/* Result Table */}
-            <div className="bg-white rounded shadow overflow-x-auto max-w-full">
-              <TATReportTable studies={studies} />
-            </div>
-            
-            {/* Footer Actions */}
-            <div className="flex justify-end mt-4 gap-2">
-              <button
-                onClick={() => window.close()}
-                className="bg-gray-700 text-white px-6 py-2 rounded flex items-center"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Close
-              </button>
-              <button
-                onClick={handleExport}
-                className="bg-teal-500 text-white px-6 py-2 rounded flex items-center"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                EXPORT
-              </button>
-            </div>
-          </>
-        )}
+        </div>
       </div>
     </div>
   );
 };
 
-export default TATReportPage;
+export default TATReport;
