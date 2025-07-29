@@ -29,7 +29,7 @@ const TATReport = () => {
         console.log('🔍 Fetching locations...'); // Debug log
         
         // ✅ MAKE SURE: API base URL is correct
-        const response = await api.get('/api/tat/locations'); // ✅ VERIFY: This path matches your route
+        const response = await api.get('/tat/locations'); // ✅ VERIFY: This path matches your route
         
         console.log('📍 Locations response:', response.data); // Debug log
         
@@ -83,7 +83,7 @@ const TATReport = () => {
       console.log('📤 TAT request params:', params);
 
       // ✅ VERIFY: This should match your backend route
-      const response = await api.get('/api/tat/report', { params });
+      const response = await api.get('/tat/report', { params });
       
       console.log('📊 TAT response:', response.data);
       
