@@ -796,7 +796,7 @@ const TATReport = () => {
               <th className="border-r border-gray-600 px-1 py-2 text-left text-xs font-semibold min-w-[80px]">ASSIGN DATE</th>
               <th className="border-r border-gray-600 px-1 py-2 text-left text-xs font-semibold min-w-[80px]">REPORT DATE</th>
               <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">U→A TAT</th>
-              <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">S→R TAT</th>
+              {/* <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">S→R TAT</th> */}
               <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">U→R TAT</th>
               <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">A→R TAT</th>
               <th className="border-r border-gray-600 px-1 py-2 text-left text-xs font-semibold min-w-[80px]">REPORTED BY</th>
@@ -901,14 +901,14 @@ const TATReport = () => {
                       })()}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
+                  {/* <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-1 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.studyToReportTATFormatted'))}`}>
                       {(() => {
                         const val = getSafeNestedValue(study, 'fullTatDetails.studyToReportTATFormatted', 'N/A');
                         return val !== 'N/A' && val !== '-' ? `${val}m` : val;
                       })()}
                     </span>
-                  </td>
+                  </td> */}
                   <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-1 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.uploadToReportTATFormatted'))}`}>
                       {(() => {
