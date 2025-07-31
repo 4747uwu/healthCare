@@ -139,9 +139,10 @@ export const getStatuses = async (req, res) => {
 export const getTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
-        const { location, dateType, fromDate, toDate, status, reportedBy, page = 1, limit = 100 } = req.query;
+        const { location, dateType, fromDate, toDate, status, page = 1, limit = 100 } = req.query;
+        // 🔧 REMOVED: reportedBy parameter - no longer used
 
-        console.log(`🔍 Generating TAT report - Location: ${location}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}, ReportedBy: ${reportedBy}`);
+        console.log(`🔍 Generating TAT report - Location: ${location}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}`);
 
         if (!location) {
             return res.status(400).json({
@@ -150,8 +151,8 @@ export const getTATReport = async (req, res) => {
             });
         }
 
-        // 🔧 PERFORMANCE: Check cache for this specific query (include reportedBy in cache key)
-        const cacheKey = `tat_report_${location}_${dateType}_${fromDate}_${toDate}_${status}_${reportedBy || 'all'}_${page}_${limit}`;
+        // 🔧 PERFORMANCE: Check cache for this specific query (removed reportedBy from cache key)
+        const cacheKey = `tat_report_${location}_${dateType}_${fromDate}_${toDate}_${status}_${page}_${limit}`;
         let cachedReport = cache.get(cacheKey);
 
         if (cachedReport) {
@@ -274,20 +275,6 @@ export const getTATReport = async (req, res) => {
                 }
             }
         );
-
-        // 🆕 NEW: Add reportedBy filter after lookups
-        if (reportedBy) {
-            pipeline.push({
-                $match: {
-                    $or: [
-                        // Match by doctor ID in assignment
-                        { 'assignment.assignedTo': new mongoose.Types.ObjectId(reportedBy) },
-                        // Match by doctor ID in doctorData
-                        { 'doctorData._id': new mongoose.Types.ObjectId(reportedBy) }
-                    ]
-                }
-            });
-        }
 
         // 🔧 CRITICAL: Project only needed fields and explicitly include calculatedTAT
         pipeline.push({
@@ -472,13 +459,17 @@ export const getTATReport = async (req, res) => {
 export const exportTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
-        const { location, dateType, fromDate, toDate, status, reportedBy } = req.query;
+        const { location, dateType, fromDate, toDate, status } = req.query;
+        // 🔧 REMOVED: reportedBy parameter
 
-        console.log(`📊 Exporting TAT report - Location: ${location}, ReportedBy: ${reportedBy}`);
+        console.log(`📊 Exporting TAT report - Location: ${location}`);
 
         if (!location) {
             return res.status(400).json({ success: false, message: 'Location is required' });
         }
+
+        // 🔧 REMOVED: reportedBy filter from export pipeline
+        // Frontend will download all data and user sees filtered view
 
         // 🔧 CONSISTENCY: Use the same base pipeline as getTATReport
         const pipeline = [
@@ -523,18 +514,6 @@ export const exportTATReport = async (req, res) => {
             { $lookup: { from: 'labs', localField: 'sourceLab', foreignField: '_id', as: 'labData', pipeline: [{ $project: { name: 1, identifier: 1 } }] } },
             { $lookup: { from: 'doctors', localField: 'assignment.assignedTo', foreignField: '_id', as: 'doctorData', pipeline: [{ $lookup: { from: 'users', localField: 'userAccount', foreignField: '_id', as: 'userAccount' }}, { $project: { 'userAccount.fullName': 1, specialization: 1, _id: 1 } }]}}
         );
-
-        // 🆕 NEW: Add reportedBy filter for export
-        if (reportedBy) {
-            pipeline.push({
-                $match: {
-                    $or: [
-                        { 'assignment.assignedTo': new mongoose.Types.ObjectId(reportedBy) },
-                        { 'doctorData._id': new mongoose.Types.ObjectId(reportedBy) }
-                    ]
-                }
-            });
-        }
 
         pipeline.push({
             $project: {

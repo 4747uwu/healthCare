@@ -192,10 +192,8 @@ const TATReport = () => {
         params.modality = selectedModalities.join(',');
       }
 
-      // 🆕 NEW: Add reportedBy parameter
-      if (selectedDoctor) {
-        params.reportedBy = selectedDoctor;
-      }
+      // 🔧 REMOVED: Don't send reportedBy to backend anymore
+      // Backend will return ALL studies, frontend will filter
 
       const response = await api.get('/tat/report', { params });
       
@@ -213,9 +211,9 @@ const TATReport = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities, selectedDoctor, recordsPerPage]);
+  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities, recordsPerPage]);
 
-  // 🆕 NEW: Export to Excel function
+  // 🔧 MODIFIED: Remove selectedDoctor from Excel export
   const exportToExcel = useCallback(async () => {
     if (!selectedLocation) {
       toast.error('Please select a location first');
@@ -231,9 +229,8 @@ const TATReport = () => {
         toDate
       };
 
-      if (selectedDoctor) {
-        params.reportedBy = selectedDoctor;
-      }
+      // 🔧 REMOVED: Don't send reportedBy to backend for export
+      // We'll export the filtered data from frontend
 
       const response = await api.get('/tat/report/export', { 
         params,
@@ -248,10 +245,11 @@ const TATReport = () => {
       const link = document.createElement('a');
       link.href = url;
       
-      // Generate filename
+      // Generate filename with doctor filter info
       const locationName = locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown';
+      const doctorName = selectedDoctor ? doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown_Doctor' : 'All_Doctors';
       const dateStr = new Date().toISOString().split('T')[0];
-      link.download = `TAT_Report_${locationName}_${dateStr}.xlsx`;
+      link.download = `TAT_Report_${locationName}_${doctorName}_${dateStr}.xlsx`;
       
       document.body.appendChild(link);
       link.click();
@@ -265,11 +263,24 @@ const TATReport = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedLocation, dateType, fromDate, toDate, selectedDoctor, locations]);
+  }, [selectedLocation, dateType, fromDate, toDate, locations, selectedDoctor, doctors]);
 
-  // ✅ OPTIMIZED: Combined filtering and search
+  // 🔧 ENHANCED: Add doctor filtering to the existing filteredStudies logic
   const filteredStudies = useMemo(() => {
     let filtered = [...studies];
+
+    // 🆕 NEW: Doctor filter (reportedBy)
+    if (selectedDoctor) {
+      filtered = filtered.filter(study => {
+        const reportedBy = study.reportedBy || '';
+        // Get the selected doctor's name
+        const selectedDoctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || '';
+        
+        // Check if the study's reportedBy matches the selected doctor
+        return reportedBy.toLowerCase().includes(selectedDoctorName.toLowerCase()) ||
+               reportedBy === selectedDoctorName;
+      });
+    }
 
     // Search filter
     if (searchTerm.trim()) {
@@ -300,7 +311,7 @@ const TATReport = () => {
     }
 
     return filtered;
-  }, [studies, searchTerm, selectedModalities]);
+  }, [studies, selectedDoctor, doctors, searchTerm, selectedModalities]);
 
   // Pagination
   const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
@@ -405,6 +416,22 @@ const TATReport = () => {
     setCurrentPage(page);
   };
 
+  // 🔧 ENHANCED: Update the title to show active filters
+  const getFilterSummary = () => {
+    const filters = [];
+    if (selectedDoctor) {
+      const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
+      filters.push(`Doctor: ${doctorName}`);
+    }
+    if (selectedModalities.length > 0) {
+      filters.push(`Modalities: ${selectedModalities.join(', ')}`);
+    }
+    if (searchTerm.trim()) {
+      filters.push(`Search: "${searchTerm}"`);
+    }
+    return filters.length > 0 ? ` (${filters.join(' | ')})` : '';
+  };
+
   return (
     <div className="h-screen bg-gray-50 flex flex-col">
       <UniversalNavbar />
@@ -418,11 +445,22 @@ const TATReport = () => {
             <p className="text-xs text-gray-600">
               Showing {paginatedStudies.length} of {filteredStudies.length} studies 
               {filteredStudies.length !== studies.length && ` (filtered from ${studies.length} total)`}
+              {getFilterSummary()}
             </p>
           </div>
           
           {/* ✅ COMPACT: TAT Legend */}
           <div className="flex items-center space-x-2 text-xs">
+            {/* 🆕 NEW: Add Export button next to legend */}
+            <button
+              onClick={exportToExcel}
+              disabled={!selectedLocation || loading || filteredStudies.length === 0}
+              className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed mr-4"
+              title="Export current filtered data to Excel"
+            >
+              {loading ? '...' : '📊 Export'}
+            </button>
+            
             <div className="flex items-center">
               <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
               <span>≤1h</span>
