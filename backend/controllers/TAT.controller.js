@@ -139,9 +139,9 @@ export const getStatuses = async (req, res) => {
 export const getTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
-        const { location, dateType, fromDate, toDate, status, page = 1, limit = 100 } = req.query;
+        const { location, dateType, fromDate, toDate, status, reportedBy, page = 1, limit = 100 } = req.query;
 
-        console.log(`🔍 Generating TAT report - Location: ${location}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}`);
+        console.log(`🔍 Generating TAT report - Location: ${location}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}, ReportedBy: ${reportedBy}`);
 
         if (!location) {
             return res.status(400).json({
@@ -150,8 +150,8 @@ export const getTATReport = async (req, res) => {
             });
         }
 
-        // 🔧 PERFORMANCE: Check cache for this specific query
-        const cacheKey = `tat_report_${location}_${dateType}_${fromDate}_${toDate}_${status}_${page}_${limit}`;
+        // 🔧 PERFORMANCE: Check cache for this specific query (include reportedBy in cache key)
+        const cacheKey = `tat_report_${location}_${dateType}_${fromDate}_${toDate}_${status}_${reportedBy || 'all'}_${page}_${limit}`;
         let cachedReport = cache.get(cacheKey);
 
         if (cachedReport) {
@@ -269,11 +269,25 @@ export const getTATReport = async (req, res) => {
                     as: 'doctorData',
                     pipeline: [
                         { $lookup: { from: 'users', localField: 'userAccount', foreignField: '_id', as: 'userAccount' } },
-                        { $project: { 'userAccount.fullName': 1, specialization: 1 } }
+                        { $project: { 'userAccount.fullName': 1, specialization: 1, _id: 1 } }
                     ]
                 }
             }
         );
+
+        // 🆕 NEW: Add reportedBy filter after lookups
+        if (reportedBy) {
+            pipeline.push({
+                $match: {
+                    $or: [
+                        // Match by doctor ID in assignment
+                        { 'assignment.assignedTo': new mongoose.Types.ObjectId(reportedBy) },
+                        // Match by doctor ID in doctorData
+                        { 'doctorData._id': new mongoose.Types.ObjectId(reportedBy) }
+                    ]
+                }
+            });
+        }
 
         // 🔧 CRITICAL: Project only needed fields and explicitly include calculatedTAT
         pipeline.push({
@@ -379,9 +393,7 @@ export const getTATReport = async (req, res) => {
                 // Handle both old and new assignment structures
                 assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
                 reportDate: formatDate(study.reportInfo?.finalizedAt),
-                reportedBy: study.reportInfo?.reporterName 
-                
-                || 'N/A',
+                reportedBy: study.reportInfo?.reporterName || study.doctor?.userAccount?.[0]?.fullName || 'N/A',
                 reportedDate: study.reportInfo?.finalizedAt
                 ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
                     year: 'numeric',
@@ -460,9 +472,9 @@ export const getTATReport = async (req, res) => {
 export const exportTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
-        const { location, dateType, fromDate, toDate, status } = req.query;
+        const { location, dateType, fromDate, toDate, status, reportedBy } = req.query;
 
-        console.log(`📊 Exporting TAT report - Location: ${location}`);
+        console.log(`📊 Exporting TAT report - Location: ${location}, ReportedBy: ${reportedBy}`);
 
         if (!location) {
             return res.status(400).json({ success: false, message: 'Location is required' });
@@ -480,8 +492,19 @@ export const exportTATReport = async (req, res) => {
             const endDate = new Date(toDate);
             endDate.setHours(23, 59, 59, 999);
             let dateFilter = {};
-            switch(dateType) { /* ... same date logic as getTATReport ... */ 
-                case 'studyDate': dateFilter.studyDate = { $gte: fromDate.replace(/-/g, ''), $lte: toDate.replace(/-/g, '') }; break;
+            switch(dateType) {
+                case 'studyDate': 
+                    if (typeof fromDate === 'string' && fromDate.includes('-')) {
+                        const fromDateStr = fromDate.replace(/-/g, '');
+                        const toDateStr = toDate.replace(/-/g, '');
+                        dateFilter.$or = [
+                            { studyDate: { $type: "string", $gte: fromDateStr, $lte: toDateStr } },
+                            { studyDate: { $type: "date", $gte: startDate, $lte: endDate } }
+                        ];
+                    } else {
+                        dateFilter.studyDate = { $gte: startDate, $lte: endDate };
+                    }
+                    break;
                 case 'uploadDate': dateFilter.createdAt = { $gte: startDate, $lte: endDate }; break;
                 case 'assignedDate': dateFilter['assignment.assignedAt'] = { $gte: startDate, $lte: endDate }; break;
                 case 'reportDate': dateFilter['reportInfo.finalizedAt'] = { $gte: startDate, $lte: endDate }; break;
@@ -495,14 +518,26 @@ export const exportTATReport = async (req, res) => {
         }
         
         // Add same lookups and projection as getTATReport to include calculatedTAT
-        pipeline.push( /* ... same lookup stages ... */
-            { $lookup: { from: 'patients', localField: 'patient', foreignField: '_id', as: 'patientData' } },
-            { $lookup: { from: 'labs', localField: 'sourceLab', foreignField: '_id', as: 'labData' } },
-            { $lookup: { from: 'doctors', localField: 'assignment.assignedTo', foreignField: '_id', as: 'doctorData', pipeline: [{ $lookup: { from: 'users', localField: 'userAccount', foreignField: '_id', as: 'userAccount' }}]}}
+        pipeline.push(
+            { $lookup: { from: 'patients', localField: 'patient', foreignField: '_id', as: 'patientData', pipeline: [{ $project: { patientID: 1, firstName: 1, lastName: 1, patientNameRaw: 1, gender: 1, 'computed.fullName': 1 } }] } },
+            { $lookup: { from: 'labs', localField: 'sourceLab', foreignField: '_id', as: 'labData', pipeline: [{ $project: { name: 1, identifier: 1 } }] } },
+            { $lookup: { from: 'doctors', localField: 'assignment.assignedTo', foreignField: '_id', as: 'doctorData', pipeline: [{ $lookup: { from: 'users', localField: 'userAccount', foreignField: '_id', as: 'userAccount' }}, { $project: { 'userAccount.fullName': 1, specialization: 1, _id: 1 } }]}}
         );
 
+        // 🆕 NEW: Add reportedBy filter for export
+        if (reportedBy) {
+            pipeline.push({
+                $match: {
+                    $or: [
+                        { 'assignment.assignedTo': new mongoose.Types.ObjectId(reportedBy) },
+                        { 'doctorData._id': new mongoose.Types.ObjectId(reportedBy) }
+                    ]
+                }
+            });
+        }
+
         pipeline.push({
-            $project: { /* ... same projection as getTATReport to fetch calculatedTAT ... */
+            $project: {
                 workflowStatus: 1, studyDate: 1, createdAt: 1, accessionNumber: 1,
                 examDescription: 1, modality: 1, modalitiesInStudy: 1, referredBy: 1,
                 seriesCount: 1, instanceCount: 1, assignment: 1, reportInfo: 1,
@@ -520,26 +555,69 @@ export const exportTATReport = async (req, res) => {
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="TAT_Report_${location}_${new Date().toISOString().split('T')[0]}.xlsx"`);
         
+        // 🔧 ENHANCED: More comprehensive Excel columns
         worksheet.columns = [
             { header: 'Study Status', key: 'studyStatus', width: 20 },
             { header: 'Patient ID', key: 'patientId', width: 15 },
             { header: 'Patient Name', key: 'patientName', width: 25 },
+            { header: 'Gender', key: 'gender', width: 10 },
+            { header: 'Referred By', key: 'referredBy', width: 20 },
             { header: 'Accession No', key: 'accessionNumber', width: 20 },
-            { header: 'Modality', key: 'modality', width: 10 },
+            { header: 'Study Description', key: 'studyDescription', width: 30 },
+            { header: 'Modality', key: 'modality', width: 15 },
+            { header: 'Series/Images', key: 'seriesImages', width: 15 },
+            { header: 'Institution', key: 'institution', width: 25 },
             { header: 'Study Date', key: 'studyDate', width: 20 },
             { header: 'Upload Date', key: 'uploadDate', width: 20 },
             { header: 'Assigned Date', key: 'assignedDate', width: 20 },
             { header: 'Report Date', key: 'reportDate', width: 20 },
-            { header: 'Upload-to-Assign TAT', key: 'uploadToAssignment', width: 25 },
-            { header: 'Assign-to-Report TAT', key: 'assignToReport', width: 25 },
-            { header: 'Upload-to-Report TAT', key: 'uploadToReport', width: 25 },
-            { header: 'Reported By', key: 'reportedBy', width: 20 }
+            { header: 'Upload-to-Assign TAT (min)', key: 'uploadToAssignment', width: 25 },
+            { header: 'Study-to-Report TAT (min)', key: 'studyToReport', width: 25 },
+            { header: 'Upload-to-Report TAT (min)', key: 'uploadToReport', width: 25 },
+            { header: 'Assign-to-Report TAT (min)', key: 'assignToReport', width: 25 },
+            { header: 'Reported By', key: 'reportedBy', width: 25 }
         ];
-        worksheet.getRow(1).font = { bold: true };
+        
+        // 🔧 STYLING: Make header row bold and with background color
+        const headerRow = worksheet.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: '366092' }
+        };
+        headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
 
         // 🔧 PERFORMANCE: Stream data processing using a cursor
         const cursor = DicomStudy.aggregate(pipeline).cursor({ batchSize: 200 }).allowDiskUse(true);
         let processedCount = 0;
+
+        // Helper function to format study date
+        const formatStudyDate = (studyDate) => {
+            if (!studyDate) return '-';
+            
+            if (typeof studyDate === 'string' && studyDate.length === 8) {
+                const year = studyDate.substring(0, 4);
+                const month = studyDate.substring(4, 6);
+                const day = studyDate.substring(6, 8);
+                return `${day}/${month}/${year}`;
+            }
+            
+            if (studyDate instanceof Date) {
+                return studyDate.toLocaleDateString('en-GB');
+            }
+            
+            try {
+                const date = new Date(studyDate);
+                if (!isNaN(date.getTime())) {
+                    return date.toLocaleDateString('en-GB');
+                }
+            } catch (error) {
+                console.warn('Invalid study date format:', studyDate);
+            }
+            
+            return studyDate.toString();
+        };
 
         for (let study = await cursor.next(); study != null; study = await cursor.next()) {
             // 🔧 CONSISTENCY: Use calculatedTAT, with fallback, same as getTATReport
@@ -549,23 +627,42 @@ export const exportTATReport = async (req, res) => {
             const lab = study.labData || {};
             const doctor = study.doctorData || {};
             
-            const formatDate = (date) => date ? new Date(date) : null;
+            const formatDate = (date) => date ? new Date(date).toLocaleString('en-GB') : '-';
+            const patientName = patient.computed?.fullName ||
+                (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
 
-            worksheet.addRow({
-                studyStatus: study.workflowStatus || '',
-                patientId: patient.patientID || '',
-                patientName: patient.computed?.fullName || (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '',
-                accessionNumber: study.accessionNumber || '',
-                modality: study.modality || study.modalitiesInStudy?.join(', ') || '',
-                studyDate: study.studyDate || '',
+            const row = worksheet.addRow({
+                studyStatus: study.workflowStatus || '-',
+                patientId: patient.patientID || '-',
+                patientName,
+                gender: patient.gender || '-',
+                referredBy: study.referredBy || '-',
+                accessionNumber: study.accessionNumber || '-',
+                studyDescription: study.examDescription || '-',
+                modality: study.modality || study.modalitiesInStudy?.join(', ') || '-',
+                seriesImages: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
+                institution: lab.name || '-',
+                studyDate: formatStudyDate(study.studyDate),
                 uploadDate: formatDate(study.createdAt),
                 assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
                 reportDate: formatDate(study.reportInfo?.finalizedAt),
-                uploadToAssignment: tat.uploadToAssignmentTATFormatted || 'N/A',
-                assignToReport: tat.assignmentToReportTATFormatted || 'N/A',
-                uploadToReport: tat.uploadToReportTATFormatted || 'N/A',
-                reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || ''
-            }).commit();
+                uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
+                studyToReport: tat.studyToReportTAT || 'N/A',
+                uploadToReport: tat.uploadToReportTAT || 'N/A',
+                assignToReport: tat.assignmentToReportTAT || 'N/A',
+                reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-'
+            });
+
+            // 🔧 STYLING: Alternate row colors for better readability
+            if (processedCount % 2 === 0) {
+                row.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'F8F9FA' }
+                };
+            }
+
+            row.commit();
             processedCount++;
         }
 
@@ -655,9 +752,97 @@ export const getTATAnalytics = async (req, res) => {
     }
 };
 
+// Add this new function to get all doctors
+export const getDoctors = async (req, res) => {
+    try {
+        const startTime = Date.now();
+
+        // 🔧 PERFORMANCE: Check cache first
+        const cacheKey = 'tat_doctors';
+        let cachedDoctors = cache.get(cacheKey);
+
+        if (cachedDoctors) {
+            return res.status(200).json({
+                success: true,
+                doctors: cachedDoctors,
+                performance: {
+                    queryTime: Date.now() - startTime,
+                    fromCache: true
+                }
+            });
+        }
+
+        // 🔧 OPTIMIZED: Get all doctors with their user accounts
+        const doctors = await Doctor.aggregate([
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'userAccount',
+                    foreignField: '_id',
+                    as: 'userAccount',
+                    pipeline: [
+                        {
+                            $match: { role: 'doctor_account', isActive: true }
+                        },
+                        {
+                            $project: { fullName: 1, username: 1, email: 1 }
+                        }
+                    ]
+                }
+            },
+            {
+                $match: {
+                    userAccount: { $ne: [] },
+                    isActiveProfile: true
+                }
+            },
+            {
+                $project: {
+                    _id: 1,
+                    specialization: 1,
+                    userAccount: { $arrayElemAt: ['$userAccount', 0] }
+                }
+            },
+            {
+                $sort: { 'userAccount.fullName': 1 }
+            }
+        ]);
+
+        const formattedDoctors = doctors.map(doctor => ({
+            value: doctor._id.toString(),
+            label: doctor.userAccount.fullName,
+            specialization: doctor.specialization || 'N/A',
+            email: doctor.userAccount.email
+        }));
+
+        // 🔧 PERFORMANCE: Cache for 30 minutes (doctors don't change often)
+        cache.set(cacheKey, formattedDoctors, 1800);
+
+        const processingTime = Date.now() - startTime;
+
+        return res.status(200).json({
+            success: true,
+            doctors: formattedDoctors,
+            performance: {
+                queryTime: processingTime,
+                fromCache: false
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching doctors:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch doctors',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 export default {
     getLocations,
     getStatuses,
+    getDoctors,
     getTATReport,
     exportTATReport,
     getTATAnalytics
