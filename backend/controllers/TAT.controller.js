@@ -460,16 +460,12 @@ export const exportTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
         const { location, dateType, fromDate, toDate, status } = req.query;
-        // 🔧 REMOVED: reportedBy parameter
 
         console.log(`📊 Exporting TAT report - Location: ${location}`);
 
         if (!location) {
             return res.status(400).json({ success: false, message: 'Location is required' });
         }
-
-        // 🔧 REMOVED: reportedBy filter from export pipeline
-        // Frontend will download all data and user sees filtered view
 
         // 🔧 CONSISTENCY: Use the same base pipeline as getTATReport
         const pipeline = [
@@ -567,8 +563,11 @@ export const exportTATReport = async (req, res) => {
         };
         headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
 
-        // 🔧 PERFORMANCE: Stream data processing using a cursor
-        const cursor = DicomStudy.aggregate(pipeline).cursor({ batchSize: 200 }).allowDiskUse(true);
+        // 🔧 FIXED: Apply allowDiskUse before cursor, not after
+        const cursor = DicomStudy.aggregate(pipeline)
+            .allowDiskUse(true)
+            .cursor({ batchSize: 200 });
+        
         let processedCount = 0;
 
         // Helper function to format study date
@@ -598,61 +597,85 @@ export const exportTATReport = async (req, res) => {
             return studyDate.toString();
         };
 
-        for (let study = await cursor.next(); study != null; study = await cursor.next()) {
-            // 🔧 CONSISTENCY: Use calculatedTAT, with fallback, same as getTATReport
-            const tat = study.calculatedTAT || calculateStudyTAT(study);
+        // 🔧 FIXED: Better error handling for cursor iteration
+        try {
+            for (let study = await cursor.next(); study != null; study = await cursor.next()) {
+                // 🔧 CONSISTENCY: Use calculatedTAT, with fallback, same as getTATReport
+                const tat = study.calculatedTAT || calculateStudyTAT(study);
 
-            const patient = study.patientData || {};
-            const lab = study.labData || {};
-            const doctor = study.doctorData || {};
-            
-            const formatDate = (date) => date ? new Date(date).toLocaleString('en-GB') : '-';
-            const patientName = patient.computed?.fullName ||
-                (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
+                const patient = study.patientData || {};
+                const lab = study.labData || {};
+                const doctor = study.doctorData || {};
+                
+                const formatDate = (date) => date ? new Date(date).toLocaleString('en-GB') : '-';
+                const patientName = patient.computed?.fullName ||
+                    (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
 
-            const row = worksheet.addRow({
-                studyStatus: study.workflowStatus || '-',
-                patientId: patient.patientID || '-',
-                patientName,
-                gender: patient.gender || '-',
-                referredBy: study.referredBy || '-',
-                accessionNumber: study.accessionNumber || '-',
-                studyDescription: study.examDescription || '-',
-                modality: study.modality || study.modalitiesInStudy?.join(', ') || '-',
-                seriesImages: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                institution: lab.name || '-',
-                studyDate: formatStudyDate(study.studyDate),
-                uploadDate: formatDate(study.createdAt),
-                assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
-                reportDate: formatDate(study.reportInfo?.finalizedAt),
-                uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
-                studyToReport: tat.studyToReportTAT || 'N/A',
-                uploadToReport: tat.uploadToReportTAT || 'N/A',
-                assignToReport: tat.assignmentToReportTAT || 'N/A',
-                reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-'
-            });
+                const row = worksheet.addRow({
+                    studyStatus: study.workflowStatus || '-',
+                    patientId: patient.patientID || '-',
+                    patientName,
+                    gender: patient.gender || '-',
+                    referredBy: study.referredBy || '-',
+                    accessionNumber: study.accessionNumber || '-',
+                    studyDescription: study.examDescription || '-',
+                    modality: study.modality || study.modalitiesInStudy?.join(', ') || '-',
+                    seriesImages: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
+                    institution: lab.name || '-',
+                    studyDate: formatStudyDate(study.studyDate),
+                    uploadDate: formatDate(study.createdAt),
+                    assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
+                    reportDate: formatDate(study.reportInfo?.finalizedAt),
+                    uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
+                    studyToReport: tat.studyToReportTAT || 'N/A',
+                    uploadToReport: tat.uploadToReportTAT || 'N/A',
+                    assignToReport: tat.assignmentToReportTAT || 'N/A',
+                    reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-'
+                });
 
-            // 🔧 STYLING: Alternate row colors for better readability
-            if (processedCount % 2 === 0) {
-                row.fill = {
-                    type: 'pattern',
-                    pattern: 'solid',
-                    fgColor: { argb: 'F8F9FA' }
-                };
+                // 🔧 STYLING: Alternate row colors for better readability
+                if (processedCount % 2 === 0) {
+                    row.fill = {
+                        type: 'pattern',
+                        pattern: 'solid',
+                        fgColor: { argb: 'F8F9FA' }
+                    };
+                }
+
+                row.commit();
+                processedCount++;
             }
 
-            row.commit();
-            processedCount++;
-        }
+            await workbook.commit();
+            const processingTime = Date.now() - startTime;
+            console.log(`✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records`);
 
-        await workbook.commit();
-        const processingTime = Date.now() - startTime;
-        console.log(`✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records`);
+        } catch (cursorError) {
+            console.error('❌ Error during cursor iteration:', cursorError);
+            
+            // Close cursor if it exists
+            if (cursor && typeof cursor.close === 'function') {
+                await cursor.close();
+            }
+            
+            // Only send error response if headers haven't been sent
+            if (!res.headersSent) {
+                res.status(500).json({ 
+                    success: false, 
+                    message: 'Failed to export TAT report', 
+                    error: cursorError.message 
+                });
+            }
+        }
 
     } catch (error) {
         console.error('❌ Error exporting TAT report:', error);
         if (!res.headersSent) {
-            res.status(500).json({ success: false, message: 'Failed to export TAT report', error: error.message });
+            res.status(500).json({ 
+                success: false, 
+                message: 'Failed to export TAT report', 
+                error: error.message 
+            });
         }
     }
 };
