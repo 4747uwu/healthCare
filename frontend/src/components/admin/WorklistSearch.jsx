@@ -468,7 +468,7 @@ const WorklistSearch = React.memo(({
             <div className="flex items-center justify-center lg:justify-start gap-1 bg-gray-50 rounded-md px-2 py-1 overflow-x-auto">
               {userRole === 'doctor' ? (
                 // 🆕 DOCTOR: Include "Assigned Today" filter
-                ['last24h', 'today', 'thisWeek', 'thisMonth', 'assignedToday'].map(filter => (
+                ['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth', 'assignedToday'].map(filter => (
                   <button
                     key={filter}
                     onClick={() => onDateFilterChange(filter)}
