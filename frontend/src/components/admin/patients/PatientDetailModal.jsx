@@ -900,7 +900,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
   <input 
     type="text" 
     className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-    value={editedData.studyInfo.accessionNumber || patientDetails?.studyInfo?.accessionNumber || 'N/A'}
+    value={editedData.studyInfo.accessionNumber || patientDetails?.studyInfo?.accessionNumber}
     onChange={(e) => handleInputChange('studyInfo', 'accessionNumber', e.target.value)}
     readOnly={!canEdit}
     placeholder="Accession Number"

@@ -414,7 +414,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                   <th className="text-left p-3 font-medium">Name</th>
                   <th className="text-center p-3 font-medium">Email</th>
                   <th className="text-center p-3 font-medium">Status</th>
-                  <th className="text-center p-3 font-medium">Assignment</th>
+                  {/* <th className="text-center p-3 font-medium">Assignment</th> */}
                 </tr>
               </thead>
               <tbody>

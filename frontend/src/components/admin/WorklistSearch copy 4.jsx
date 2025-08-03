@@ -77,50 +77,6 @@ const WorklistSearch = React.memo(({
     completed: 0
   });
 
-useEffect(() => {
-  const fetchLocations = async () => {
-    setLocationsLoading(true);
-    try {
-      const response = await api.get('/tat/locations');
-      if (response.data.success) {
-        setBackendLocations(response.data.locations);
-        console.log('✅ Locations fetched:', response.data.locations);
-      }
-    } catch (error) {
-      console.error('❌ Error fetching locations:', error);
-      // Fallback to existing locations from studies
-      const uniqueLocations = [...new Set(allStudies.filter(s => s.location).map(s => s.location))];
-      setBackendLocations(uniqueLocations.map(loc => ({ 
-        value: loc, 
-        label: loc 
-      })));
-    } finally {
-      setLocationsLoading(false);
-    }
-  };
-
-  fetchLocations();
-}, []); // Only run once
-  
-const filteredLocations = useMemo(() => {
-  if (!locationSearchTerm.trim()) {
-    return backendLocations;
-  }
-  
-  const searchLower = locationSearchTerm.toLowerCase();
-  return backendLocations.filter(location => 
-    location.label.toLowerCase().includes(searchLower)
-  );
-}, [backendLocations, locationSearchTerm]);
-
-// Get selected location label for display
-const selectedLocationLabel = useMemo(() => {
-  if (selectedLocation === 'ALL') return 'All Labs';
-  
-  const location = backendLocations.find(loc => loc.value === selectedLocation);
-  return location ? location.label : 'Select Lab';
-}, [selectedLocation, backendLocations]);
-
   // 🔧 MEMOIZE LOCATIONS
   const locations = useMemo(() => {
     const uniqueLocations = [...new Set(allStudies.filter(s => s.location).map(s => s.location))];
@@ -176,16 +132,8 @@ const selectedLocationLabel = useMemo(() => {
 
     // Location filter
     if (selectedLocation !== 'ALL') {
-    const selectedLocationData = backendLocations.find(loc => loc.value === selectedLocation);
-    
-    if (selectedLocationData) {
-      filtered = filtered.filter(study => {
-        // Match against study location or lab name
-        const studyLocation = study.location || study.sourceLab?.name || study.institutionName;
-        return studyLocation === selectedLocationData.label;
-      });
+      filtered = filtered.filter(study => study.location === selectedLocation);
     }
-  }
 
     // Advanced search filters (non-date)
     if (patientName.trim()) {
@@ -296,11 +244,6 @@ const selectedLocationLabel = useMemo(() => {
     quickSearchTerm, patientName, workflowStatus, modalities, onSearchWithBackend
   ]);
 
-  const handleLocationSelect = useCallback((locationValue) => {
-  setSelectedLocation(locationValue);
-  setLocationSearchTerm('');
-  setShowLocationDropdown(false);
-}, []);
   // 🔧 MEMOIZED CALLBACKS
   const handleQuickSearch = useCallback((e) => {
     e.preventDefault();
@@ -311,11 +254,9 @@ const selectedLocationLabel = useMemo(() => {
     setQuickSearchTerm('');
     setSearchType('');
     setSelectedLocation('ALL');
-    setLocationSearchTerm('');
     setPatientName('');
     setPatientId('');
     setRefName('');
-    setSelectedLocation('ALL');
     setAccessionNumber('');
     setDescription('');
     setWorkflowStatus('all');
@@ -481,79 +422,16 @@ const selectedLocationLabel = useMemo(() => {
               {/* Second row on mobile: Labs dropdown and action buttons */}
               <div className="flex items-center gap-2">
                 {/* Labs Dropdown */}
-                <div className="relative">
-  <button
-    type="button"
-    className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 flex-1 sm:flex-none sm:w-32 text-left flex items-center justify-between"
-    onClick={() => setShowLocationDropdown(!showLocationDropdown)}
-    disabled={locationsLoading}
-  >
-    <span className="truncate">
-      {locationsLoading ? 'Loading...' : selectedLocationLabel}
-    </span>
-    <svg className="w-3 h-3 ml-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  </button>
-
-  {/* Dropdown */}
-  {showLocationDropdown && (
-    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-hidden">
-      {/* Search input */}
-      <div className="p-2 border-b border-gray-200">
-        <input
-          type="text"
-          placeholder="Search labs..."
-          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          value={locationSearchTerm}
-          onChange={(e) => setLocationSearchTerm(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-        />
-      </div>
-
-      {/* Location options */}
-      <div className="max-h-48 overflow-y-auto">
-        <button
-          type="button"
-          className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-100 ${
-            selectedLocation === 'ALL' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-          }`}
-          onClick={() => handleLocationSelect('ALL')}
-        >
-          All Labs
-          {selectedLocation === 'ALL' && <span className="float-right">✓</span>}
-        </button>
-
-        {filteredLocations.length > 0 ? (
-          filteredLocations.map(location => (
-            <button
-              key={location.value}
-              type="button"
-              className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-100 ${
-                selectedLocation === location.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-              }`}
-              onClick={() => handleLocationSelect(location.value)}
-            >
-              {location.label}
-              {selectedLocation === location.value && <span className="float-right">✓</span>}
-            </button>
-          ))
-        ) : (
-          <div className="px-3 py-4 text-xs text-gray-500 text-center">
-            No labs found
-          </div>
-        )}
-      </div>
-    </div>
-  )}
-</div>
-
-{showLocationDropdown && (
-  <div 
-    className="fixed inset-0 z-40" 
-    onClick={() => setShowLocationDropdown(false)}
-  />
-)}
+                <select 
+                  className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 flex-1 sm:flex-none sm:w-24"
+                  value={selectedLocation}
+                  onChange={(e) => setSelectedLocation(e.target.value)}
+                >
+                  <option value="ALL">All Labs</option>
+                  {locations.map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
 
                 {/* Search & Filter Buttons */}
                 <div className="flex items-center gap-1">
