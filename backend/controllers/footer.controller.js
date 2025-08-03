@@ -497,6 +497,7 @@ export const dispatchReports = async (req, res) => {
  * Download multiple studies as a single ZIP
  * @route GET /api/worklist/download-zip
  */
+
 export const bulkZipDownload = async (req, res) => {
   try {
     const { studyIds } = req.query;
@@ -510,13 +511,51 @@ export const bulkZipDownload = async (req, res) => {
     
     const studyIdArray = studyIds.split(',').map(id => id.trim());
     
+    if (studyIdArray.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'Maximum 50 studies allowed per bulk download'
+      });
+    }
+
+    // Check if studies have R2 ZIP files available
+    const studies = await DicomStudy.find({ 
+      _id: { $in: studyIdArray },
+      'preProcessedDownload.zipStatus': 'completed',
+      'preProcessedDownload.zipUrl': { $exists: true }
+    }).lean();
+
+    if (studies.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No studies found with R2 ZIP files available',
+        suggestion: 'Use the create-missing-zips endpoint first to prepare the files'
+      });
+    }
+
+    // For small numbers of studies with R2 ZIPs, redirect to bulk download controller
+    if (studies.length <= studyIdArray.length && studies.length > 0) {
+      // Forward the request to the bulk R2 download controller
+      req.body = { 
+        studyIds: studyIdArray, 
+        downloadName: 'WorklistBulkDownload' 
+      };
+      
+      // Import and call the bulk R2 controller
+      const { createBulkR2Zip } = await import('./bulkZipDownload.controller.js');
+      return await createBulkR2Zip(req, res);
+    }
+
+    // Fallback to original Orthanc-based download for studies without R2 ZIPs
+    console.log(`📦 Falling back to Orthanc direct download for ${studyIdArray.length} studies`);
+    
     // Get studies with Orthanc IDs
-    const studies = await DicomStudy.find({ _id: { $in: studyIdArray } })
+    const orthancStudies = await DicomStudy.find({ _id: { $in: studyIdArray } })
       .select('orthancStudyID patient patientName accessionNumber studyDate')
       .populate('patient', 'firstName lastName patientID')
       .lean();
     
-    if (studies.length === 0) {
+    if (orthancStudies.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'No valid studies found'
@@ -526,6 +565,7 @@ export const bulkZipDownload = async (req, res) => {
     // Set response headers for ZIP file
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename=Studies_${new Date().toISOString().slice(0, 10)}.zip`);
+    res.setHeader('X-Download-Method', 'orthanc-direct-fallback');
     
     // Create archiver instance
     const archive = archiver('zip', {
@@ -536,7 +576,7 @@ export const bulkZipDownload = async (req, res) => {
     archive.pipe(res);
     
     // Process each study
-    for (const study of studies) {
+    for (const study of orthancStudies) {
       const orthancStudyId = study.orthancStudyID;
       
       if (!orthancStudyId) {
@@ -560,7 +600,8 @@ export const bulkZipDownload = async (req, res) => {
         // Download the study from Orthanc
         const response = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}/archive`, {
           headers: { 'Authorization': orthancAuth },
-          responseType: 'arraybuffer'
+          responseType: 'arraybuffer',
+          timeout: 300000 // 5 minutes
         });
         
         // Add to zip with descriptive filename
