@@ -4,7 +4,7 @@ import {
     createBulkR2Zip, 
     getBulkR2Info, 
     createMissingR2Zips 
-} from '../controllers/bulkZipDownload.controller.js';
+} from '../controllers/bulkzip.controller.js';
 
 const router = express.Router();
 
