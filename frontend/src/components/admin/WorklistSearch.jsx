@@ -482,9 +482,11 @@ const selectedLocationLabel = useMemo(() => {
               <div className="flex items-center gap-2">
                 {/* Labs Dropdown */}
                 <div className="relative">
+  {/* ✅ ENHANCED: Bigger Labs Dropdown */}
+<div className="relative">
   <button
     type="button"
-    className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 flex-1 sm:flex-none sm:w-32 text-left flex items-center justify-between"
+    className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 flex-1 sm:flex-none sm:w-40 text-left flex items-center justify-between" // ✅ CHANGED: w-32 to w-40
     onClick={() => setShowLocationDropdown(!showLocationDropdown)}
     disabled={locationsLoading}
   >
@@ -496,32 +498,46 @@ const selectedLocationLabel = useMemo(() => {
     </svg>
   </button>
 
-  {/* Dropdown */}
+  {/* ✅ ENHANCED: Bigger Dropdown */}
   {showLocationDropdown && (
-    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-hidden">
+    <div className="absolute top-full left-0 z-50 mt-1 bg-white border border-gray-300 rounded-md shadow-lg overflow-hidden w-80"> {/* ✅ CHANGED: Added w-80 for fixed width */}
       {/* Search input */}
-      <div className="p-2 border-b border-gray-200">
-        <input
-          type="text"
-          placeholder="Search labs..."
-          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          value={locationSearchTerm}
-          onChange={(e) => setLocationSearchTerm(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-        />
+      <div className="p-3 border-b border-gray-200"> {/* ✅ CHANGED: p-2 to p-3 for more padding */}
+        <div className="relative">
+          <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ADDED: Search icon */}
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search labs..."
+            className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500" // ✅ CHANGED: text-xs to text-sm, added pl-10 for icon space
+            value={locationSearchTerm}
+            onChange={(e) => setLocationSearchTerm(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       </div>
 
       {/* Location options */}
-      <div className="max-h-48 overflow-y-auto">
+      <div className="max-h-64 overflow-y-auto"> {/* ✅ CHANGED: max-h-48 to max-h-64 for more height */}
         <button
           type="button"
-          className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-100 ${
+          className={`w-full px-4 py-3 text-left text-sm hover:bg-gray-100 flex items-center justify-between ${
             selectedLocation === 'ALL' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-          }`}
+          }`} // ✅ CHANGED: px-3 py-2 to px-4 py-3, text-xs to text-sm
           onClick={() => handleLocationSelect('ALL')}
         >
-          All Labs
-          {selectedLocation === 'ALL' && <span className="float-right">✓</span>}
+          <div className="flex items-center">
+            <svg className="w-4 h-4 mr-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ADDED: Building icon */}
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+            All Labs
+          </div>
+          {selectedLocation === 'ALL' && (
+            <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20"> {/* ✅ ENHANCED: Better checkmark icon */}
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          )}
         </button>
 
         {filteredLocations.length > 0 ? (
@@ -529,23 +545,43 @@ const selectedLocationLabel = useMemo(() => {
             <button
               key={location.value}
               type="button"
-              className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-100 ${
+              className={`w-full px-4 py-3 text-left text-sm hover:bg-gray-100 flex items-center justify-between ${
                 selectedLocation === location.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-              }`}
+              }`} // ✅ CHANGED: px-3 py-2 to px-4 py-3, text-xs to text-sm
               onClick={() => handleLocationSelect(location.value)}
             >
-              {location.label}
-              {selectedLocation === location.value && <span className="float-right">✓</span>}
+              <div className="flex items-center min-w-0 flex-1"> {/* ✅ ENHANCED: Better layout */}
+                <svg className="w-4 h-4 mr-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ADDED: Location icon */}
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{location.label}</div>
+                  {location.code && location.code !== location.label && (
+                    <div className="text-xs text-gray-500 truncate">Code: {location.code}</div> // ✅ ADDED: Show code if available
+                  )}
+                </div>
+              </div>
+              {selectedLocation === location.value && (
+                <svg className="w-4 h-4 text-blue-600 flex-shrink-0 ml-2" fill="currentColor" viewBox="0 0 20 20"> {/* ✅ ENHANCED: Better checkmark */}
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              )}
             </button>
           ))
         ) : (
-          <div className="px-3 py-4 text-xs text-gray-500 text-center">
-            No labs found
+          <div className="px-4 py-8 text-sm text-gray-500 text-center"> {/* ✅ CHANGED: px-3 py-4 to px-4 py-8, text-xs to text-sm */}
+            <svg className="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ENHANCED: Bigger empty state icon */}
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <div className="font-medium">No labs found</div>
+            <div className="text-xs text-gray-400 mt-1">Try a different search term</div>
           </div>
         )}
       </div>
     </div>
   )}
+</div>
 </div>
 
 {showLocationDropdown && (
