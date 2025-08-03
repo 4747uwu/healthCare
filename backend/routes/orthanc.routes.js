@@ -280,7 +280,7 @@ async function findOrCreatePatientFromTags(tags) {
 
 async function findOrCreateSourceLab(tags) {
   const DEFAULT_LAB = {
-    name: 'Unknown Lab (No Identifier Found)',
+    name: 'N/A',
     identifier: 'UNKNOWN_LAB',
     isActive: true,
   };
