@@ -177,7 +177,8 @@ class CloudflareR2ZipService {
 
             // ✅ STEP 1: Get all instance details efficiently
             console.log(`[ZIP WORKER] 🔍 Fetching expanded instance list from Orthanc...`);
-            const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expand`;
+            // In your createAndUploadStudyZipToR2 function:
+            const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expanded=true`; // Add "=true"
             const instancesResponse = await axios.get(instancesUrl, { 
                 headers: { 'Authorization': orthancAuth },
                 timeout: 30000 
