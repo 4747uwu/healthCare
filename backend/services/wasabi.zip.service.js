@@ -157,7 +157,7 @@ class CloudflareR2ZipService {
         }
     }
 
-    // ✅ ENHANCED: Your core logic with optimizations
+    // ✅ ENHANCED: Your core logic with simplified patient name fetching
     async createAndUploadStudyZipToR2(job) {
         const { orthancStudyId, studyDatabaseId, studyInstanceUID } = job.data;
         const startTime = Date.now();
@@ -175,7 +175,66 @@ class CloudflareR2ZipService {
             
             job.progress = 10;
 
-            // ✅ STEP 1: Get all instance details efficiently
+            // ✅ SIMPLIFIED: Get study info for patient name only
+            console.log(`[ZIP WORKER] 🔍 Fetching study info for patient name...`);
+            const studyInfoUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}`;
+            const studyResponse = await axios.get(studyInfoUrl, {
+                headers: { 'Authorization': orthancAuth },
+                timeout: 15000
+            });
+            
+            const studyInfo = studyResponse.data;
+            let patientName = 'Unknown_Patient';
+            
+            // ✅ STEP 1: Try to get patient name from study-level tags first
+            if (studyInfo.MainDicomTags?.PatientName) {
+                patientName = studyInfo.MainDicomTags.PatientName;
+                console.log(`[ZIP WORKER] ✅ Got patient name from study tags: ${patientName}`);
+            } else {
+                // ✅ STEP 2: If not in study tags, get from first instance
+                console.log(`[ZIP WORKER] 🔍 Patient name not in study tags, checking first instance...`);
+                
+                try {
+                    // Get instances list
+                    const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances`;
+                    const instancesResponse = await axios.get(instancesUrl, {
+                        headers: { 'Authorization': orthancAuth },
+                        timeout: 10000
+                    });
+                    
+                    const instances = instancesResponse.data || [];
+                    
+                    if (instances.length > 0) {
+                        const firstInstanceId = typeof instances[0] === 'string' ? instances[0] : instances[0].ID;
+                        
+                        // Get patient name from first instance
+                        const instanceTagsUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/tags`;
+                        const tagsResponse = await axios.get(instanceTagsUrl, {
+                            headers: { 'Authorization': orthancAuth },
+                            timeout: 8000
+                        });
+                        
+                        const tags = tagsResponse.data;
+                        
+                        // Extract patient name from tags
+                        const patientNameTag = tags["0010,0010"]?.Value;
+                        if (patientNameTag) {
+                            patientName = patientNameTag;
+                            console.log(`[ZIP WORKER] ✅ Got patient name from instance: ${patientName}`);
+                        } else {
+                            console.log(`[ZIP WORKER] ⚠️ No patient name found in instance tags`);
+                        }
+                    } else {
+                        console.log(`[ZIP WORKER] ⚠️ No instances found for study`);
+                    }
+                } catch (instanceError) {
+                    console.warn(`[ZIP WORKER] ⚠️ Could not get patient name from instance:`, instanceError.message);
+                }
+            }
+            
+            job.progress = 25;
+
+            // ✅ STEP 3: Get all instance details for ZIP processing
             console.log(`[ZIP WORKER] 🔍 Fetching expanded instance list from Orthanc...`);
             const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expand`;
             const instancesResponse = await axios.get(instancesUrl, { 
@@ -190,22 +249,12 @@ class CloudflareR2ZipService {
             }
             
             console.log(`[ZIP WORKER] 📊 Found ${detailedInstances.length} instances to process`);
-            job.progress = 25;
+            job.progress = 30;
 
-            // ✅ STEP 2: Enhanced series grouping with better metadata
+            // ✅ STEP 4: Enhanced series grouping with better metadata
             const seriesMap = new Map();
-            let studyMetadata = null;
             
             for (const instance of detailedInstances) {
-                // Extract study metadata from first instance
-                if (!studyMetadata) {
-                    studyMetadata = {
-                        patientName: instance.MainDicomTags?.PatientName || instance.PatientMainDicomTags?.PatientName || 'Unknown',
-                        patientId: instance.MainDicomTags?.PatientID || instance.PatientMainDicomTags?.PatientID || 'Unknown',
-                        studyDate: instance.MainDicomTags?.StudyDate || ''
-                    };
-                }
-                
                 const seriesInstanceUID = instance.MainDicomTags?.SeriesInstanceUID;
                 if (!seriesMap.has(seriesInstanceUID)) {
                     const seriesDescription = (instance.MainDicomTags?.SeriesDescription || 'UnknownSeries')
@@ -222,26 +271,29 @@ class CloudflareR2ZipService {
             }
 
             console.log(`[ZIP WORKER] 📁 Organized into ${seriesMap.size} series`);
-            job.progress = 30;
+            job.progress = 35;
 
-            // ✅ STEP 3: Create filename with better naming
-            const patientName = studyMetadata.patientName.replace(/[^a-zA-Z0-9]/g, '_');
-            const patientId = studyMetadata.patientId.replace(/[^a-zA-Z0-9]/g, '_');
-            const studyDate = studyMetadata.studyDate || '';
-            const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-            const zipFileName = `Study_${patientName}_${patientId}_${studyDate}_${orthancStudyId}_${timestamp}.zip`;
+            // ✅ STEP 5: Create filename with ONLY patient name (simplified like orthanc.routes.js)
+            const cleanPatientName = patientName
+                .replace(/[^a-zA-Z0-9\s\-_]/g, '_') // Allow spaces, letters, numbers, hyphens, underscores
+                .replace(/\s+/g, '_') // Replace spaces with underscores
+                .replace(/_+/g, '_') // Replace multiple underscores with single
+                .replace(/^_|_$/g, '') // Remove leading/trailing underscores
+                .substring(0, 50); // Limit length
             
-            console.log(`[ZIP WORKER] 📂 Creating ZIP: ${zipFileName}`);
-
-            // ✅ STEP 4: Setup streams with better error handling
+            const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const zipFileName = `${cleanPatientName}_${orthancStudyId}_${timestamp}.zip`;
+            
+            console.log(`[ZIP WORKER] 📂 Creating ZIP with patient name: ${zipFileName}`);
+            
+            // ✅ Continue with existing ZIP creation logic...
             const zipStream = new PassThrough();
             const archive = archiver('zip', { 
-                zlib: { level: 6 },  // Good compression for medical images
+                zlib: { level: 6 },
                 forceLocalTime: true,
-                store: false // Enable compression
+                store: false
             });
             
-            // ✅ ENHANCED: Better archiver error handling
             archive.on('error', (err) => {
                 console.error('[ZIP WORKER] ❌ Archiver error:', err);
                 zipStream.destroy(err);
@@ -258,24 +310,23 @@ class CloudflareR2ZipService {
                 studyInstanceUID,
                 orthancStudyId,
                 totalInstances: detailedInstances.length,
-                totalSeries: seriesMap.size
+                totalSeries: seriesMap.size,
+                patientName: cleanPatientName // ✅ ADD: Include patient name in metadata
             });
             
             console.log(`[ZIP WORKER] 📤 Started streaming upload to R2`);
             job.progress = 40;
 
-            // ✅ STEP 5: Process instances in batches with proper error handling
+            // ✅ Continue with existing batch processing logic...
             let processedInstances = 0;
             const totalInstances = detailedInstances.length;
             
             for (const [seriesUID, seriesData] of seriesMap.entries()) {
                 console.log(`[ZIP WORKER] 📋 Processing series: ${seriesData.folderName} (${seriesData.instances.length} instances)`);
                 
-                // ✅ BATCH PROCESSING: Process instances in smaller batches
                 for (let i = 0; i < seriesData.instances.length; i += this.instanceBatchSize) {
                     const batch = seriesData.instances.slice(i, i + this.instanceBatchSize);
                     
-                    // Process batch concurrently with limited concurrency
                     const batchPromises = batch.map(async (instanceId, index) => {
                         return this.downloadAndAddInstanceToArchive(
                             archive, 
@@ -289,25 +340,22 @@ class CloudflareR2ZipService {
                         await Promise.all(batchPromises);
                         processedInstances += batch.length;
                         
-                        // Update progress
                         const progressPercent = Math.floor((processedInstances / totalInstances) * 40);
                         job.progress = 40 + progressPercent;
                         
                         console.log(`[ZIP WORKER] 📦 Processed ${processedInstances}/${totalInstances} instances (${Math.round((processedInstances/totalInstances)*100)}%)`);
                         
-                        // Small delay between batches to prevent overwhelming Orthanc
                         if (i + this.instanceBatchSize < seriesData.instances.length) {
                             await new Promise(resolve => setTimeout(resolve, 500));
                         }
                         
                     } catch (batchError) {
                         console.warn(`[ZIP WORKER] ⚠️ Batch processing error:`, batchError.message);
-                        // Continue with next batch instead of failing entire job
                     }
                 }
             }
 
-            // ✅ STEP 6: Finalize and wait for upload
+            // ✅ Finalize and wait for upload
             console.log(`[ZIP WORKER] 🔒 Finalizing archive...`);
             await archive.finalize();
             job.progress = 85;
@@ -319,7 +367,7 @@ class CloudflareR2ZipService {
             const processingTime = Date.now() - startTime;
             const zipSizeMB = Math.round((r2Result.size || 0) / 1024 / 1024 * 100) / 100;
             
-            // ✅ STEP 7: Generate URLs and update database
+            // ✅ Generate URLs and update database
             const cdnUrl = await getCDNOptimizedUrl(r2Result.key, { 
                 filename: zipFileName, 
                 contentType: 'application/zip',
@@ -348,14 +396,15 @@ class CloudflareR2ZipService {
                     r2Bucket: this.zipBucket,
                     cdnEnabled: true,
                     downloadMethod: 'decoupled-streaming',
-                    batchSize: this.instanceBatchSize
+                    batchSize: this.instanceBatchSize,
+                    patientName: cleanPatientName // ✅ ADD: Store patient name used
                 }
             };
             
             await DicomStudy.findByIdAndUpdate(studyDatabaseId, updateData);
             job.progress = 100;
             
-            console.log(`[ZIP WORKER] ✅ ZIP created via decoupled method: ${zipSizeMB}MB in ${processingTime}ms`);
+            console.log(`[ZIP WORKER] ✅ ZIP created with patient name: ${zipFileName} - ${zipSizeMB}MB in ${processingTime}ms`);
             console.log(`[ZIP WORKER] 📊 Processed ${detailedInstances.length} instances from ${seriesMap.size} series`);
             
             return { 
@@ -369,7 +418,8 @@ class CloudflareR2ZipService {
                 r2Bucket: this.zipBucket,
                 instanceCount: detailedInstances.length,
                 seriesCount: seriesMap.size,
-                method: 'decoupled-streaming'
+                method: 'decoupled-streaming',
+                patientName: cleanPatientName // ✅ ADD: Include in result
             };
 
         } catch (error) {
