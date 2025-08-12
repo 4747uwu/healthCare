@@ -1430,9 +1430,9 @@ if (updateData.clinicalInfo) {
           }
 
           // 🔧 EXISTING: Clinical history
-          if (updateData.clinicalInfo?.clinicalHistory) {
-              studyUpdateData.clinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory);
-          }
+          // if (updateData.clinicalInfo?.clinicalHistory) {
+          //     studyUpdateData.clinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory);
+          // }
 
           // 🆕 NEW: Enhanced referring physician in studies
           if (referringPhysicianUpdated && referringPhysicianData.name) {
