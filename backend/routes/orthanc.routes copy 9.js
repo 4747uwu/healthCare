@@ -659,16 +659,13 @@ async function processStableStudy(job) {
     
     job.progress = 60;
     
-    // ✅ STEP 4: Build series map from expanded instances (FIXED for multi-modality)
+    // ✅ STEP 4: Build series map from expanded instances (NO additional API calls)
     const seriesMap = new Map();
     const modalitiesSet = new Set();
 
     if (Array.isArray(detailedInstances) && detailedInstances.length > 0 && detailedInstances[0].MainDicomTags) {
       // We have expanded instance data
       console.log(`[StableStudy] 📁 Building series map from expanded instance data...`);
-      
-      // 🔧 FIX: Track unique series and their modalities
-      const seriesModalityMap = new Map();
       
       for (const instance of detailedInstances) {
         const seriesUID = instance.MainDicomTags?.SeriesInstanceUID;
@@ -678,21 +675,15 @@ async function processStableStudy(job) {
                                  instance.StudyMainDicomTags?.Modality ||
                                  tags.Modality;
         
+        if (instanceModality) {
+          modalitiesSet.add(instanceModality);
+          // ✅ REDUCED LOGGING: Only log every 50th instance to reduce spam
+          if (modalitiesSet.size === 1) {
+            console.log(`[StableStudy] 🔬 Modality detected: ${instanceModality}`);
+          }
+        }
+        
         if (seriesUID) {
-          // Track series and its modality
-          if (!seriesModalityMap.has(seriesUID)) {
-            seriesModalityMap.set(seriesUID, instanceModality || 'UNKNOWN');
-            
-            // 🆕 NEW: Only log when we discover a NEW series with its modality
-            console.log(`[StableStudy] 🔬 Series ${seriesUID}: Modality = ${instanceModality || 'UNKNOWN'}`);
-          }
-          
-          // Add modality to the set (this will automatically deduplicate)
-          if (instanceModality) {
-            modalitiesSet.add(instanceModality);
-          }
-          
-          // Build series map
           if (!seriesMap.has(seriesUID)) {
             seriesMap.set(seriesUID, {
               modality: instanceModality || 'UNKNOWN',
@@ -704,64 +695,24 @@ async function processStableStudy(job) {
           seriesMap.get(seriesUID).instanceCount++;
         }
       }
-      
-      // 🆕 NEW: Log summary of all modalities found
-      console.log(`[StableStudy] ✅ Multi-modality detection complete:`);
-      console.log(`[StableStudy] 📊 Total series found: ${seriesMap.size}`);
-      console.log(`[StableStudy] 🔬 Unique modalities detected: ${Array.from(modalitiesSet).join(', ')}`);
-      
-      // 🆕 NEW: Log detailed series breakdown
-      for (const [seriesUID, seriesInfo] of seriesMap.entries()) {
-        console.log(`[StableStudy] 📋 Series: ${seriesUID.substring(0, 20)}... | Modality: ${seriesInfo.modality} | Instances: ${seriesInfo.instanceCount} | Description: ${seriesInfo.seriesDescription || 'N/A'}`);
-      }
-      
     } else {
-      // Fallback: Use study-level series info and try to get modality from each series
-      console.log(`[StableStudy] 📁 Using study-level series info with individual series lookup...`);
+      // We have basic instance IDs, use study series info
+      console.log(`[StableStudy] 📁 Using study-level series info...`);
       
       if (studyInfo.Series && studyInfo.Series.length > 0) {
         for (const seriesId of studyInfo.Series) {
-          try {
-            // 🔧 FIX: Get modality from each series individually
-            const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
-            const seriesResponse = await axios.get(seriesUrl, {
-                headers: { 'Authorization': orthancAuth },
-                timeout: 5000
-            });
-            
-            const seriesData = seriesResponse.data;
-            const seriesModality = seriesData.MainDicomTags?.Modality || 'UNKNOWN';
-            
-            // Add to modalities set
-            modalitiesSet.add(seriesModality);
-            
-            console.log(`[StableStudy] 🔬 Series ${seriesId}: Modality = ${seriesModality}`);
-            
-            seriesMap.set(seriesId, {
-                modality: seriesModality,
-                seriesNumber: seriesData.MainDicomTags?.SeriesNumber || 'Unknown',
-                seriesDescription: seriesData.MainDicomTags?.SeriesDescription || 'Unknown Series',
-                instanceCount: seriesData.Instances?.length || Math.floor(detailedInstances.length / studyInfo.Series.length) // Estimate
-            });
-            
-          } catch (seriesError) {
-            console.warn(`[StableStudy] ⚠️ Could not get modality for series ${seriesId}:`, seriesError.message);
-            
-            // Fallback to study-level modality
-            const fallbackModality = tags.Modality || 'UNKNOWN';
-            modalitiesSet.add(fallbackModality);
-            
-            seriesMap.set(seriesId, {
-                modality: fallbackModality,
-                seriesNumber: 'Unknown',
-                seriesDescription: 'Unknown Series',
-                instanceCount: Math.floor(detailedInstances.length / studyInfo.Series.length)
-            });
-          }
+          seriesMap.set(seriesId, {
+            modality: tags.Modality || 'UNKNOWN',
+            seriesNumber: 'Unknown',
+            seriesDescription: 'Unknown Series',
+            instanceCount: Math.floor(detailedInstances.length / studyInfo.Series.length) // Estimate
+          });
         }
-        
-        console.log(`[StableStudy] ✅ Fallback modality detection complete:`);
-        console.log(`[StableStudy] 🔬 Modalities found: ${Array.from(modalitiesSet).join(', ')}`);
+      }
+      
+      if (tags.Modality) {
+        modalitiesSet.add(tags.Modality);
+        console.log(`[StableStudy] 🔬 Added modality from tags: ${tags.Modality}`);
       }
     }
     
@@ -770,8 +721,7 @@ async function processStableStudy(job) {
       modalitiesSet.add('UNKNOWN');
       console.warn(`[StableStudy] ⚠️ No modalities found anywhere, using UNKNOWN`);
     } else {
-      console.log(`[StableStudy] ✅ FINAL modalities for study: ${Array.from(modalitiesSet).join(', ')}`);
-      console.log(`[StableStudy] 📊 Total unique modalities: ${modalitiesSet.size}`);
+      console.log(`[StableStudy] ✅ Final modalities detected: ${Array.from(modalitiesSet).join(', ')}`);
     }
     
     // ✅ FIX: ADD MISSING VARIABLE DECLARATIONS
