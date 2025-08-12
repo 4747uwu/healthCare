@@ -38,10 +38,26 @@ class CloudflareR2ZipService {
         this.maxRetries = 3;
         this.retryDelay = 2000; // 2 seconds base delay
         
+        // ✅ FIX: Add missing configuration objects
+        this.uploadConfig = {
+            partSize: 50 * 1024 * 1024, // 50MB parts
+            queueSize: 8 // 8 concurrent parts for 8vCPU server
+        };
+        
+        this.networkTimeouts = {
+            instanceTimeout: 60000, // 60 seconds for instance download
+            uploadTimeout: 300000, // 5 minutes for upload
+            connectionTimeout: 30000 // 30 seconds for connection
+        };
+        
+        this.maxMemoryUsage = 14 * 1024 * 1024 * 1024; // 14GB limit for 16GB server
+        
         console.log(`📦 R2 ZIP Service initialized (DECOUPLED MODE):`);
         console.log(`🔧 Concurrency: ${this.concurrency}`);
         console.log(`📦 Instance batch size: ${this.instanceBatchSize}`);
         console.log(`⏱️ Processing delay: ${this.processingDelay}ms`);
+        console.log(`📤 Upload part size: ${this.formatBytes(this.uploadConfig.partSize)}`);
+        console.log(`🔗 Upload queue size: ${this.uploadConfig.queueSize}`);
     }
 
     // Add ZIP creation job to queue
@@ -80,7 +96,6 @@ class CloudflareR2ZipService {
             // 🔥 MEMORY MONITORING: Check system resources
             const memUsage = process.memoryUsage();
             const memUsedGB = memUsage.heapUsed / (1024 * 1024 * 1024);
-            const cpuUsage = process.cpuUsage();
             
             // Dynamic concurrency based on memory pressure
             let effectiveConcurrency = this.concurrency;
@@ -162,166 +177,249 @@ class CloudflareR2ZipService {
         }
     }
 
-    
+    // ✅ HIGHLY OPTIMIZED: Minimal API calls version
     async createAndUploadStudyZipToR2(job) {
-    const { orthancStudyId, studyDatabaseId, studyInstanceUID } = job.data;
-    const startTime = Date.now();
-    
-    try {
-        console.log(`[ZIP WORKER] 📦 Starting job for study: ${orthancStudyId} (Decoupled Method)`);
+        const { orthancStudyId, studyDatabaseId, studyInstanceUID } = job.data;
+        const startTime = Date.now();
         
-        // Update study status
-        await DicomStudy.findByIdAndUpdate(studyDatabaseId, { 
-            'preProcessedDownload.zipStatus': 'processing',
-            'preProcessedDownload.zipJobId': job.id.toString(),
-            'preProcessedDownload.zipMetadata.createdBy': 'cloudflare-r2-service-decoupled',
-            'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2'
-        });
-        
-        job.progress = 10;
+        try {
+            console.log(`[ZIP WORKER] 📦 Starting OPTIMIZED job for study: ${orthancStudyId}`);
+            
+            // Update study status
+            await DicomStudy.findByIdAndUpdate(studyDatabaseId, { 
+                'preProcessedDownload.zipStatus': 'processing',
+                'preProcessedDownload.zipJobId': job.id.toString(),
+                'preProcessedDownload.zipMetadata.createdBy': 'cloudflare-r2-service-optimized',
+                'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2'
+            });
+            
+            job.progress = 10;
 
-        // ✅ FIXED: Step 1 - Fetch study details AND instance list in parallel for efficiency
-        console.log(`[ZIP WORKER] 🔍 Fetching all metadata from Orthanc...`);
-        const studyDetailsUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}`;
-        const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expanded=true`;
+            // ✅ STEP 1: SINGLE EFFICIENT CALL - Get expanded instances (includes all metadata we need)
+            console.log(`[ZIP WORKER] 🔍 Making SINGLE API call for all data...`);
+            const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expand`;
+            const instancesResponse = await axios.get(instancesUrl, { 
+                headers: { 'Authorization': orthancAuth },
+                timeout: 30000 
+            });
+            
+            const detailedInstances = instancesResponse.data;
 
-        const [studyDetailsResponse, instancesResponse] = await Promise.all([
-            axios.get(studyDetailsUrl, { headers: { 'Authorization': orthancAuth }, timeout: 15000 }),
-            axios.get(instancesUrl, { headers: { 'Authorization': orthancAuth }, timeout: 30000 })
-        ]);
-
-        const studyDetails = studyDetailsResponse.data;
-        const detailedInstances = instancesResponse.data;
-
-        if (!detailedInstances || detailedInstances.length === 0) {
-            throw new Error("No instances found for this study");
-        }
-        
-        console.log(`[ZIP WORKER] 📊 Found ${detailedInstances.length} instances to process`);
-        job.progress = 25;
-
-        // ✅ FIXED: Step 2 - Create filename from the correct source (studyDetails)
-        const patientName = (studyDetails.PatientMainDicomTags.PatientName || 'Unknown').replace(/[^a-zA-Z0-9]/g, '_');
-        const patientId = (studyDetails.PatientMainDicomTags.PatientID || 'Unknown').replace(/[^a-zA-Z0-9]/g, '_');
-        const studyDate = studyDetails.MainDicomTags.StudyDate || '';
-        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const zipFileName = `Study_${patientName}_${patientId}_${studyDate}_${orthancStudyId}.zip`;
-        
-        console.log(`[ZIP WORKER] 📂 Creating ZIP with correct name: ${zipFileName}`);
-
-        // ✅ FIXED: Step 3 - Group instances by series using the detailed instance data
-        const seriesMap = new Map();
-        for (const instance of detailedInstances) {
-            const seriesInstanceUID = instance.MainDicomTags.SeriesInstanceUID;
-            if (!seriesMap.has(seriesInstanceUID)) {
-                const seriesDescription = (instance.MainDicomTags.SeriesDescription || 'UnknownSeries').replace(/[^a-zA-Z0-9\-_]/g, '_').substring(0, 50);
-                const seriesNumber = String(instance.MainDicomTags.SeriesNumber || '000').padStart(3, '0');
-                seriesMap.set(seriesInstanceUID, {
-                    folderName: `Series_${seriesNumber}_${seriesDescription}`,
-                    instances: []
-                });
+            if (!detailedInstances || detailedInstances.length === 0) {
+                throw new Error("No instances found for this study");
             }
-            seriesMap.get(seriesInstanceUID).instances.push(instance.ID);
-        }
+            
+            console.log(`[ZIP WORKER] 📊 Found ${detailedInstances.length} instances with expanded data`);
+            job.progress = 30;
 
-        console.log(`[ZIP WORKER] 📁 Organized into ${seriesMap.size} series`);
-        job.progress = 35;
-
-        // ✅ STEP 4: Setup streams for zipping and uploading
-        const zipStream = new PassThrough();
-        const archive = archiver('zip', { 
-            zlib: { level: 6 }
-        });
-        
-        archive.on('error', (err) => {
-            console.error('[ZIP WORKER] ❌ Archiver error:', err);
-            zipStream.destroy(err);
-        });
-        archive.pipe(zipStream);
-        
-        const uploadPromise = this.uploadZipToR2(zipStream, zipFileName, {
-            studyInstanceUID,
-            orthancStudyId,
-            totalInstances: detailedInstances.length,
-            totalSeries: seriesMap.size,
-            patientName: patientName
-        });
-        
-        console.log(`[ZIP WORKER] 📤 Started streaming upload to R2`);
-        job.progress = 40;
-
-        // STEP 5: Process instances in batches
-        let processedInstances = 0;
-        const totalInstances = detailedInstances.length;
-        for (const [seriesUID, seriesData] of seriesMap.entries()) {
-            for (let i = 0; i < seriesData.instances.length; i += this.instanceBatchSize) {
-                const batch = seriesData.instances.slice(i, i + this.instanceBatchSize);
-                const batchPromises = batch.map((instanceId, index) => {
-                    return this.downloadAndAddInstanceToArchive(
-                        archive, 
-                        instanceId, 
-                        seriesData.folderName, 
-                        processedInstances + index + 1
-                    );
-                });
-                await Promise.all(batchPromises);
-                processedInstances += batch.length;
-                job.progress = 40 + Math.floor((processedInstances / totalInstances) * 45); // Progress from 40% to 85%
-                console.log(`[ZIP WORKER] 📦 Processed ${processedInstances}/${totalInstances} instances`);
+            // ✅ STEP 2: Extract patient name from FIRST instance (no additional API calls needed)
+            let patientName = 'Unknown_Patient';
+            const firstInstance = detailedInstances[0];
+            
+            // Try multiple sources for patient name from the expanded instance data
+            if (firstInstance.MainDicomTags?.PatientName) {
+                patientName = firstInstance.MainDicomTags.PatientName;
+                console.log(`[ZIP WORKER] ✅ Got patient name from instance MainDicomTags: ${patientName}`);
+            } else if (firstInstance.PatientMainDicomTags?.PatientName) {
+                patientName = firstInstance.PatientMainDicomTags.PatientName;
+                console.log(`[ZIP WORKER] ✅ Got patient name from PatientMainDicomTags: ${patientName}`);
+            } else {
+                console.log(`[ZIP WORKER] ⚠️ No patient name found, using default: ${patientName}`);
             }
+            
+            job.progress = 35;
+
+            // ✅ STEP 3: Build series map from expanded data (no additional API calls)
+            const seriesMap = new Map();
+            
+            for (const instance of detailedInstances) {
+                const seriesInstanceUID = instance.MainDicomTags?.SeriesInstanceUID;
+                if (seriesInstanceUID && !seriesMap.has(seriesInstanceUID)) {
+                    const seriesDescription = (instance.MainDicomTags?.SeriesDescription || 'UnknownSeries')
+                        .replace(/[^a-zA-Z0-9\-_]/g, '_')
+                        .substring(0, 50);
+                    const seriesNumber = String(instance.MainDicomTags?.SeriesNumber || '000').padStart(3, '0');
+                    
+                    seriesMap.set(seriesInstanceUID, {
+                        folderName: `Series_${seriesNumber}_${seriesDescription}`,
+                        instances: []
+                    });
+                }
+                
+                if (seriesInstanceUID) {
+                    seriesMap.get(seriesInstanceUID).instances.push(instance.ID);
+                }
+            }
+
+            console.log(`[ZIP WORKER] 📁 Organized into ${seriesMap.size} series (NO ADDITIONAL API CALLS)`);
+            job.progress = 40;
+
+            // ✅ STEP 4: Create clean filename
+            const cleanPatientName = patientName
+                .replace(/[^a-zA-Z0-9\s\-_]/g, '_')
+                .replace(/\s+/g, '_')
+                .replace(/_+/g, '_')
+                .replace(/^_|_$/g, '')
+                .substring(0, 50);
+            
+            const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const zipFileName = `${cleanPatientName}_${orthancStudyId}_${timestamp}.zip`;
+            
+            console.log(`[ZIP WORKER] 📂 Creating ZIP: ${zipFileName}`);
+            
+            // ✅ STEP 5: Setup streams (same as before)
+            const zipStream = new PassThrough();
+            const archive = archiver('zip', { 
+                zlib: { level: 6 },
+                forceLocalTime: true,
+                store: false
+            });
+            
+            archive.on('error', (err) => {
+                console.error('[ZIP WORKER] ❌ Archiver error:', err);
+                zipStream.destroy(err);
+            });
+
+            archive.pipe(zipStream);
+            
+            // Start upload immediately
+            const uploadPromise = this.uploadZipToR2(zipStream, zipFileName, {
+                studyInstanceUID,
+                orthancStudyId,
+                totalInstances: detailedInstances.length,
+                totalSeries: seriesMap.size,
+                patientName: cleanPatientName
+            });
+            
+            console.log(`[ZIP WORKER] 📤 Started streaming upload to R2`);
+            job.progress = 45;
+
+            // ✅ STEP 6: Process instances with ONLY download calls (most efficient)
+            let processedInstances = 0;
+            const totalInstances = detailedInstances.length;
+            
+            console.log(`[ZIP WORKER] 🚀 Starting OPTIMIZED instance processing...`);
+            
+            for (const [seriesUID, seriesData] of seriesMap.entries()) {
+                console.log(`[ZIP WORKER] 📋 Processing series: ${seriesData.folderName} (${seriesData.instances.length} instances)`);
+                
+                // Process in smaller batches to avoid overwhelming Orthanc
+                for (let i = 0; i < seriesData.instances.length; i += this.instanceBatchSize) {
+                    const batch = seriesData.instances.slice(i, i + this.instanceBatchSize);
+                    
+                    const batchPromises = batch.map(async (instanceId, index) => {
+                        return this.downloadAndAddInstanceToArchive(
+                            archive, 
+                            instanceId, 
+                            seriesData.folderName, 
+                            processedInstances + index + 1
+                        );
+                    });
+                    
+                    try {
+                        await Promise.all(batchPromises);
+                        processedInstances += batch.length;
+                        
+                        job.progress = 45 + Math.floor((processedInstances / totalInstances) * 40);
+                        
+                        if (processedInstances % 50 === 0 || processedInstances === totalInstances) {
+                            console.log(`[ZIP WORKER] 📦 Processed ${processedInstances}/${totalInstances} instances (${Math.round((processedInstances/totalInstances)*100)}%)`);
+                        }
+                        
+                        // Smaller delay between batches
+                        if (i + this.instanceBatchSize < seriesData.instances.length) {
+                            await new Promise(resolve => setTimeout(resolve, 250)); // Reduced from 500ms
+                        }
+                        
+                    } catch (batchError) {
+                        console.warn(`[ZIP WORKER] ⚠️ Batch processing error:`, batchError.message);
+                    }
+                }
+            }
+
+            // ✅ STEP 7: Finalize and complete (same as before)
+            console.log(`[ZIP WORKER] 🔒 Finalizing archive...`);
+            await archive.finalize();
+            job.progress = 90;
+            
+            console.log(`[ZIP WORKER] ⏳ Waiting for R2 upload to complete...`);
+            const r2Result = await uploadPromise;
+            job.progress = 95;
+            
+            const processingTime = Date.now() - startTime;
+            const zipSizeMB = Math.round((r2Result.size || 0) / 1024 / 1024 * 100) / 100;
+            
+            // ✅ STEP 8: Generate URLs and update database
+            const cdnUrl = await getCDNOptimizedUrl(r2Result.key, { 
+                filename: zipFileName, 
+                contentType: 'application/zip'
+            });
+            const publicUrl = getR2PublicUrl(r2Result.key, r2Config.features.enableCustomDomain);
+            
+            const updateData = {
+                'preProcessedDownload.zipUrl': cdnUrl,
+                'preProcessedDownload.zipPublicUrl': publicUrl,
+                'preProcessedDownload.zipFileName': zipFileName,
+                'preProcessedDownload.zipSizeMB': zipSizeMB,
+                'preProcessedDownload.zipCreatedAt': new Date(),
+                'preProcessedDownload.zipStatus': 'completed',
+                'preProcessedDownload.zipExpiresAt': new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+                'preProcessedDownload.zipBucket': this.zipBucket,
+                'preProcessedDownload.zipKey': r2Result.key,
+                'preProcessedDownload.zipMetadata': {
+                    orthancStudyId,
+                    instanceCount: detailedInstances.length,
+                    seriesCount: seriesMap.size,
+                    processingTimeMs: processingTime,
+                    createdBy: 'cloudflare-r2-service-optimized',
+                    storageProvider: 'cloudflare-r2',
+                    r2Key: r2Result.key,
+                    r2Bucket: this.zipBucket,
+                    cdnEnabled: true,
+                    downloadMethod: 'optimized-single-call',
+                    batchSize: this.instanceBatchSize,
+                    patientName: cleanPatientName,
+                    apiCallsUsed: detailedInstances.length + 1 // Only 1 metadata call + N download calls
+                }
+            };
+            
+            await DicomStudy.findByIdAndUpdate(studyDatabaseId, updateData);
+            job.progress = 100;
+            
+            console.log(`[ZIP WORKER] ✅ OPTIMIZED ZIP created: ${zipFileName} - ${zipSizeMB}MB in ${processingTime}ms`);
+            console.log(`[ZIP WORKER] 📊 API Efficiency: ${detailedInstances.length + 1} total calls (1 metadata + ${detailedInstances.length} downloads)`);
+            
+            return { 
+                success: true, 
+                zipUrl: cdnUrl, 
+                zipPublicUrl: publicUrl,
+                zipFileName, 
+                zipSizeMB, 
+                processingTime,
+                r2Key: r2Result.key,
+                r2Bucket: this.zipBucket,
+                instanceCount: detailedInstances.length,
+                seriesCount: seriesMap.size,
+                method: 'optimized-single-call',
+                patientName: cleanPatientName,
+                apiCallsUsed: detailedInstances.length + 1
+            };
+
+        } catch (error) {
+            console.error(`[ZIP WORKER] ❌ OPTIMIZED method failed:`, error);
+            
+            await DicomStudy.findByIdAndUpdate(studyDatabaseId, { 
+                'preProcessedDownload.zipStatus': 'failed',
+                'preProcessedDownload.zipMetadata.error': error.message,
+                'preProcessedDownload.zipMetadata.method': 'optimized-single-call',
+                'preProcessedDownload.zipMetadata.failedAt': new Date()
+            });
+            
+            throw error;
         }
-
-        // STEP 6: Finalize and wait for upload
-        console.log(`[ZIP WORKER] 🔒 Finalizing archive...`);
-        await archive.finalize();
-        job.progress = 85;
-        
-        console.log(`[ZIP WORKER] ⏳ Waiting for R2 upload to complete...`);
-        const r2Result = await uploadPromise;
-        job.progress = 95;
-        
-        const processingTime = Date.now() - startTime;
-        const zipSizeMB = Math.round((r2Result.size || 0) / 1024 / 1024 * 100) / 100;
-        
-        // STEP 7: Generate URLs and update database
-        const cdnUrl = await getCDNOptimizedUrl(r2Result.key, { filename: zipFileName, contentType: 'application/zip' });
-        const publicUrl = getR2PublicUrl(r2Result.key, r2Config.features.enableCustomDomain);
-        
-        const updateData = {
-            'preProcessedDownload.zipUrl': cdnUrl,
-            'preProcessedDownload.zipPublicUrl': publicUrl,
-            'preProcessedDownload.zipFileName': zipFileName,
-            'preProcessedDownload.zipSizeMB': zipSizeMB,
-            'preProcessedDownload.zipCreatedAt': new Date(),
-            'preProcessedDownload.zipStatus': 'completed',
-            // ... add more metadata as needed
-        };
-        
-        await DicomStudy.findByIdAndUpdate(studyDatabaseId, updateData);
-        job.progress = 100;
-        
-        console.log(`[ZIP WORKER] ✅ ZIP created: ${zipFileName} - ${zipSizeMB}MB in ${processingTime}ms`);
-        
-        return { 
-            success: true, 
-            zipUrl: cdnUrl, 
-            zipPublicUrl: publicUrl,
-            zipFileName, 
-            zipSizeMB, 
-            processingTime
-        };
-
-    } catch (error) {
-        console.error(`[ZIP WORKER] ❌ Failed to create ZIP via decoupled method:`, error);
-        await DicomStudy.findByIdAndUpdate(studyDatabaseId, { 
-            'preProcessedDownload.zipStatus': 'failed',
-            'preProcessedDownload.zipMetadata.error': error.message
-        });
-        throw error;
     }
-  }
 
-    // 🚀 OPTIMIZED: Enhanced instance processing with better batching
+    // ✅ OPTIMIZED: Streamlined instance download with fixed timeouts
     async downloadAndAddInstanceToArchive(archive, instanceId, folderName, fileNumber) {
         let retryCount = 0;
         
@@ -331,45 +429,43 @@ class CloudflareR2ZipService {
                 const instanceStreamResponse = await axios.get(instanceFileUrl, {
                     headers: { 'Authorization': orthancAuth },
                     responseType: 'stream',
-                    timeout: this.networkTimeouts.instanceTimeout,
-                    maxContentLength: 1024 * 1024 * 1024, // 1GB max per instance
-                    // 🔥 OPTIMIZATION: Better HTTP settings
+                    timeout: this.networkTimeouts.instanceTimeout, // ✅ FIXED: Now properly defined
+                    maxContentLength: 500 * 1024 * 1024, // 500MB max per instance
                     maxRedirects: 2,
                     decompress: false,
                     validateStatus: (status) => status === 200
                 });
                 
-                const fileName = `${folderName}/${String(fileNumber).padStart(4, '0')}_${instanceId}.dcm`;
+                const fileName = `${folderName}/${instanceId}.dcm`;
                 archive.append(instanceStreamResponse.data, { name: fileName });
                 
-                // 🔥 PROGRESS: Log every 25 files for better tracking
-                if (fileNumber % 25 === 0) {
-                    console.log(`[ZIP] ✅ Processed ${fileNumber} instances: ${fileName}`);
+                // Reduced logging frequency
+                if (fileNumber % 100 === 0) {
+                    console.log(`[ZIP WORKER] ✅ Added ${fileNumber} instances...`);
                 }
                 
                 return; // Success
                 
             } catch (error) {
                 retryCount++;
-                console.warn(`[ZIP] ⚠️ Instance ${instanceId} attempt ${retryCount}/${this.maxRetries}:`, error.message);
                 
                 if (retryCount >= this.maxRetries) {
-                    // 🔥 RESILIENCE: Add error placeholder instead of failing entire ZIP
-                    const errorContent = `Error downloading instance ${instanceId}: ${error.message}\nRetries: ${this.maxRetries}\nTimestamp: ${new Date().toISOString()}`;
+                    console.error(`[ZIP WORKER] ❌ Failed ${instanceId} after ${this.maxRetries} attempts: ${error.message}`);
+                    // Add error file instead of failing
+                    const errorContent = `Error downloading instance ${instanceId}: ${error.message}`;
                     const errorFileName = `${folderName}/ERROR_${instanceId}.txt`;
                     archive.append(Buffer.from(errorContent), { name: errorFileName });
-                    console.error(`[ZIP] ❌ Failed to download ${instanceId} - added error file`);
                     return;
                 }
                 
-                // Exponential backoff with jitter
-                const delay = this.retryDelay * Math.pow(2, retryCount - 1) + Math.random() * 1000;
+                // Quick retry with minimal delay
+                const delay = 500 * retryCount; // 500ms, 1s, 1.5s
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
     }
 
-    // 🚀 OPTIMIZED: Enhanced R2 upload configuration
+    // ✅ FIXED: Upload with proper configuration access
     async uploadZipToR2(zipStream, fileName, metadata) {
         const year = new Date().getFullYear();
         const month = String(new Date().getMonth() + 1).padStart(2, '0');
@@ -386,7 +482,7 @@ class CloudflareR2ZipService {
                     Body: zipStream,
                     ContentType: 'application/zip',
                     ContentDisposition: `attachment; filename="${fileName}"`,
-                    CacheControl: `public, max-age=${r2Config.cdnSettings.cacheMaxAge}`,
+                    CacheControl: `public, max-age=${r2Config.cdnSettings?.cacheMaxAge || 86400}`,
                     
                     Metadata: {
                         'study-instance-uid': metadata.studyInstanceUID || '',
@@ -394,15 +490,14 @@ class CloudflareR2ZipService {
                         'total-instances': metadata.totalInstances?.toString() || '0',
                         'total-series': metadata.totalSeries?.toString() || '0',
                         'created-at': new Date().toISOString(),
-                        'service-version': 'high-performance-r2-v3',
-                        'server-specs': '8vCPU-16GB',
-                        'optimization-level': 'high-performance'
+                        'service-version': 'optimized-r2-v4',
+                        'patient-name': metadata.patientName || ''
                     },
                     
                     StorageClass: 'STANDARD'
                 },
                 
-                // 🚀 HIGH-PERFORMANCE: Optimized for 8vCPU/16GB
+                // ✅ FIXED: Now using properly defined configuration
                 partSize: this.uploadConfig.partSize,    // 50MB parts
                 leavePartsOnError: false,
                 queueSize: this.uploadConfig.queueSize,  // 8 concurrent parts
@@ -413,25 +508,12 @@ class CloudflareR2ZipService {
                 }
             });
 
-            // 📊 ENHANCED: Progress tracking with throughput monitoring
-            let lastProgressTime = Date.now();
-            let lastProgressBytes = 0;
-            
+            // Progress tracking
             upload.on('httpUploadProgress', (progress) => {
                 if (progress.total) {
-                    const now = Date.now();
-                    const timeDiff = (now - lastProgressTime) / 1000;
-                    const bytesDiff = progress.loaded - lastProgressBytes;
-                    
-                    if (timeDiff > 5) { // Log every 5 seconds
-                        const throughputMBps = (bytesDiff / timeDiff) / (1024 * 1024);
-                        const percentComplete = Math.round((progress.loaded / progress.total) * 100);
-                        const etaSeconds = throughputMBps > 0 ? (progress.total - progress.loaded) / (throughputMBps * 1024 * 1024) : 0;
-                        
-                        console.log(`[R2] 📊 ${fileName}: ${percentComplete}% | ${this.formatBytes(progress.loaded)}/${this.formatBytes(progress.total)} | ${throughputMBps.toFixed(2)} MB/s | ETA: ${Math.round(etaSeconds)}s`);
-                        
-                        lastProgressTime = now;
-                        lastProgressBytes = progress.loaded;
+                    const percentComplete = Math.round((progress.loaded / progress.total) * 100);
+                    if (percentComplete % 20 === 0) { // Log every 20%
+                        console.log(`[R2] 📊 ${fileName}: ${percentComplete}% (${this.formatBytes(progress.loaded)}/${this.formatBytes(progress.total)})`);
                     }
                 }
             });
@@ -451,7 +533,7 @@ class CloudflareR2ZipService {
                 console.warn(`[R2] ⚠️ Could not get file size:`, headError.message);
             }
             
-            console.log(`[R2] ✅ HIGH-PERFORMANCE Upload completed: ${fileName} (${this.formatBytes(fileSize)})`);
+            console.log(`[R2] ✅ Upload completed: ${fileName} (${this.formatBytes(fileSize)})`);
             
             return {
                 url: getCDNOptimizedUrl(key, { filename: fileName, contentType: 'application/zip' }),
@@ -463,7 +545,7 @@ class CloudflareR2ZipService {
             };
             
         } catch (error) {
-            console.error(`[R2] ❌ HIGH-PERFORMANCE Upload failed:`, error.message);
+            console.error(`[R2] ❌ Upload failed:`, error.message);
             throw new Error(`Upload failed: ${error.message}`);
         }
     }
