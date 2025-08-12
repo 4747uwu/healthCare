@@ -605,7 +605,7 @@ async function processStableStudy(job) {
     // ✅ STEP 4: Build series map from expanded instances (NO additional API calls)
     const seriesMap = new Map();
     const modalitiesSet = new Set();
-    
+
     if (Array.isArray(detailedInstances) && detailedInstances.length > 0 && detailedInstances[0].MainDicomTags) {
       // We have expanded instance data
       console.log(`[StableStudy] 📁 Building series map from expanded instance data...`);
@@ -620,7 +620,10 @@ async function processStableStudy(job) {
         
         if (instanceModality) {
           modalitiesSet.add(instanceModality);
-          console.log(`[StableStudy] 🔬 Added modality from instance: ${instanceModality}`);
+          // ✅ REDUCED LOGGING: Only log every 50th instance to reduce spam
+          if (modalitiesSet.size === 1) {
+            console.log(`[StableStudy] 🔬 Modality detected: ${instanceModality}`);
+          }
         }
         
         if (seriesUID) {
@@ -664,6 +667,12 @@ async function processStableStudy(job) {
       console.log(`[StableStudy] ✅ Final modalities detected: ${Array.from(modalitiesSet).join(', ')}`);
     }
     
+    // ✅ FIX: ADD MISSING VARIABLE DECLARATIONS
+    const actualInstanceCount = detailedInstances.length;
+    const actualSeriesCount = seriesMap.size || studyInfo.Series?.length || 0;
+
+    console.log(`[StableStudy] 📊 OPTIMIZED Final counts - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}, Modalities: ${Array.from(modalitiesSet).join(', ')}`);
+
     job.progress = 70;
     
     // ✅ STEP 5: Create patient and lab records (existing logic)
