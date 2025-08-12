@@ -549,24 +549,57 @@ async function processStableStudy(job) {
           }
         }
         
-        // ✅ ENHANCED: Fill in any missing standard tags from raw tags INCLUDING MODALITY
+        // ✅ ENHANCED: Fill in any missing standard tags from raw tags INCLUDING REFERRING PHYSICIAN
         const standardTagMap = {
           "0010,0010": "PatientName",
           "0010,0020": "PatientID", 
           "0010,0040": "PatientSex",
           "0010,1010": "PatientAge",
           "0008,1030": "StudyDescription",
-          "0008,0060": "Modality", // ✅ CRITICAL: Get modality from raw tags if missing
+          "0008,0060": "Modality",
           "0008,0020": "StudyDate",
           "0008,0030": "StudyTime",
           "0008,0050": "AccessionNumber",
-          "0008,0080": "InstitutionName"
+          "0008,0080": "InstitutionName",
+          "0008,0090": "ReferringPhysicianName", // ✅ CRITICAL: Main referring physician tag
+          "0008,1070": "OperatorName",           // ✅ Additional: Operator name
+          "0018,0015": "BodyPartExamined",       // ✅ Additional: Body part
+          "0008,0070": "Manufacturer",           // ✅ Additional: Manufacturer
+          "0008,1090": "ManufacturerModelName",  // ✅ Additional: Model
+          "0008,1010": "StationName",            // ✅ Additional: Station name
+          "0018,1020": "SoftwareVersions",       // ✅ Additional: Software versions
+          "0020,0010": "StudyID",                // ✅ Additional: Study ID
+          "0008,103e": "SeriesDescription"       // ✅ Additional: Series description
         };
         
         for (const [tagNum, tagName] of Object.entries(standardTagMap)) {
           if (!tags[tagName] && rawTags[tagNum]?.Value) {
             tags[tagName] = rawTags[tagNum].Value;
             console.log(`[StableStudy] 🔄 Filled missing ${tagName} from raw tag ${tagNum}: ${rawTags[tagNum].Value}`);
+          }
+        }
+        
+        // ✅ ENHANCED REFERRING PHYSICIAN EXTRACTION: Check multiple sources
+        if (!tags.ReferringPhysicianName) {
+          console.warn(`[StableStudy] ⚠️ No referring physician found in expanded data, checking raw tags...`);
+          
+          // Check alternative referring physician tags
+          const referringPhysicianTags = [
+            "0008,0090", // Standard referring physician (most common)
+            "0032,1032", // Requesting physician
+            "0008,1048", // Physician(s) of Record
+            "0032,1033", // Requesting Service
+            "0008,009C", // Consulting Physician's Name
+            "0008,1060", // Name of Physician(s) Reading Study
+            "0032,1034"  // Requesting Physician Institution
+          ];
+          
+          for (const refTag of referringPhysicianTags) {
+            if (rawTags[refTag]?.Value && rawTags[refTag].Value.trim() !== '') {
+              tags.ReferringPhysicianName = rawTags[refTag].Value.trim();
+              console.log(`[StableStudy] ✅ Found referring physician in tag ${refTag}: ${tags.ReferringPhysicianName}`);
+              break;
+            }
           }
         }
         
@@ -593,6 +626,30 @@ async function processStableStudy(job) {
           "0043,0010": tags["0043,0010"] || 'NOT_FOUND'
         });
         console.log(`[StableStudy] 🔬 FINAL Modality after enhancement: ${tags.Modality || 'STILL_UNKNOWN'}`);
+        console.log(`[StableStudy] 👨‍⚕️ FINAL Referring Physician: ${tags.ReferringPhysicianName || 'NOT_FOUND'}`);
+        console.log(`[StableStudy] 👨‍⚕️ Operator: ${tags.OperatorName || 'NOT_FOUND'}`);
+        console.log(`[StableStudy] 🏥 Institution: ${tags.InstitutionName || 'NOT_FOUND'}`);
+        console.log(`[StableStudy] 🔬 Body Part: ${tags.BodyPartExamined || 'NOT_FOUND'}`);
+        
+        // ✅ DEBUG: Show all physician-related tags found
+        const physicianTags = {};
+        const physicianTagNumbers = ["0008,0090", "0032,1032", "0008,1048", "0008,1070", "0008,009C", "0008,1060"];
+        for (const pTag of physicianTagNumbers) {
+          if (rawTags[pTag]?.Value) {
+            physicianTags[pTag] = rawTags[pTag].Value;
+          }
+        }
+        console.log(`[StableStudy] 👥 All physician tags found:`, physicianTags);
+        
+        // ✅ DEBUG: Show all equipment/study tags found
+        const equipmentTags = {};
+        const equipmentTagNumbers = ["0008,0070", "0008,1090", "0008,1010", "0018,1020", "0008,0080"];
+        for (const eTag of equipmentTagNumbers) {
+          if (rawTags[eTag]?.Value) {
+            equipmentTags[eTag] = rawTags[eTag].Value;
+          }
+        }
+        console.log(`[StableStudy] 🏥 All equipment/institution tags found:`, equipmentTags);
         
       } catch (tagsError) {
         console.warn(`[StableStudy] ⚠️ Private tags call failed:`, tagsError.message);
