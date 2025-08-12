@@ -29,12 +29,12 @@ class CloudflareR2ZipService {
         this.isProcessing = false;
         
         // ✅ OPTIMIZED: Start with a safe concurrency level
-        this.concurrency = 2; 
+        this.concurrency = 4; 
         this.processingDelay = 2000; // ✅ INCREASED: 2 seconds between starting jobs
         this.zipBucket = r2Config.zipBucket;
         
         // ✅ ADD: Batch processing for instances
-        this.instanceBatchSize = 5; // Process 5 instances concurrently
+        this.instanceBatchSize = 20; // Process 20 instances concurrently
         this.maxRetries = 3;
         this.retryDelay = 2000; // 2 seconds base delay
         
@@ -73,34 +73,39 @@ class CloudflareR2ZipService {
         if (this.isProcessing) return;
         this.isProcessing = true;
         
-        console.log('🚀 Cloudflare R2 ZIP Creation Queue processor started (HIGH LOAD MODE)');
+        console.log('🚀 HIGH-PERFORMANCE ZIP Processing Engine Started');
+        console.log(`⚡ Server Specs: 8vCPU/16GB | Max Jobs: ${this.concurrency}`);
         
         while (this.getWaitingZipJobs().length > 0 || this.processing.size > 0) {
-            // ✅ MEMORY CHECK: Pause if memory usage is too high
+            // 🔥 MEMORY MONITORING: Check system resources
             const memUsage = process.memoryUsage();
             const memUsedGB = memUsage.heapUsed / (1024 * 1024 * 1024);
+            const cpuUsage = process.cpuUsage();
             
-            if (memUsage.heapUsed > this.maxMemoryUsage) {
-                console.warn(`⚠️ Memory pressure: ${memUsedGB.toFixed(2)}GB, pausing for 30s`);
-                await new Promise(resolve => setTimeout(resolve, 30000));
-                continue;
+            // Dynamic concurrency based on memory pressure
+            let effectiveConcurrency = this.concurrency;
+            if (memUsage.heapUsed > this.maxMemoryUsage * 0.8) {
+                effectiveConcurrency = 1; // Reduce to 1 job if memory is high
+                console.warn(`⚠️ Memory pressure detected: ${memUsedGB.toFixed(2)}GB - reducing concurrency`);
             }
-
-            // ✅ SINGLE JOB: Only process one at a time
-            if (this.processing.size === 0 && this.getWaitingZipJobs().length > 0) {
-                const waitingJobs = this.getWaitingZipJobs();
-                const job = waitingJobs[0];
-                
-                console.log(`📊 System Status: Memory: ${memUsedGB.toFixed(2)}GB, Queue: ${waitingJobs.length}`);
+            
+            // Start new jobs if under limit
+            const waitingJobs = this.getWaitingZipJobs();
+            while (this.processing.size < effectiveConcurrency && waitingJobs.length > 0) {
+                const job = waitingJobs.shift();
+                console.log(`🚀 Starting Job ${job.id} (${this.processing.size + 1}/${effectiveConcurrency} active)`);
+                console.log(`📊 System: ${memUsedGB.toFixed(2)}GB RAM, ${waitingJobs.length} queued`);
                 this.processZipJob(job);
             }
             
-            // ✅ LONGER DELAY: Allow system recovery
-            await new Promise(resolve => setTimeout(resolve, this.processingDelay));
+            // 🔥 ADAPTIVE DELAY: Faster processing when system is idle
+            const delay = memUsage.heapUsed > this.maxMemoryUsage * 0.6 ? 
+                         this.processingDelay * 2 : this.processingDelay;
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
         
         this.isProcessing = false;
-        console.log('⏹️ Cloudflare R2 ZIP Creation Queue processor stopped');
+        console.log('⏹️ HIGH-PERFORMANCE ZIP Processing Engine Stopped');
     }
 
     // ✅ ENHANCED: Better error handling in job processing
@@ -316,7 +321,7 @@ class CloudflareR2ZipService {
     }
   }
 
-    // ✅ NEW: Enhanced instance download with retry logic
+    // 🚀 OPTIMIZED: Enhanced instance processing with better batching
     async downloadAndAddInstanceToArchive(archive, instanceId, folderName, fileNumber) {
         let retryCount = 0;
         
@@ -326,45 +331,51 @@ class CloudflareR2ZipService {
                 const instanceStreamResponse = await axios.get(instanceFileUrl, {
                     headers: { 'Authorization': orthancAuth },
                     responseType: 'stream',
-                    timeout: 60000, // 1 minute per instance
-                    maxContentLength: 500 * 1024 * 1024 // 500MB max per instance
+                    timeout: this.networkTimeouts.instanceTimeout,
+                    maxContentLength: 1024 * 1024 * 1024, // 1GB max per instance
+                    // 🔥 OPTIMIZATION: Better HTTP settings
+                    maxRedirects: 2,
+                    decompress: false,
+                    validateStatus: (status) => status === 200
                 });
                 
-                const fileName = `${folderName}/${instanceId}.dcm`;
+                const fileName = `${folderName}/${String(fileNumber).padStart(4, '0')}_${instanceId}.dcm`;
                 archive.append(instanceStreamResponse.data, { name: fileName });
                 
-                if (fileNumber % 20 === 0) { // Log every 20 files
-                    console.log(`[ZIP WORKER] ✅ Added ${fileNumber}: ${fileName}`);
+                // 🔥 PROGRESS: Log every 25 files for better tracking
+                if (fileNumber % 25 === 0) {
+                    console.log(`[ZIP] ✅ Processed ${fileNumber} instances: ${fileName}`);
                 }
                 
-                return; // Success, exit retry loop
+                return; // Success
                 
             } catch (error) {
                 retryCount++;
-                console.warn(`[ZIP WORKER] ⚠️ Download attempt ${retryCount}/${this.maxRetries} failed for ${instanceId}:`, error.message);
+                console.warn(`[ZIP] ⚠️ Instance ${instanceId} attempt ${retryCount}/${this.maxRetries}:`, error.message);
                 
                 if (retryCount >= this.maxRetries) {
-                    console.error(`[ZIP WORKER] ❌ Failed to download ${instanceId} after ${this.maxRetries} attempts`);
-                    // Add error file instead of failing entire ZIP
-                    const errorContent = `Error downloading instance ${instanceId}: ${error.message}`;
+                    // 🔥 RESILIENCE: Add error placeholder instead of failing entire ZIP
+                    const errorContent = `Error downloading instance ${instanceId}: ${error.message}\nRetries: ${this.maxRetries}\nTimestamp: ${new Date().toISOString()}`;
                     const errorFileName = `${folderName}/ERROR_${instanceId}.txt`;
                     archive.append(Buffer.from(errorContent), { name: errorFileName });
+                    console.error(`[ZIP] ❌ Failed to download ${instanceId} - added error file`);
                     return;
                 }
                 
-                // Exponential backoff delay
-                const delay = 1000 * Math.pow(2, retryCount - 1);
+                // Exponential backoff with jitter
+                const delay = this.retryDelay * Math.pow(2, retryCount - 1) + Math.random() * 1000;
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
     }
 
-    // ✅ FIXED: Upload with proper size detection
+    // 🚀 OPTIMIZED: Enhanced R2 upload configuration
     async uploadZipToR2(zipStream, fileName, metadata) {
         const year = new Date().getFullYear();
-        const key = `studies/${year}/${fileName}`;
+        const month = String(new Date().getMonth() + 1).padStart(2, '0');
+        const key = `studies/${year}/${month}/${fileName}`;
         
-        console.log(`[R2] 📤 DECOUPLED Upload: ${fileName} to key: ${key}`);
+        console.log(`[R2] 📤 HIGH-PERFORMANCE Upload: ${fileName}`);
         
         try {
             const upload = new Upload({
@@ -383,42 +394,51 @@ class CloudflareR2ZipService {
                         'total-instances': metadata.totalInstances?.toString() || '0',
                         'total-series': metadata.totalSeries?.toString() || '0',
                         'created-at': new Date().toISOString(),
-                        'service-version': 'cloudflare-r2-decoupled-streaming',
-                        'download-method': 'decoupled-streaming'
+                        'service-version': 'high-performance-r2-v3',
+                        'server-specs': '8vCPU-16GB',
+                        'optimization-level': 'high-performance'
                     },
                     
                     StorageClass: 'STANDARD'
                 },
                 
-                // ✅ OPTIMIZED: For better performance
-                partSize: 10 * 1024 * 1024,  // 10MB parts
+                // 🚀 HIGH-PERFORMANCE: Optimized for 8vCPU/16GB
+                partSize: this.uploadConfig.partSize,    // 50MB parts
                 leavePartsOnError: false,
-                queueSize: 4,                 // 4 concurrent uploads
+                queueSize: this.uploadConfig.queueSize,  // 8 concurrent parts
                 
                 requestHandler: {
-                    requestTimeout: 600000,   // 10 minutes
-                    connectionTimeout: 60000  // 1 minute
+                    requestTimeout: this.networkTimeouts.uploadTimeout,
+                    connectionTimeout: this.networkTimeouts.connectionTimeout
                 }
             });
 
-            // Progress tracking with reduced logging
-            let lastLogTime = 0;
+            // 📊 ENHANCED: Progress tracking with throughput monitoring
+            let lastProgressTime = Date.now();
+            let lastProgressBytes = 0;
+            
             upload.on('httpUploadProgress', (progress) => {
                 if (progress.total) {
                     const now = Date.now();
-                    const percentComplete = Math.round((progress.loaded / progress.total) * 100);
+                    const timeDiff = (now - lastProgressTime) / 1000;
+                    const bytesDiff = progress.loaded - lastProgressBytes;
                     
-                    // Log every 25% or every 2 minutes
-                    if (percentComplete % 25 === 0 || (now - lastLogTime) > 120000) {
-                        console.log(`[R2] 📊 ${fileName}: ${percentComplete}% (${this.formatBytes(progress.loaded)})`);
-                        lastLogTime = now;
+                    if (timeDiff > 5) { // Log every 5 seconds
+                        const throughputMBps = (bytesDiff / timeDiff) / (1024 * 1024);
+                        const percentComplete = Math.round((progress.loaded / progress.total) * 100);
+                        const etaSeconds = throughputMBps > 0 ? (progress.total - progress.loaded) / (throughputMBps * 1024 * 1024) : 0;
+                        
+                        console.log(`[R2] 📊 ${fileName}: ${percentComplete}% | ${this.formatBytes(progress.loaded)}/${this.formatBytes(progress.total)} | ${throughputMBps.toFixed(2)} MB/s | ETA: ${Math.round(etaSeconds)}s`);
+                        
+                        lastProgressTime = now;
+                        lastProgressBytes = progress.loaded;
                     }
                 }
             });
 
             const result = await upload.done();
             
-            // ✅ FIXED: Get actual file size after upload
+            // Get actual file size
             let fileSize = 0;
             try {
                 const headCmd = new HeadObjectCommand({ 
@@ -428,10 +448,10 @@ class CloudflareR2ZipService {
                 const headResult = await this.r2.send(headCmd);
                 fileSize = headResult.ContentLength || 0;
             } catch (headError) {
-                console.warn(`[R2] ⚠️ Could not get file size for ${fileName}:`, headError.message);
+                console.warn(`[R2] ⚠️ Could not get file size:`, headError.message);
             }
             
-            console.log(`[R2] ✅ DECOUPLED Upload completed: ${fileName} (${this.formatBytes(fileSize)})`);
+            console.log(`[R2] ✅ HIGH-PERFORMANCE Upload completed: ${fileName} (${this.formatBytes(fileSize)})`);
             
             return {
                 url: getCDNOptimizedUrl(key, { filename: fileName, contentType: 'application/zip' }),
@@ -443,18 +463,8 @@ class CloudflareR2ZipService {
             };
             
         } catch (error) {
-            console.error(`[R2] ❌ DECOUPLED Upload failed: ${fileName}`, error.message);
-            
-            // Enhanced error classification for retries
-            if (error.message.includes('ECONNRESET') || 
-                error.message.includes('socket hang up') ||
-                error.message.includes('aborted')) {
-                throw new Error(`Network error (retryable): ${error.message}`);
-            } else if (error.message.includes('timeout')) {
-                throw new Error(`Timeout error (retryable): ${error.message}`);
-            } else {
-                throw new Error(`Upload failed: ${error.message}`);
-            }
+            console.error(`[R2] ❌ HIGH-PERFORMANCE Upload failed:`, error.message);
+            throw new Error(`Upload failed: ${error.message}`);
         }
     }
 
