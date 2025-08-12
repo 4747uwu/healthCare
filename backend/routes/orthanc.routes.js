@@ -414,7 +414,7 @@ async function processStableStudy(job) {
     // ✅ STEP 2: SINGLE CALL - Get expanded instances with ALL metadata we need
     let detailedInstances = [];
     let tags = {};
-    
+
     try {
       console.log(`[StableStudy] 📁 Getting ALL instances with expanded metadata in ONE call...`);
       const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expand`;
@@ -435,6 +435,19 @@ async function processStableStudy(job) {
         const patientTags = firstInstance.PatientMainDicomTags || {};
         const studyTags = firstInstance.StudyMainDicomTags || {};
         
+        // ✅ FIX: Get modality from multiple sources with better fallback
+        let modality = instanceTags.Modality || 
+                       studyTags.Modality || 
+                       patientTags.Modality ||
+                       studyInfo.MainDicomTags?.Modality;
+        
+        // ✅ DEBUG: Log modality detection
+        console.log(`[StableStudy] 🔬 Modality detection:`);
+        console.log(`[StableStudy] 🔬 instanceTags.Modality: ${instanceTags.Modality || 'NOT_FOUND'}`);
+        console.log(`[StableStudy] 🔬 studyTags.Modality: ${studyTags.Modality || 'NOT_FOUND'}`);
+        console.log(`[StableStudy] 🔬 studyInfo.MainDicomTags.Modality: ${studyInfo.MainDicomTags?.Modality || 'NOT_FOUND'}`);
+        console.log(`[StableStudy] 🔬 Final modality: ${modality || 'STILL_UNKNOWN'}`);
+        
         // ✅ Combine all tag sources for comprehensive metadata
         tags = {
           // Patient info from all sources
@@ -446,13 +459,15 @@ async function processStableStudy(job) {
           
           // Study info
           StudyInstanceUID: studyInstanceUID,
-          StudyDescription: studyTags.StudyDescription || instanceTags.StudyDescription,
-          StudyDate: studyTags.StudyDate || instanceTags.StudyDate,
-          StudyTime: studyTags.StudyTime || instanceTags.StudyTime,
-          AccessionNumber: studyTags.AccessionNumber || instanceTags.AccessionNumber,
+          StudyDescription: studyTags.StudyDescription || instanceTags.StudyDescription || studyInfo.MainDicomTags?.StudyDescription,
+          StudyDate: studyTags.StudyDate || instanceTags.StudyDate || studyInfo.MainDicomTags?.StudyDate,
+          StudyTime: studyTags.StudyTime || instanceTags.StudyTime || studyInfo.MainDicomTags?.StudyTime,
+          AccessionNumber: studyTags.AccessionNumber || instanceTags.AccessionNumber || studyInfo.MainDicomTags?.AccessionNumber,
+          
+          // ✅ FIX: Enhanced modality detection
+          Modality: modality, // Use the enhanced modality detection above
           
           // Series/Instance info
-          Modality: instanceTags.Modality,
           SeriesDescription: instanceTags.SeriesDescription,
           SeriesNumber: instanceTags.SeriesNumber,
           SeriesInstanceUID: instanceTags.SeriesInstanceUID,
@@ -474,16 +489,13 @@ async function processStableStudy(job) {
           BodyPartExamined: instanceTags.BodyPartExamined,
           ProtocolName: instanceTags.ProtocolName,
           StudyComments: studyTags.StudyComments,
-          
-          // ✅ CRITICAL: Get private lab tags from expanded instance if available
-          // Note: These might not be in MainDicomTags, so we'll need to make ONE additional call for tags
         };
         
         console.log(`[StableStudy] ✅ Extracted comprehensive metadata from expanded instance:`);
         console.log(`[StableStudy] 👤 Patient: ${tags.PatientName} (${tags.PatientID})`);
         console.log(`[StableStudy] 📋 Study: ${tags.StudyDescription}`);
         console.log(`[StableStudy] 🏥 Institution: ${tags.InstitutionName}`);
-        console.log(`[StableStudy] 🔬 Modality: ${tags.Modality}`);
+        console.log(`[StableStudy] 🔬 Modality: ${tags.Modality || 'STILL_NOT_FOUND'}`);
       }
       
     } catch (instancesError) {
@@ -492,6 +504,9 @@ async function processStableStudy(job) {
       // ✅ FALLBACK: If expanded call fails, use study data + get instances normally
       console.log(`[StableStudy] 🔄 Falling back to study metadata...`);
       tags = { ...studyInfo.MainDicomTags };
+      
+      // ✅ FALLBACK DEBUG: Check study-level modality
+      console.log(`[StableStudy] 🔬 FALLBACK Modality from study: ${tags.Modality || 'NOT_IN_STUDY_TAGS'}`);
       
       // Get basic instances list for counting
       try {
@@ -534,14 +549,14 @@ async function processStableStudy(job) {
           }
         }
         
-        // ✅ Fill in any missing standard tags from raw tags
+        // ✅ ENHANCED: Fill in any missing standard tags from raw tags INCLUDING MODALITY
         const standardTagMap = {
           "0010,0010": "PatientName",
           "0010,0020": "PatientID", 
           "0010,0040": "PatientSex",
           "0010,1010": "PatientAge",
           "0008,1030": "StudyDescription",
-          "0008,0060": "Modality",
+          "0008,0060": "Modality", // ✅ CRITICAL: Get modality from raw tags if missing
           "0008,0020": "StudyDate",
           "0008,0030": "StudyTime",
           "0008,0050": "AccessionNumber",
@@ -551,6 +566,22 @@ async function processStableStudy(job) {
         for (const [tagNum, tagName] of Object.entries(standardTagMap)) {
           if (!tags[tagName] && rawTags[tagNum]?.Value) {
             tags[tagName] = rawTags[tagNum].Value;
+            console.log(`[StableStudy] 🔄 Filled missing ${tagName} from raw tag ${tagNum}: ${rawTags[tagNum].Value}`);
+          }
+        }
+        
+        // ✅ FINAL MODALITY CHECK: If still no modality, try to extract from any available source
+        if (!tags.Modality) {
+          console.warn(`[StableStudy] ⚠️ Still no modality found, checking all raw tags...`);
+          
+          // Check common modality locations in raw tags
+          const modalityTags = ["0008,0060", "0018,0060", "0008,0070"];
+          for (const modalityTag of modalityTags) {
+            if (rawTags[modalityTag]?.Value) {
+              tags.Modality = rawTags[modalityTag].Value;
+              console.log(`[StableStudy] ✅ Found modality in raw tag ${modalityTag}: ${tags.Modality}`);
+              break;
+            }
           }
         }
         
@@ -561,6 +592,7 @@ async function processStableStudy(job) {
           "0021,0010": tags["0021,0010"] || 'NOT_FOUND',
           "0043,0010": tags["0043,0010"] || 'NOT_FOUND'
         });
+        console.log(`[StableStudy] 🔬 FINAL Modality after enhancement: ${tags.Modality || 'STILL_UNKNOWN'}`);
         
       } catch (tagsError) {
         console.warn(`[StableStudy] ⚠️ Private tags call failed:`, tagsError.message);
@@ -580,14 +612,21 @@ async function processStableStudy(job) {
       
       for (const instance of detailedInstances) {
         const seriesUID = instance.MainDicomTags?.SeriesInstanceUID;
-        const modality = instance.MainDicomTags?.Modality;
         
-        if (modality) modalitiesSet.add(modality);
+        // ✅ FIX: Enhanced modality detection per instance
+        const instanceModality = instance.MainDicomTags?.Modality || 
+                                 instance.StudyMainDicomTags?.Modality ||
+                                 tags.Modality;
+        
+        if (instanceModality) {
+          modalitiesSet.add(instanceModality);
+          console.log(`[StableStudy] 🔬 Added modality from instance: ${instanceModality}`);
+        }
         
         if (seriesUID) {
           if (!seriesMap.has(seriesUID)) {
             seriesMap.set(seriesUID, {
-              modality: modality,
+              modality: instanceModality || 'UNKNOWN',
               seriesNumber: instance.MainDicomTags?.SeriesNumber,
               seriesDescription: instance.MainDicomTags?.SeriesDescription,
               instanceCount: 0
@@ -611,17 +650,19 @@ async function processStableStudy(job) {
         }
       }
       
-      if (tags.Modality) modalitiesSet.add(tags.Modality);
+      if (tags.Modality) {
+        modalitiesSet.add(tags.Modality);
+        console.log(`[StableStudy] 🔬 Added modality from tags: ${tags.Modality}`);
+      }
     }
     
+    // ✅ FINAL FALLBACK: If no modalities found, add UNKNOWN
     if (modalitiesSet.size === 0) {
       modalitiesSet.add('UNKNOWN');
+      console.warn(`[StableStudy] ⚠️ No modalities found anywhere, using UNKNOWN`);
+    } else {
+      console.log(`[StableStudy] ✅ Final modalities detected: ${Array.from(modalitiesSet).join(', ')}`);
     }
-    
-    const actualInstanceCount = detailedInstances.length;
-    const actualSeriesCount = seriesMap.size || studyInfo.Series?.length || 0;
-    
-    console.log(`[StableStudy] 📊 OPTIMIZED Final counts - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}, Modalities: ${Array.from(modalitiesSet).join(', ')}`);
     
     job.progress = 70;
     
