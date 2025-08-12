@@ -94,7 +94,7 @@ export const getPatientDetailedView = async (req, res) => {
                 assignment reportInfo.finalizedAt
                 reportInfo.startedAt timingInfo numberOfSeries numberOfImages
                 institutionName patientInfo studyPriority patientId
-                technologist physicians modifiedDate modifiedTime reportDate reportTime
+                technologist physicians modifiedDate modifiedTime reportDate reportTime clinicalHistory
             `)
             .populate('sourceLab', 'name identifier')
             .populate({
@@ -339,7 +339,7 @@ export const getPatientDetailedView = async (req, res) => {
               mrn: patient.mrn || 'N/A'
           },
           clinicalInfo: {
-              clinicalHistory: patient.clinicalInfo?.clinicalHistory || '',
+              clinicalHistory: currentStudy.clinicalInfo?.clinicalHistory || patient.clinicalInfo?.clinicalHistory || '',
               previousInjury: patient.clinicalInfo?.previousInjury || '',
               previousSurgery: patient.clinicalInfo?.previousSurgery || '',
               lastModifiedBy: patient.clinicalInfo?.lastModifiedBy || null,
@@ -1363,6 +1363,60 @@ if (patientUpdateData._clinicalHistoryChanged) {
               studyUpdateData.patientName = `${newFirstName} ${newLastName}`.trim();
           }
 
+          // Around line 1375-1402, replace the existing clinical history handling with this:
+          
+          // Replace the entire clinical history section (around lines 1368-1428) with this:
+
+if (updateData.clinicalInfo) {
+    console.log(`[Clinical History] 🔄 Updating clinical history ONLY in DicomStudy model...`);
+    
+    // 🔧 DETECT CLINICAL HISTORY CHANGES
+    const oldClinicalHistory = patient.clinicalInfo?.clinicalHistory || '';
+    const newClinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory) || '';
+    const isClinicalHistoryChanged = oldClinicalHistory !== newClinicalHistory;
+    
+    console.log(`[Clinical History] Old (Patient): "${oldClinicalHistory}"`);
+    console.log(`[Clinical History] New (DicomStudy): "${newClinicalHistory}"`);
+    console.log(`[Clinical History] Changed: ${isClinicalHistoryChanged}`);
+    
+    // 🚫 REMOVED: Do NOT update patient clinical info anymore
+    // ❌ DELETE THESE LINES - they update Patient model
+    // patientUpdateData.clinicalInfo = { ... };
+    // patientUpdateData.medicalHistory = { ... };
+    
+    // ✅ ONLY UPDATE IN DICOMSTUDY MODEL
+    studyUpdateRequired = true;
+    
+    // Update clinical history in DicomStudy
+    studyUpdateData['clinicalHistory.clinicalHistory'] = newClinicalHistory;
+    studyUpdateData['clinicalHistory.previousInjury'] = sanitizeInput(updateData.clinicalInfo.previousInjury) || '';
+    studyUpdateData['clinicalHistory.previousSurgery'] = sanitizeInput(updateData.clinicalInfo.previousSurgery) || '';
+    studyUpdateData['clinicalHistory.lastModifiedBy'] = userId;
+    studyUpdateData['clinicalHistory.lastModifiedAt'] = new Date();
+    studyUpdateData['clinicalHistory.lastModifiedFrom'] = 'study_detail';
+    studyUpdateData['clinicalHistory.dataSource'] = 'dicom_study_primary';
+    
+    // 🔧 LEGACY: Mark as not from patient model
+    studyUpdateData['legacyClinicalHistoryRef.fromPatientModel'] = false;
+    studyUpdateData['legacyClinicalHistoryRef.lastSyncedAt'] = new Date();
+    studyUpdateData['legacyClinicalHistoryRef.syncedBy'] = 'user_update';
+    
+    // // 🔧 FLAG FOR TAT RESET IF CLINICAL HISTORY CHANGED
+    // if (isClinicalHistoryChanged) {
+    //     console.log(`[TAT Reset] 🔄 Clinical history changed, flagging for TAT reset`);
+        
+    //     // Store flag for TAT reset (will be processed after DicomStudy update)
+    //     clinicalHistoryChanged = true;
+    //     clinicalHistoryChangeInfo = {
+    //         oldHistory: oldClinicalHistory,
+    //         newHistory: newClinicalHistory,
+    //         changedBy: userId,
+    //         changedAt: new Date()
+    //     };
+    // }
+    
+    console.log(`[Clinical History] ✅ Clinical history will be updated ONLY in DicomStudy model`);
+}
           // 🔧 EXISTING: Workflow status
           if (updateData.studyInfo?.workflowStatus) {
               const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);

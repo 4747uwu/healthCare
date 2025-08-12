@@ -803,6 +803,16 @@ async function processStableStudy(job) {
         stationName: tags.StationName || '',
         softwareVersion: tags.SoftwareVersions || ''
       },
+
+      clinicalHistory: {
+        clinicalHistory: '',
+        previousInjury: '',
+        previousSurgery: '',
+        lastModifiedBy: null,
+        lastModifiedAt: null,
+        lastModifiedFrom: 'system',
+        dataSource: 'dicom_study_primary'
+    },
       
       protocolName: tags.ProtocolName || '',
       bodyPartExamined: tags.BodyPartExamined || '',

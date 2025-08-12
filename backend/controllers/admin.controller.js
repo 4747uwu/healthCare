@@ -423,6 +423,8 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     patientId: 1,
                     age:1,
                     gender:1,
+                          clinicalHistory: 1,
+
                     preProcessedDownload: 1
                 }
             }
@@ -704,7 +706,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 // tat: tat,
                 // ...legacyTATFields,
                 // totalTATDays: tat.totalTATDays,
