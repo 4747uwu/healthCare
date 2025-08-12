@@ -339,7 +339,7 @@ export const getPatientDetailedView = async (req, res) => {
               mrn: patient.mrn || 'N/A'
           },
           clinicalInfo: {
-              clinicalHistory: currentStudy.clinicalInfo?.clinicalHistory || patient.clinicalInfo?.clinicalHistory || '',
+              clinicalHistory: currentStudy.clinicalHistory?.clinicalHistory || patient.clinicalInfo?.clinicalHistory || '',
               previousInjury: patient.clinicalInfo?.previousInjury || '',
               previousSurgery: patient.clinicalInfo?.previousSurgery || '',
               lastModifiedBy: patient.clinicalInfo?.lastModifiedBy || null,
