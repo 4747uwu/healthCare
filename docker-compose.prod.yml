@@ -36,6 +36,11 @@ services:
       - ORTHANC_USERNAME=admin  
       - ORTHANC_PASSWORD=admin
       - FRONTEND_URL=http://157.245.86.199  # ✅ Change from 157.245.86.199
+      - ORTHANC_STORAGE_PATH=/root/orthanc/orthancstorage
+    
+    volumes: # ✅ ADD THIS SECTION
+      - /root/orthanc/orthancstorage:/root/orthanc/orthancstorage
+      
     restart: unless-stopped
     
     networks:
