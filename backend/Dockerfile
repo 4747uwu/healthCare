@@ -35,7 +35,7 @@ RUN mkdir -p /tmp/dicom_temp && \
 RUN chown -R nodejs:nodejs /app
 
 # Switch to non-root user
-USER nodejs
+# USER nodejs
 
 # Expose port (FIXED: 5000 instead of 3000)
 EXPOSE 3000
