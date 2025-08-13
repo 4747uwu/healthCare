@@ -30,7 +30,7 @@ const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
 const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
 
 // ✅ ADDED: Get the shared storage path from environment variables
-const ORTHANC_STORAGE_PATH = process.env.ORTHANC_STORAGE_PATH || './orthanc/orthancstorage';
+const ORTHANC_STORAGE_PATH = process.env.ORTHANC_STORAGE_PATH || '/root/orthanc/orthancstorage';
 if (!ORTHANC_STORAGE_PATH) {
     console.error("❌ FATAL ERROR: ORTHANC_STORAGE_PATH environment variable is not set.");
     process.exit(1);
