@@ -209,12 +209,40 @@ class CloudflareR2ZipService {
             job.progress = 25;
 
             const firstInstance = detailedInstances[0];
-            const patientName = (firstInstance.PatientMainDicomTags.PatientName || 'Unknown').replace(/[^a-zA-Z0-9]/g, '_');
-            const patientId = (firstInstance.PatientMainDicomTags.PatientID || 'Unknown').replace(/[^a-zA-Z0-9]/g, '_');
-            const studyDate = firstInstance.MainDicomTags.StudyDate || '';
-            const zipFileName = `Study_${patientName}_${patientId}_${studyDate}_${orthancStudyId}.zip`;
-            
+
+            // ✅ FIXED: Handle undefined patient data with fallback naming
+            let patientName = 'Unknown_Patient';
+            let patientId = 'Unknown_ID';
+
+            // ✅ TRY: Multiple possible locations for patient data
+            if (firstInstance.PatientMainDicomTags?.PatientName) {
+                patientName = firstInstance.PatientMainDicomTags.PatientName;
+            } else if (firstInstance.MainDicomTags?.PatientName) {
+                patientName = firstInstance.MainDicomTags.PatientName;
+            } else {
+                console.warn(`[ZIP WORKER] ⚠️ No patient name found, using default: ${patientName}`);
+            }
+
+            if (firstInstance.PatientMainDicomTags?.PatientID) {
+                patientId = firstInstance.PatientMainDicomTags.PatientID;
+            } else if (firstInstance.MainDicomTags?.PatientID) {
+                patientId = firstInstance.MainDicomTags.PatientID;
+            } else {
+                console.warn(`[ZIP WORKER] ⚠️ No patient ID found, using default: ${patientId}`);
+            }
+
+            // ✅ CLEAN: Sanitize names for filename
+            patientName = patientName.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30); // Limit length
+            patientId = patientId.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20); // Limit length
+
+            const studyDate = firstInstance.MainDicomTags?.StudyDate || new Date().toISOString().split('T')[0].replace(/-/g, '');
+            const studyTime = firstInstance.MainDicomTags?.StudyTime || new Date().toISOString().split('T')[1]?.split('.')[0].replace(/:/g, '') || '';
+
+            // ✅ SIMPLIFIED: Use study-based naming to avoid patient data issues
+            const zipFileName = `Study_${studyDate}_${orthancStudyId.substring(0, 8)}.zip`;
+
             console.log(`[ZIP WORKER] 📂 Creating ZIP with name: ${zipFileName}`);
+            console.log(`[ZIP WORKER] 👤 Patient: ${patientName} (ID: ${patientId})`);
 
             // ✅ ENHANCED: Group instances by series and verify file existence
             const seriesMap = new Map();
@@ -272,7 +300,9 @@ class CloudflareR2ZipService {
                 orthancStudyId, 
                 totalInstances: existingInstances.length,
                 totalSeries: seriesMap.size,
-                patientName: patientName
+                // ✅ REMOVED: patientName (caused the error)
+                studyDate: studyDate || 'unknown',
+                studyTime: studyTime || 'unknown'
             });
             
             console.log(`[ZIP WORKER] 📤 Started streaming upload to R2`);
