@@ -368,7 +368,7 @@ const selectedLocationLabel = useMemo(() => {
   // 🆕 NEW: Backend search API call with dedicated search endpoint
   const handleBackendSearch = useCallback(async (searchParams = {}) => {
     try {
-      setLoading(true);
+      // setLoading(true);
       console.log('🔍 API SEARCH: Calling backend search endpoint with params:', searchParams);
 
       // Build API parameters
@@ -414,8 +414,6 @@ const selectedLocationLabel = useMemo(() => {
     } catch (error) {
       console.error('❌ API SEARCH: Network error:', error);
       // Show error message or fallback
-    } finally {
-      setLoading(false);
     }
   }, [dateType, dateFilter, customDateFrom, customDateTo, onSearchWithBackend]);
 
