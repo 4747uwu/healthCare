@@ -1178,6 +1178,7 @@ export default {
 // Add this to adminCRUD.controller.js
 
 // 🆕 NEW: Advanced Search Controller with Backend Integration
+// 🆕 NEW: Advanced Search Controller with Backend Integration - UPDATED to match admin controller format
 export const searchStudiesForAdmin = async (req, res) => {
     try {
         const {
@@ -1195,7 +1196,7 @@ export const searchStudiesForAdmin = async (req, res) => {
             mlc,
             
             // Date filters
-            quickDatePreset = 'all', // ✅ FIXED: Default to 'all' instead of 'today'
+            quickDatePreset = 'all',
             customDateFrom,
             customDateTo,
             dateType = 'UploadDate',
@@ -1207,6 +1208,7 @@ export const searchStudiesForAdmin = async (req, res) => {
 
         console.log('🔍 BACKEND SEARCH: Received search request with params:', req.query);
 
+        const startTime = Date.now();
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
         // 🔧 BUILD: MongoDB aggregation pipeline for advanced search
@@ -1220,11 +1222,10 @@ export const searchStudiesForAdmin = async (req, res) => {
             const searchTerm = search.trim();
             console.log(`🔍 BACKEND SEARCH: General search term: "${searchTerm}"`);
             
-            // ✅ FIXED: Search in correct fields including patientInfo.patientName
             matchConditions.$or = [
-                { 'patientInfo.patientName': { $regex: searchTerm, $options: 'i' } }, // ✅ CORRECT FIELD
-                { 'patientInfo.patientID': { $regex: searchTerm, $options: 'i' } },   // ✅ CORRECT FIELD
-                { patientId: { $regex: searchTerm, $options: 'i' } }, // Legacy field
+                { 'patientInfo.patientName': { $regex: searchTerm, $options: 'i' } },
+                { 'patientInfo.patientID': { $regex: searchTerm, $options: 'i' } },
+                { patientId: { $regex: searchTerm, $options: 'i' } },
                 { accessionNumber: { $regex: searchTerm, $options: 'i' } },
                 { studyInstanceUID: { $regex: searchTerm, $options: 'i' } }
             ];
@@ -1233,27 +1234,25 @@ export const searchStudiesForAdmin = async (req, res) => {
         // 🎯 SPECIFIC FIELD SEARCHES (override general search)
         if (patientName && patientName.trim()) {
             console.log(`🔍 BACKEND SEARCH: Patient name search: "${patientName}"`);
-            delete matchConditions.$or; // Remove general search
-            // ✅ FIXED: Search in correct patient name fields
+            delete matchConditions.$or;
             matchConditions.$or = [
                 { 'patientInfo.patientName': { $regex: patientName.trim(), $options: 'i' } },
-                { patientName: { $regex: patientName.trim(), $options: 'i' } } // Fallback for legacy data
+                { patientName: { $regex: patientName.trim(), $options: 'i' } }
             ];
         }
 
         if (patientId && patientId.trim()) {
             console.log(`🔍 BACKEND SEARCH: Patient ID search: "${patientId}"`);
-            delete matchConditions.$or; // Remove general search
-            // ✅ FIXED: Search in correct patient ID fields
+            delete matchConditions.$or;
             matchConditions.$or = [
                 { 'patientInfo.patientID': { $regex: patientId.trim(), $options: 'i' } },
-                { patientId: { $regex: patientId.trim(), $options: 'i' } } // Fallback for legacy data
+                { patientId: { $regex: patientId.trim(), $options: 'i' } }
             ];
         }
 
         if (accessionNumber && accessionNumber.trim()) {
             console.log(`🔍 BACKEND SEARCH: Accession number search: "${accessionNumber}"`);
-            delete matchConditions.$or; // Remove general search
+            delete matchConditions.$or;
             matchConditions.accessionNumber = { $regex: accessionNumber.trim(), $options: 'i' };
         }
 
@@ -1261,8 +1260,8 @@ export const searchStudiesForAdmin = async (req, res) => {
         if (status && status !== 'all') {
             const statusMap = {
                 'pending': ['new_study_received', 'pending_assignment'],
-                'inprogress': ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'],
-                'completed': ['report_finalized', 'final_report_downloaded']
+                'inprogress': ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 'report_finalized', 'report_drafted', 'report_uploaded', 'report_downloaded_radiologist', 'report_downloaded'],
+                'completed': ['final_report_downloaded']
             };
             
             if (statusMap[status]) {
@@ -1277,64 +1276,62 @@ export const searchStudiesForAdmin = async (req, res) => {
         if (modality && modality.trim()) {
             const modalities = modality.split(',').map(m => m.trim()).filter(m => m);
             if (modalities.length > 0) {
-                matchConditions.modality = { 
-                    $in: modalities.map(mod => new RegExp(mod, 'i')) 
-                };
+                matchConditions.$or = matchConditions.$or || [];
+                matchConditions.$or.push(
+                    { modality: { $in: modalities.map(mod => new RegExp(mod, 'i')) } },
+                    { modalitiesInStudy: { $in: modalities.map(mod => new RegExp(mod, 'i')) } }
+                );
                 console.log(`🏥 BACKEND SEARCH: Modality filter: ${modalities.join(', ')}`);
             }
         }
 
         // 📍 LOCATION FILTER
         if (location && location.trim() && location !== 'ALL') {
-            matchConditions.$or = [
+            const locationConditions = [
                 { location: { $regex: location.trim(), $options: 'i' } },
                 { 'sourceLab.name': { $regex: location.trim(), $options: 'i' } },
                 { institutionName: { $regex: location.trim(), $options: 'i' } }
             ];
+            
+            if (matchConditions.$or) {
+                matchConditions.$and = [
+                    { $or: matchConditions.$or },
+                    { $or: locationConditions }
+                ];
+                delete matchConditions.$or;
+            } else {
+                matchConditions.$or = locationConditions;
+            }
             console.log(`📍 BACKEND SEARCH: Location filter: ${location}`);
         }
 
         // 🚨 EMERGENCY FILTER
         if (emergency === 'true') {
-            matchConditions.$or = [
-                { caseType: 'urgent' },
-                { caseType: 'emergency' },
-                { priority: 'URGENT' }
-            ];
+            matchConditions.caseType = { $in: ['urgent', 'emergency'] };
             console.log('🚨 BACKEND SEARCH: Emergency cases only');
         }
 
-        // 🏷️ MLC FILTER
-        if (mlc === 'true') {
-            matchConditions.mlcCase = true;
-            console.log('🏷️ BACKEND SEARCH: MLC cases only');
-        }
-
-        // 📅 DATE FILTER LOGIC - ✅ FIXED: Only apply if not 'all'
+        // 📅 DATE FILTER LOGIC
         const dateField = dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
         
-        // ✅ FIXED: Only apply date filters if specifically requested
         if (quickDatePreset && quickDatePreset !== 'all') {
             if (quickDatePreset === 'custom' && (customDateFrom || customDateTo)) {
                 const dateFilter = {};
                 
                 if (customDateFrom) {
                     dateFilter.$gte = new Date(customDateFrom);
-                    console.log(`📅 BACKEND SEARCH: Custom date from: ${customDateFrom}`);
                 }
                 
                 if (customDateTo) {
                     const toDate = new Date(customDateTo);
-                    toDate.setHours(23, 59, 59, 999); // End of day
+                    toDate.setHours(23, 59, 59, 999);
                     dateFilter.$lte = toDate;
-                    console.log(`📅 BACKEND SEARCH: Custom date to: ${customDateTo}`);
                 }
                 
                 if (Object.keys(dateFilter).length > 0) {
                     matchConditions[dateField] = dateFilter;
                 }
             } else {
-                // Quick date presets
                 const now = new Date();
                 const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 const dateFilter = {};
@@ -1365,22 +1362,17 @@ export const searchStudiesForAdmin = async (req, res) => {
                 
                 if (Object.keys(dateFilter).length > 0) {
                     matchConditions[dateField] = dateFilter;
-                    console.log(`📅 BACKEND SEARCH: Date preset: ${quickDatePreset}`);
                 }
             }
-        } else {
-            console.log('📅 BACKEND SEARCH: No date filter applied - searching entire database');
         }
 
         // ✅ STEP 2: Add match stage if we have conditions
         if (Object.keys(matchConditions).length > 0) {
             pipeline.push({ $match: matchConditions });
             console.log('🔍 BACKEND SEARCH: Applied match conditions:', JSON.stringify(matchConditions, null, 2));
-        } else {
-            console.log('🔍 BACKEND SEARCH: No match conditions - searching all studies');
         }
 
-        // ✅ STEP 3: Add lookups for related data
+        // ✅ STEP 3: Add lookups for related data (same as admin controller)
         pipeline.push(
             {
                 $lookup: {
@@ -1390,6 +1382,23 @@ export const searchStudiesForAdmin = async (req, res) => {
                     as: 'sourceLab',
                     pipeline: [
                         { $project: { name: 1, identifier: 1, contactEmail: 1 } }
+                    ]
+                }
+            },
+            {
+                $lookup: {
+                    from: 'patients',
+                    localField: 'patient',
+                    foreignField: '_id',
+                    as: 'patientDetails',
+                    pipeline: [
+                        { $project: { 
+                            patientNameRaw: 1, 
+                            firstName: 1, 
+                            lastName: 1,
+                            medicalHistory: 1,
+                            clinicalInfo: 1
+                        }}
                     ]
                 }
             },
@@ -1407,7 +1416,7 @@ export const searchStudiesForAdmin = async (req, res) => {
                                 foreignField: '_id',
                                 as: 'userAccount',
                                 pipeline: [
-                                    { $project: { fullName: 1, email: 1 } }
+                                    { $project: { fullName: 1, email: 1, isActive: 1 } }
                                 ]
                             }
                         },
@@ -1423,105 +1432,310 @@ export const searchStudiesForAdmin = async (req, res) => {
             }
         );
 
-        // ✅ STEP 4: Add facet for data + count
+        // ✅ STEP 4: Add sorting and pagination
+        pipeline.push(
+            { $sort: { createdAt: -1 } },
+            { $skip: skip },
+            { $limit: parseInt(limit) }
+        );
+
+        // ✅ STEP 5: Add projection to match admin controller format
         pipeline.push({
-            $facet: {
-                data: [
-                    { $sort: { createdAt: -1 } },
-                    { $skip: skip },
-                    { $limit: parseInt(limit) },
-                    {
-                        $project: {
-                            // Core patient info
-                            patientInfo: 1, // ✅ INCLUDE: Full patientInfo object
-                            patientName: 1,  // Legacy field
-                            patientId: 1,    // Legacy field
-                            patientAge: 1,
-                            patientSex: 1,
-                            patientDateOfBirth: 1,
-                            
-                            // Study info
-                            studyInstanceUID: 1,
-                            studyDate: 1,
-                            studyTime: 1,
-                            accessionNumber: 1,
-                            modality: 1,
-                            description: 1,
-                            institutionName: 1,
-                            
-                            // Workflow
-                            workflowStatus: 1,
-                            caseType: 1,
-                            priority: 1,
-                            mlcCase: 1,
-                            
-                            // Timestamps
-                            createdAt: 1,
-                            updatedAt: 1,
-                            
-                            // Populated data
-                            sourceLab: { $arrayElemAt: ['$sourceLab', 0] },
-                            assignedDoctor: { $arrayElemAt: ['$assignedDoctorDetails', 0] },
-                            lastAssignedDoctor: 1,
-                            
-                            // Counts
-                            seriesCount: 1,
-                            instanceCount: 1,
-                            
-                            // TAT
-                            tat: 1
-                        }
-                    }
-                ],
-                count: [{ $count: 'total' }]
+            $project: {
+                _id: 1,
+                studyInstanceUID: 1,
+                orthancStudyID: 1,
+                accessionNumber: 1,
+                workflowStatus: 1,
+                modality: 1,
+                modalitiesInStudy: 1,
+                studyDescription: 1,
+                examDescription: 1,
+                seriesCount: 1,
+                instanceCount: 1,
+                seriesImages: 1,
+                studyDate: 1,
+                studyTime: 1,
+                createdAt: 1,
+                ReportAvailable: 1,
+                'assignment.priority': 1,
+                'assignment.assignedAt': 1,
+                lastAssignedDoctor: 1,
+                doctorReports: 1,
+                reportInfo: 1,
+                reportFinalizedAt: 1,
+                caseType: 1,
+                patientId: 1,
+                age: 1,
+                gender: 1,
+                clinicalHistory: 1,
+                preProcessedDownload: 1,
+                patientInfo: 1, // Include patientInfo object
+                
+                // Populate related data
+                sourceLab: { $arrayElemAt: ['$sourceLab', 0] },
+                patientDetails: { $arrayElemAt: ['$patientDetails', 0] },
+                assignedDoctorDetails: 1
             }
         });
 
         console.log('🚀 BACKEND SEARCH: Executing aggregation pipeline...');
-        const startTime = Date.now();
+        const queryStart = Date.now();
         
-        const result = await DicomStudy.aggregate(pipeline).allowDiskUse(true);
+        // Execute main query and count query in parallel
+        const [studiesResult, countResult] = await Promise.all([
+            DicomStudy.aggregate(pipeline).allowDiskUse(true),
+            DicomStudy.countDocuments(matchConditions)
+        ]);
         
-        const executionTime = Date.now() - startTime;
-        console.log(`⚡ BACKEND SEARCH: Query executed in ${executionTime}ms`);
+        const queryTime = Date.now() - queryStart;
+        console.log(`⚡ BACKEND SEARCH: Query executed in ${queryTime}ms`);
 
-        const studies = result[0]?.data || [];
-        const totalRecords = result[0]?.count[0]?.total || 0;
+        const studies = studiesResult;
+        const totalRecords = countResult;
 
-        // ✅ STEP 5: Generate summary statistics
-        const summary = {
-            totalRecords,
-            currentPage: parseInt(page),
-            totalPages: Math.ceil(totalRecords / parseInt(limit)),
-            limit: parseInt(limit),
-            executionTime,
-            searchCriteria: {
-                hasSearch: !!(search || patientName || patientId || accessionNumber),
-                searchType: patientName ? 'patientName' : 
-                           patientId ? 'patientId' : 
-                           accessionNumber ? 'accessionNumber' : 
-                           search ? 'general' : 'none',
-                hasFilters: !!(status || modality || location || emergency || mlc),
-                dateFilter: quickDatePreset,
-                dateType,
-                globalSearch: quickDatePreset === 'all' // ✅ NEW: Indicate global search
-            }
+        // ✅ STEP 6: Format studies to match admin controller format exactly
+        const formatStart = Date.now();
+        
+        // Pre-compile category mapping for better performance
+        const categoryMap = {
+            'new_study_received': 'pending',
+            'pending_assignment': 'pending',
+            'assigned_to_doctor': 'inprogress',
+            'doctor_opened_report': 'inprogress',
+            'report_in_progress': 'inprogress',
+            'report_finalized': 'inprogress',
+            'report_drafted': 'inprogress',
+            'report_uploaded': 'inprogress',
+            'report_downloaded_radiologist': 'inprogress',
+            'report_downloaded': 'inprogress',
+            'final_report_downloaded': 'completed'
         };
 
-        console.log(`✅ BACKEND SEARCH: Found ${totalRecords} studies in ${executionTime}ms`);
-        console.log(`📊 BACKEND SEARCH: Returning ${studies.length} studies for page ${page}`);
+        const formattedStudies = studies.map(study => {
+            // Get patient data
+            const patient = study.patientDetails;
+            const sourceLab = study.sourceLab;
 
+            // Check for Wasabi zip availability
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                                study.preProcessedDownload?.zipUrl &&
+                                (!study.preProcessedDownload?.zipExpiresAt || 
+                                 study.preProcessedDownload.zipExpiresAt > new Date());
+
+            // Handle both legacy (object) and new (array) formats for lastAssignedDoctor
+            let latestAssignedDoctor = null;
+            let latestAssignmentEntry = null;
+            let allDoctorAssignments = [];
+            let isLegacyFormat = false;
+
+            // Normalize lastAssignedDoctor to always be an array for consistent processing
+            let assignmentArray = [];
+            
+            if (Array.isArray(study.lastAssignedDoctor)) {
+                assignmentArray = study.lastAssignedDoctor;
+            } else if (study.lastAssignedDoctor && typeof study.lastAssignedDoctor === 'object') {
+                assignmentArray = [study.lastAssignedDoctor];
+                isLegacyFormat = true;
+            }
+
+            if (assignmentArray.length > 0) {
+                // Get the latest assignment (last element in array)
+                latestAssignmentEntry = assignmentArray[assignmentArray.length - 1];
+                
+                // Find the corresponding doctor details
+                if (study.assignedDoctorDetails && study.assignedDoctorDetails.length > 0) {
+                    latestAssignedDoctor = study.assignedDoctorDetails.find(doctor => 
+                        doctor._id.toString() === latestAssignmentEntry.doctorId?.toString()
+                    ) || study.assignedDoctorDetails[0];
+                }
+
+                // Build all doctor assignments
+                allDoctorAssignments = assignmentArray.map(assignment => ({
+                    doctorId: assignment.doctorId,
+                    assignedAt: assignment.assignedAt,
+                    doctorDetails: study.assignedDoctorDetails?.find(doctor => 
+                        doctor._id.toString() === assignment.doctorId?.toString()
+                    )
+                }));
+            }
+            
+            // Build patient display with proper fallback chain
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = study.patientId || "N/A";
+            
+            // Use patientInfo first, then patient details, then fallback
+            if (study.patientInfo?.patientName) {
+                patientDisplay = study.patientInfo.patientName;
+            } else if (patient?.patientNameRaw) {
+                patientDisplay = patient.patientNameRaw;
+            } else if (patient?.firstName || patient?.lastName) {
+                patientDisplay = `${patient.firstName || ''} ${patient.lastName || ''}`.trim();
+            }
+
+            // Use patientInfo for patient ID as well
+            if (study.patientInfo?.patientID) {
+                patientIdForDisplay = study.patientInfo.patientID;
+            }
+
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                          `${study.age}/${study.gender}` : 
+                                          study.age || study.gender || 'N/A';
+
+            // Fast category lookup using pre-compiled map
+            const currentCategory = categoryMap[study.workflowStatus] || 'unknown';
+            
+            // Calculate TAT (you may want to import your TAT calculation function)
+            // const tat = calculateTATForStudy(study);
+
+            return {
+                _id: study._id,
+                orthancStudyID: study.orthancStudyID,
+                studyInstanceUID: study.studyInstanceUID,
+                instanceID: study.studyInstanceUID,
+                accessionNumber: study.accessionNumber,
+                patientId: patientIdForDisplay,
+                patientName: patientDisplay,
+                ageGender: patientAgeGenderDisplay,
+                description: study.studyDescription || study.examDescription || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+                         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
+                seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
+                location: sourceLab?.name || 'N/A',
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
+                studyDate: study.studyDate,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    timeZone: 'Asia/Kolkata',
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
+                workflowStatus: study.workflowStatus,
+                currentCategory: currentCategory,
+                createdAt: study.createdAt,
+                reportedBy: study.reportInfo?.reporterName || 'N/A',
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    const latestReport = study.doctorReports.reduce((latest, current) => 
+                        new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest
+                    );
+                    return new Date(latestReport.createdAt).toLocaleString('en-GB', {
+                        timeZone: 'Asia/Kolkata',
+                        year: 'numeric', month: 'short', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', hour12: false
+                    }).replace(',', '');
+                })()
+                : null,
+                assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
+                priority: study.assignment?.priority || 'NORMAL',
+                caseType: study.caseType || 'routine',
+                ReportAvailable: study.ReportAvailable || false,
+                reportFinalizedAt: study.reportFinalizedAt,
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || 
+                               patient?.medicalHistory?.clinicalHistory || 
+                               patient?.clinicalInfo?.clinicalHistory || '',
+                doctorAssignments: allDoctorAssignments,
+
+                downloadOptions: {
+                    hasWasabiZip: hasWasabiZip,
+                    hasR2Zip: hasWasabiZip,
+                    wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+                    wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+                    wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+                    wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+                    wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+                    zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+                },
+                latestAssignedDoctorDetails: latestAssignedDoctor ? {
+                    _id: latestAssignedDoctor._id,
+                    fullName: latestAssignedDoctor.userAccount?.fullName || 'Unknown Doctor',
+                    email: latestAssignedDoctor.userAccount?.email || null,
+                    specialization: latestAssignedDoctor.specialization || null,
+                    isActive: latestAssignedDoctor.userAccount?.isActive || false,
+                    assignedAt: latestAssignmentEntry?.assignedAt || null
+                } : null,
+                assignmentHistory: {
+                    totalAssignments: allDoctorAssignments.length,
+                    hasActiveAssignment: latestAssignedDoctor !== null,
+                    lastAssignedAt: latestAssignmentEntry?.assignedAt || null,
+                    isLegacyFormat: isLegacyFormat,
+                    assignmentChain: allDoctorAssignments.map(assignment => ({
+                        doctorName: assignment.doctorDetails?.userAccount?.fullName || 'Unknown Doctor',
+                        assignedAt: assignment.assignedAt,
+                        isActive: assignment.doctorDetails?.userAccount?.isActive || false
+                    }))
+                }
+            };
+        });
+
+        const formatTime = Date.now() - formatStart;
+        const executionTime = Date.now() - startTime;
+
+        console.log(`✅ BACKEND SEARCH: Found ${totalRecords} studies in ${executionTime}ms`);
+        console.log(`📊 BACKEND SEARCH: Returning ${formattedStudies.length} studies for page ${page}`);
+
+        // Return response in same format as admin controller
         res.status(200).json({
             success: true,
-            data: studies,
-            totalRecords,
-            summary,
+            count: formattedStudies.length,
+            totalRecords: totalRecords,
+            recordsPerPage: parseInt(limit),
+            data: formattedStudies,
             pagination: {
                 currentPage: parseInt(page),
                 totalPages: Math.ceil(totalRecords / parseInt(limit)),
+                totalRecords: totalRecords,
                 limit: parseInt(limit),
                 hasNextPage: parseInt(page) < Math.ceil(totalRecords / parseInt(limit)),
-                hasPrevPage: parseInt(page) > 1
+                hasPrevPage: parseInt(page) > 1,
+                recordRange: {
+                    start: (parseInt(page) - 1) * parseInt(limit) + 1,
+                    end: Math.min(parseInt(page) * parseInt(limit), totalRecords)
+                },
+                isSinglePage: totalRecords <= parseInt(limit)
+            },
+            performance: {
+                queryTime: executionTime,
+                fromCache: false,
+                recordsReturned: formattedStudies.length,
+                requestedLimit: parseInt(limit),
+                actualReturned: formattedStudies.length,
+                breakdown: {
+                    coreQuery: queryTime,
+                    lookups: 0,
+                    formatting: formatTime
+                }
+            },
+            metadata: {
+                searchCriteria: {
+                    hasSearch: !!(search || patientName || patientId || accessionNumber),
+                    searchType: patientName ? 'patientName' : 
+                               patientId ? 'patientId' : 
+                               accessionNumber ? 'accessionNumber' : 
+                               search ? 'general' : 'none',
+                    hasFilters: !!(status || modality || location || emergency || mlc),
+                    dateFilter: quickDatePreset,
+                    dateType,
+                    globalSearch: quickDatePreset === 'all'
+                },
+                filters: {
+                    category: status || 'all',
+                    modality: modality || 'all',
+                    location: location || 'all',
+                    search: search || patientName || patientId || accessionNumber || null
+                }
             },
             meta: {
                 executionTime,
