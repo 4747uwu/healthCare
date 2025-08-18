@@ -1174,3 +1174,350 @@ export default {
     updateOwnerForAdmin,
     deleteOwnerForAdmin
 };
+
+// Add this to adminCRUD.controller.js
+
+// 🆕 NEW: Advanced Search Controller with Backend Integration
+export const searchStudiesForAdmin = async (req, res) => {
+    try {
+        const {
+            // Search parameters
+            patientName,
+            patientId,
+            accessionNumber,
+            search, // General search term
+            
+            // Filters
+            status,
+            modality,
+            location,
+            emergency,
+            mlc,
+            
+            // Date filters
+            quickDatePreset = 'today',
+            customDateFrom,
+            customDateTo,
+            dateType = 'UploadDate',
+            
+            // Pagination
+            page = 1,
+            limit = 100
+        } = req.query;
+
+        console.log('🔍 BACKEND SEARCH: Received search request with params:', req.query);
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // 🔧 BUILD: MongoDB aggregation pipeline for advanced search
+        const pipeline = [];
+
+        // ✅ STEP 1: Build match conditions
+        const matchConditions = {};
+
+        // 🔍 SEARCH LOGIC: Handle different search types
+        if (search && search.trim()) {
+            const searchTerm = search.trim();
+            console.log(`🔍 BACKEND SEARCH: General search term: "${searchTerm}"`);
+            
+            // Default to patient name search if no specific field specified
+            matchConditions.$or = [
+                { patientName: { $regex: searchTerm, $options: 'i' } },
+                { patientId: { $regex: searchTerm, $options: 'i' } },
+                { accessionNumber: { $regex: searchTerm, $options: 'i' } }
+            ];
+        }
+
+        // 🎯 SPECIFIC FIELD SEARCHES (override general search)
+        if (patientName && patientName.trim()) {
+            console.log(`🔍 BACKEND SEARCH: Patient name search: "${patientName}"`);
+            delete matchConditions.$or; // Remove general search
+            matchConditions.patientName = { $regex: patientName.trim(), $options: 'i' };
+        }
+
+        if (patientId && patientId.trim()) {
+            console.log(`🔍 BACKEND SEARCH: Patient ID search: "${patientId}"`);
+            delete matchConditions.$or; // Remove general search
+            matchConditions.patientId = { $regex: patientId.trim(), $options: 'i' };
+        }
+
+        if (accessionNumber && accessionNumber.trim()) {
+            console.log(`🔍 BACKEND SEARCH: Accession number search: "${accessionNumber}"`);
+            delete matchConditions.$or; // Remove general search
+            matchConditions.accessionNumber = { $regex: accessionNumber.trim(), $options: 'i' };
+        }
+
+        // 🏷️ STATUS FILTER
+        if (status && status !== 'all') {
+            const statusMap = {
+                'pending': ['new_study_received', 'pending_assignment'],
+                'inprogress': ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'],
+                'completed': ['report_finalized', 'final_report_downloaded']
+            };
+            
+            if (statusMap[status]) {
+                matchConditions.workflowStatus = { $in: statusMap[status] };
+            } else {
+                matchConditions.workflowStatus = status;
+            }
+            console.log(`🏷️ BACKEND SEARCH: Status filter: ${status}`);
+        }
+
+        // 🏥 MODALITY FILTER
+        if (modality && modality.trim()) {
+            const modalities = modality.split(',').map(m => m.trim()).filter(m => m);
+            if (modalities.length > 0) {
+                matchConditions.modality = { 
+                    $in: modalities.map(mod => new RegExp(mod, 'i')) 
+                };
+                console.log(`🏥 BACKEND SEARCH: Modality filter: ${modalities.join(', ')}`);
+            }
+        }
+
+        // 📍 LOCATION FILTER
+        if (location && location.trim() && location !== 'ALL') {
+            matchConditions.$or = [
+                { location: { $regex: location.trim(), $options: 'i' } },
+                { 'sourceLab.name': { $regex: location.trim(), $options: 'i' } },
+                { institutionName: { $regex: location.trim(), $options: 'i' } }
+            ];
+            console.log(`📍 BACKEND SEARCH: Location filter: ${location}`);
+        }
+
+        // 🚨 EMERGENCY FILTER
+        if (emergency === 'true') {
+            matchConditions.$or = [
+                { caseType: 'urgent' },
+                { caseType: 'emergency' },
+                { priority: 'URGENT' }
+            ];
+            console.log('🚨 BACKEND SEARCH: Emergency cases only');
+        }
+
+        // 🏷️ MLC FILTER
+        if (mlc === 'true') {
+            matchConditions.mlcCase = true;
+            console.log('🏷️ BACKEND SEARCH: MLC cases only');
+        }
+
+        // 📅 DATE FILTER LOGIC
+        const dateField = dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
+        
+        if (quickDatePreset === 'custom' && (customDateFrom || customDateTo)) {
+            const dateFilter = {};
+            
+            if (customDateFrom) {
+                dateFilter.$gte = new Date(customDateFrom);
+                console.log(`📅 BACKEND SEARCH: Custom date from: ${customDateFrom}`);
+            }
+            
+            if (customDateTo) {
+                const toDate = new Date(customDateTo);
+                toDate.setHours(23, 59, 59, 999); // End of day
+                dateFilter.$lte = toDate;
+                console.log(`📅 BACKEND SEARCH: Custom date to: ${customDateTo}`);
+            }
+            
+            if (Object.keys(dateFilter).length > 0) {
+                matchConditions[dateField] = dateFilter;
+            }
+        } else if (quickDatePreset && quickDatePreset !== 'all') {
+            // Quick date presets
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const dateFilter = {};
+            
+            switch (quickDatePreset) {
+                case 'today':
+                    dateFilter.$gte = today;
+                    dateFilter.$lt = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+                    break;
+                case 'yesterday':
+                    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                    dateFilter.$gte = yesterday;
+                    dateFilter.$lt = today;
+                    break;
+                case 'thisWeek':
+                    const startOfWeek = new Date(today);
+                    startOfWeek.setDate(today.getDate() - today.getDay());
+                    dateFilter.$gte = startOfWeek;
+                    break;
+                case 'thisMonth':
+                    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                    dateFilter.$gte = startOfMonth;
+                    break;
+                case 'last24h':
+                    dateFilter.$gte = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                    break;
+            }
+            
+            if (Object.keys(dateFilter).length > 0) {
+                matchConditions[dateField] = dateFilter;
+                console.log(`📅 BACKEND SEARCH: Date preset: ${quickDatePreset}`);
+            }
+        }
+
+        // ✅ STEP 2: Add match stage if we have conditions
+        if (Object.keys(matchConditions).length > 0) {
+            pipeline.push({ $match: matchConditions });
+        }
+
+        // ✅ STEP 3: Add lookups for related data
+        pipeline.push(
+            {
+                $lookup: {
+                    from: 'labs',
+                    localField: 'sourceLab',
+                    foreignField: '_id',
+                    as: 'sourceLab',
+                    pipeline: [
+                        { $project: { name: 1, identifier: 1, contactEmail: 1 } }
+                    ]
+                }
+            },
+            {
+                $lookup: {
+                    from: 'doctors',
+                    localField: 'lastAssignedDoctor.doctorId',
+                    foreignField: '_id',
+                    as: 'assignedDoctorDetails',
+                    pipeline: [
+                        {
+                            $lookup: {
+                                from: 'users',
+                                localField: 'userAccount',
+                                foreignField: '_id',
+                                as: 'userAccount',
+                                pipeline: [
+                                    { $project: { fullName: 1, email: 1 } }
+                                ]
+                            }
+                        },
+                        {
+                            $project: {
+                                specialization: 1,
+                                department: 1,
+                                userAccount: { $arrayElemAt: ['$userAccount', 0] }
+                            }
+                        }
+                    ]
+                }
+            }
+        );
+
+        // ✅ STEP 4: Add facet for data + count
+        pipeline.push({
+            $facet: {
+                data: [
+                    { $sort: { createdAt: -1 } },
+                    { $skip: skip },
+                    { $limit: parseInt(limit) },
+                    {
+                        $project: {
+                            // Core patient info
+                            patientName: 1,
+                            patientId: 1,
+                            patientAge: 1,
+                            patientSex: 1,
+                            patientDateOfBirth: 1,
+                            
+                            // Study info
+                            studyInstanceUID: 1,
+                            studyDate: 1,
+                            studyTime: 1,
+                            accessionNumber: 1,
+                            modality: 1,
+                            description: 1,
+                            institutionName: 1,
+                            
+                            // Workflow
+                            workflowStatus: 1,
+                            caseType: 1,
+                            priority: 1,
+                            mlcCase: 1,
+                            
+                            // Timestamps
+                            createdAt: 1,
+                            updatedAt: 1,
+                            
+                            // Populated data
+                            sourceLab: { $arrayElemAt: ['$sourceLab', 0] },
+                            assignedDoctor: { $arrayElemAt: ['$assignedDoctorDetails', 0] },
+                            lastAssignedDoctor: 1,
+                            
+                            // Counts
+                            seriesCount: 1,
+                            instanceCount: 1,
+                            
+                            // TAT
+                            tat: 1
+                        }
+                    }
+                ],
+                count: [{ $count: 'total' }]
+            }
+        });
+
+        console.log('🚀 BACKEND SEARCH: Executing aggregation pipeline...');
+        const startTime = Date.now();
+        
+        const result = await DicomStudy.aggregate(pipeline).allowDiskUse(true);
+        
+        const executionTime = Date.now() - startTime;
+        console.log(`⚡ BACKEND SEARCH: Query executed in ${executionTime}ms`);
+
+        const studies = result[0]?.data || [];
+        const totalRecords = result[0]?.count[0]?.total || 0;
+
+        // ✅ STEP 5: Generate summary statistics
+        const summary = {
+            totalRecords,
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(totalRecords / parseInt(limit)),
+            limit: parseInt(limit),
+            executionTime,
+            searchCriteria: {
+                hasSearch: !!(search || patientName || patientId || accessionNumber),
+                searchType: patientName ? 'patientName' : 
+                           patientId ? 'patientId' : 
+                           accessionNumber ? 'accessionNumber' : 
+                           search ? 'general' : 'none',
+                hasFilters: !!(status || modality || location || emergency || mlc),
+                dateFilter: quickDatePreset,
+                dateType
+            }
+        };
+
+        console.log(`✅ BACKEND SEARCH: Found ${totalRecords} studies in ${executionTime}ms`);
+        console.log(`📊 BACKEND SEARCH: Returning ${studies.length} studies for page ${page}`);
+
+        res.status(200).json({
+            success: true,
+            data: studies,
+            totalRecords,
+            summary,
+            pagination: {
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(totalRecords / parseInt(limit)),
+                limit: parseInt(limit),
+                hasNextPage: parseInt(page) < Math.ceil(totalRecords / parseInt(limit)),
+                hasPrevPage: parseInt(page) > 1
+            },
+            meta: {
+                executionTime,
+                searchPerformed: true,
+                backend: 'mongodb-aggregation',
+                cacheUsed: false
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ BACKEND SEARCH: Error executing search:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to execute search',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+            searchPerformed: false
+        });
+    }
+};

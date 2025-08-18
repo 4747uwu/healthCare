@@ -39,7 +39,8 @@ import {
     getOwnerForAdmin,      // ✅ ADD
     createOwnerForAdmin,   // ✅ ADD
     updateOwnerForAdmin,   // ✅ ADD
-    deleteOwnerForAdmin  
+    deleteOwnerForAdmin,
+    searchStudiesForAdmin
 } from '../controllers/adminCRUD.controller.js';
 
 import { protect, authorize } from '../middleware/authMiddleware.js';
@@ -58,6 +59,7 @@ router.put('/doctors/update/:doctorId',
     updateDoctorForAdmin
 );
 router.delete('/doctors/delete/:doctorId', protect, authorize('admin'), deleteDoctorForAdmin);
+router.get('/studies/search', protect, authorize('admin'), searchStudiesForAdmin);
 
 // ===============================
 // 🆕 LABS MANAGEMENT ROUTES  

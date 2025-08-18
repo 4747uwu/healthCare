@@ -262,72 +262,21 @@ const selectedLocationLabel = useMemo(() => {
     []
   );
 
-  // 🆕 NEW: Dedicated search function with backend integration
-  const handleDedicatedSearch = useCallback(async () => {
+  // 🆕 NEW: Backend search with parameters
+  const handleBackendSearch = useCallback(() => {
     if (!onSearchWithBackend) return;
 
-    // Get the search term
-    const searchTerm = quickSearchTerm.trim();
-    
-    if (!searchTerm && searchType !== '') {
-      console.log('🔍 SEARCH: No search term provided for specific search type, clearing search');
-      // If no search term but specific type selected, just refresh with current filters
-      onSearchWithBackend({});
-      return;
-    }
-
-    // Determine search type
-    let finalSearchType = searchType;
-    
-    // 🔧 DEFAULT: If "All" is selected or empty, default to "patientName"
-    if (!searchType || searchType === '' || searchType === 'all') {
-      finalSearchType = 'patientName';
-      setSearchType('patientName'); // Update UI to show the default
-      console.log('🔍 SEARCH: Defaulting to patientName search');
-    }
-
-    // Build search parameters based on search type
     const searchParams = {};
-
-    // ✅ USE BACKEND SEARCH ENDPOINT: Send field-specific parameters
-    switch (finalSearchType) {
-      case 'patientName':
-        if (searchTerm) {
-          searchParams.patientName = searchTerm;
-          console.log(`🔍 SEARCH: Searching by Patient Name: "${searchTerm}"`);
-        }
-        break;
-        
-      case 'patientId':
-        if (searchTerm) {
-          searchParams.patientId = searchTerm;
-          console.log(`🔍 SEARCH: Searching by Patient ID: "${searchTerm}"`);
-        }
-        break;
-        
-      case 'accession':
-        if (searchTerm) {
-          searchParams.accessionNumber = searchTerm;
-          console.log(`🔍 SEARCH: Searching by Accession Number: "${searchTerm}"`);
-        }
-        break;
-        
-      default:
-        // Fallback to general search
-        if (searchTerm) {
-          searchParams.search = searchTerm;
-          console.log(`🔍 SEARCH: General search: "${searchTerm}"`);
-        }
+    
+    // Add search filters
+    if (quickSearchTerm.trim()) {
+      searchParams.search = quickSearchTerm.trim();
     }
-
-    // Add other active filters
-    if (selectedLocation !== 'ALL') {
-      const selectedLocationData = backendLocations.find(loc => loc.value === selectedLocation);
-      if (selectedLocationData) {
-        searchParams.location = selectedLocationData.label;
-      }
+    
+    if (patientName.trim()) {
+      searchParams.patientName = patientName.trim();
     }
-
+    
     if (workflowStatus !== 'all') {
       searchParams.status = workflowStatus;
     }
@@ -341,83 +290,11 @@ const selectedLocationLabel = useMemo(() => {
       searchParams.modality = selectedModalities.join(',');
     }
 
-    // Add emergency and MLC filters
-    if (emergencyCase) {
-      searchParams.emergency = 'true';
-    }
-
-    if (mlcCase) {
-      searchParams.mlc = 'true';
-    }
-
-    console.log('🔍 SEARCH: Triggering backend search with params:', searchParams);
-    
-    // ✅ CALL BACKEND: Use dedicated search endpoint instead of general onSearchWithBackend
-    await handleBackendSearch(searchParams);
+    console.log('🔍 WORKLIST SEARCH: Triggering backend search with params:', searchParams);
+    onSearchWithBackend(searchParams);
   }, [
-    quickSearchTerm, 
-    searchType, 
-    selectedLocation, 
-    backendLocations, 
-    workflowStatus, 
-    modalities, 
-    emergencyCase, 
-    mlcCase
+    quickSearchTerm, patientName, workflowStatus, modalities, onSearchWithBackend
   ]);
-
-  // 🆕 NEW: Backend search API call with dedicated search endpoint
-  const handleBackendSearch = useCallback(async (searchParams = {}) => {
-    try {
-      setLoading(true);
-      console.log('🔍 API SEARCH: Calling backend search endpoint with params:', searchParams);
-
-      // Build API parameters
-      const apiParams = {
-        limit: 100, // You can make this configurable
-        dateType: dateType,
-        quickDatePreset: dateFilter,
-        ...searchParams
-      };
-
-      // Add custom date range if applicable
-      if (dateFilter === 'custom') {
-        if (customDateFrom) apiParams.customDateFrom = customDateFrom;
-        if (customDateTo) apiParams.customDateTo = customDateTo;
-      }
-
-      // Remove undefined values
-      Object.keys(apiParams).forEach(key => 
-        apiParams[key] === undefined && delete apiParams[key]
-      );
-
-      console.log('📤 API SEARCH: Final API parameters:', apiParams);
-
-      // ✅ CALL: Dedicated search endpoint
-      const response = await api.get('/admin/studies/search', { params: apiParams });
-
-      if (response.data.success) {
-        console.log(`✅ API SEARCH: Found ${response.data.totalRecords} results`);
-        
-        // Update search results via callback
-        if (onSearchWithBackend) {
-          onSearchWithBackend({
-            data: response.data.data,
-            totalRecords: response.data.totalRecords,
-            searchPerformed: true,
-            executionTime: response.data.meta?.executionTime
-          });
-        }
-      } else {
-        console.error('❌ API SEARCH: Search request failed:', response.data.message);
-      }
-
-    } catch (error) {
-      console.error('❌ API SEARCH: Network error:', error);
-      // Show error message or fallback
-    } finally {
-      setLoading(false);
-    }
-  }, [dateType, dateFilter, customDateFrom, customDateTo, onSearchWithBackend]);
 
   const handleLocationSelect = useCallback((locationValue) => {
   setSelectedLocation(locationValue);
