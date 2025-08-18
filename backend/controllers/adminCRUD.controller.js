@@ -1195,7 +1195,7 @@ export const searchStudiesForAdmin = async (req, res) => {
             mlc,
             
             // Date filters
-            quickDatePreset = 'today',
+            quickDatePreset = 'all', // ✅ FIXED: Default to 'all' instead of 'today'
             customDateFrom,
             customDateTo,
             dateType = 'UploadDate',
@@ -1215,16 +1215,18 @@ export const searchStudiesForAdmin = async (req, res) => {
         // ✅ STEP 1: Build match conditions
         const matchConditions = {};
 
-        // 🔍 SEARCH LOGIC: Handle different search types
+        // 🔍 SEARCH LOGIC: Handle different search types with correct field mapping
         if (search && search.trim()) {
             const searchTerm = search.trim();
             console.log(`🔍 BACKEND SEARCH: General search term: "${searchTerm}"`);
             
-            // Default to patient name search if no specific field specified
+            // ✅ FIXED: Search in correct fields including patientInfo.patientName
             matchConditions.$or = [
-                { patientName: { $regex: searchTerm, $options: 'i' } },
-                { patientId: { $regex: searchTerm, $options: 'i' } },
-                { accessionNumber: { $regex: searchTerm, $options: 'i' } }
+                { 'patientInfo.patientName': { $regex: searchTerm, $options: 'i' } }, // ✅ CORRECT FIELD
+                { 'patientInfo.patientID': { $regex: searchTerm, $options: 'i' } },   // ✅ CORRECT FIELD
+                { patientId: { $regex: searchTerm, $options: 'i' } }, // Legacy field
+                { accessionNumber: { $regex: searchTerm, $options: 'i' } },
+                { studyInstanceUID: { $regex: searchTerm, $options: 'i' } }
             ];
         }
 
@@ -1232,13 +1234,21 @@ export const searchStudiesForAdmin = async (req, res) => {
         if (patientName && patientName.trim()) {
             console.log(`🔍 BACKEND SEARCH: Patient name search: "${patientName}"`);
             delete matchConditions.$or; // Remove general search
-            matchConditions.patientName = { $regex: patientName.trim(), $options: 'i' };
+            // ✅ FIXED: Search in correct patient name fields
+            matchConditions.$or = [
+                { 'patientInfo.patientName': { $regex: patientName.trim(), $options: 'i' } },
+                { patientName: { $regex: patientName.trim(), $options: 'i' } } // Fallback for legacy data
+            ];
         }
 
         if (patientId && patientId.trim()) {
             console.log(`🔍 BACKEND SEARCH: Patient ID search: "${patientId}"`);
             delete matchConditions.$or; // Remove general search
-            matchConditions.patientId = { $regex: patientId.trim(), $options: 'i' };
+            // ✅ FIXED: Search in correct patient ID fields
+            matchConditions.$or = [
+                { 'patientInfo.patientID': { $regex: patientId.trim(), $options: 'i' } },
+                { patientId: { $regex: patientId.trim(), $options: 'i' } } // Fallback for legacy data
+            ];
         }
 
         if (accessionNumber && accessionNumber.trim()) {
@@ -1300,66 +1310,74 @@ export const searchStudiesForAdmin = async (req, res) => {
             console.log('🏷️ BACKEND SEARCH: MLC cases only');
         }
 
-        // 📅 DATE FILTER LOGIC
+        // 📅 DATE FILTER LOGIC - ✅ FIXED: Only apply if not 'all'
         const dateField = dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
         
-        if (quickDatePreset === 'custom' && (customDateFrom || customDateTo)) {
-            const dateFilter = {};
-            
-            if (customDateFrom) {
-                dateFilter.$gte = new Date(customDateFrom);
-                console.log(`📅 BACKEND SEARCH: Custom date from: ${customDateFrom}`);
+        // ✅ FIXED: Only apply date filters if specifically requested
+        if (quickDatePreset && quickDatePreset !== 'all') {
+            if (quickDatePreset === 'custom' && (customDateFrom || customDateTo)) {
+                const dateFilter = {};
+                
+                if (customDateFrom) {
+                    dateFilter.$gte = new Date(customDateFrom);
+                    console.log(`📅 BACKEND SEARCH: Custom date from: ${customDateFrom}`);
+                }
+                
+                if (customDateTo) {
+                    const toDate = new Date(customDateTo);
+                    toDate.setHours(23, 59, 59, 999); // End of day
+                    dateFilter.$lte = toDate;
+                    console.log(`📅 BACKEND SEARCH: Custom date to: ${customDateTo}`);
+                }
+                
+                if (Object.keys(dateFilter).length > 0) {
+                    matchConditions[dateField] = dateFilter;
+                }
+            } else {
+                // Quick date presets
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const dateFilter = {};
+                
+                switch (quickDatePreset) {
+                    case 'today':
+                        dateFilter.$gte = today;
+                        dateFilter.$lt = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+                        break;
+                    case 'yesterday':
+                        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                        dateFilter.$gte = yesterday;
+                        dateFilter.$lt = today;
+                        break;
+                    case 'thisWeek':
+                        const startOfWeek = new Date(today);
+                        startOfWeek.setDate(today.getDate() - today.getDay());
+                        dateFilter.$gte = startOfWeek;
+                        break;
+                    case 'thisMonth':
+                        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                        dateFilter.$gte = startOfMonth;
+                        break;
+                    case 'last24h':
+                        dateFilter.$gte = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                        break;
+                }
+                
+                if (Object.keys(dateFilter).length > 0) {
+                    matchConditions[dateField] = dateFilter;
+                    console.log(`📅 BACKEND SEARCH: Date preset: ${quickDatePreset}`);
+                }
             }
-            
-            if (customDateTo) {
-                const toDate = new Date(customDateTo);
-                toDate.setHours(23, 59, 59, 999); // End of day
-                dateFilter.$lte = toDate;
-                console.log(`📅 BACKEND SEARCH: Custom date to: ${customDateTo}`);
-            }
-            
-            if (Object.keys(dateFilter).length > 0) {
-                matchConditions[dateField] = dateFilter;
-            }
-        } else if (quickDatePreset && quickDatePreset !== 'all') {
-            // Quick date presets
-            const now = new Date();
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const dateFilter = {};
-            
-            switch (quickDatePreset) {
-                case 'today':
-                    dateFilter.$gte = today;
-                    dateFilter.$lt = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-                    break;
-                case 'yesterday':
-                    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-                    dateFilter.$gte = yesterday;
-                    dateFilter.$lt = today;
-                    break;
-                case 'thisWeek':
-                    const startOfWeek = new Date(today);
-                    startOfWeek.setDate(today.getDate() - today.getDay());
-                    dateFilter.$gte = startOfWeek;
-                    break;
-                case 'thisMonth':
-                    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-                    dateFilter.$gte = startOfMonth;
-                    break;
-                case 'last24h':
-                    dateFilter.$gte = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-                    break;
-            }
-            
-            if (Object.keys(dateFilter).length > 0) {
-                matchConditions[dateField] = dateFilter;
-                console.log(`📅 BACKEND SEARCH: Date preset: ${quickDatePreset}`);
-            }
+        } else {
+            console.log('📅 BACKEND SEARCH: No date filter applied - searching entire database');
         }
 
         // ✅ STEP 2: Add match stage if we have conditions
         if (Object.keys(matchConditions).length > 0) {
             pipeline.push({ $match: matchConditions });
+            console.log('🔍 BACKEND SEARCH: Applied match conditions:', JSON.stringify(matchConditions, null, 2));
+        } else {
+            console.log('🔍 BACKEND SEARCH: No match conditions - searching all studies');
         }
 
         // ✅ STEP 3: Add lookups for related data
@@ -1415,8 +1433,9 @@ export const searchStudiesForAdmin = async (req, res) => {
                     {
                         $project: {
                             // Core patient info
-                            patientName: 1,
-                            patientId: 1,
+                            patientInfo: 1, // ✅ INCLUDE: Full patientInfo object
+                            patientName: 1,  // Legacy field
+                            patientId: 1,    // Legacy field
                             patientAge: 1,
                             patientSex: 1,
                             patientDateOfBirth: 1,
@@ -1484,7 +1503,8 @@ export const searchStudiesForAdmin = async (req, res) => {
                            search ? 'general' : 'none',
                 hasFilters: !!(status || modality || location || emergency || mlc),
                 dateFilter: quickDatePreset,
-                dateType
+                dateType,
+                globalSearch: quickDatePreset === 'all' // ✅ NEW: Indicate global search
             }
         };
 
@@ -1507,7 +1527,9 @@ export const searchStudiesForAdmin = async (req, res) => {
                 executionTime,
                 searchPerformed: true,
                 backend: 'mongodb-aggregation',
-                cacheUsed: false
+                cacheUsed: false,
+                fieldsSearched: Object.keys(matchConditions).length > 0 ? Object.keys(matchConditions) : ['all'],
+                globalSearch: quickDatePreset === 'all'
             }
         });
 

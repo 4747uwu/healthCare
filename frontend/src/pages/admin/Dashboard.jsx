@@ -194,6 +194,33 @@ const AdminDashboard = React.memo(() => {
   // Handle search with backend parameters
   const handleSearchWithBackend = useCallback((searchParams) => {
     console.log('🔍 DASHBOARD: Handling search with backend params:', searchParams);
+    
+    // ✅ CHECK: If searchParams contains data (from direct API call), use it
+    if (searchParams.data && searchParams.totalRecords !== undefined) {
+      console.log(`🔍 DASHBOARD: Using direct search results: ${searchParams.data.length} studies`);
+      console.log(`🌍 DASHBOARD: Global search performed: ${searchParams.globalSearch || false}`);
+      
+      setAllStudies(searchParams.data);
+      setTotalRecords(searchParams.totalRecords);
+      setLoading(false);
+      
+      // ✅ ENHANCED: Update dashboard stats for global search results
+      const stats = {
+        totalStudies: searchParams.totalRecords,
+        pendingStudies: searchParams.data.filter(s => ['new_study_received', 'pending_assignment'].includes(s.workflowStatus)).length,
+        inProgressStudies: searchParams.data.filter(s => ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'].includes(s.workflowStatus)).length,
+        completedStudies: searchParams.data.filter(s => ['report_finalized', 'final_report_downloaded'].includes(s.workflowStatus)).length,
+        activeLabs: [...new Set(searchParams.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
+        activeDoctors: [...new Set(searchParams.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length,
+        searchPerformed: true,
+        globalSearch: searchParams.globalSearch
+      };
+      
+      setDashboardStats(stats);
+      return;
+    }
+    
+    // ✅ FALLBACK: Use existing fetchAllData method for other searches
     fetchAllData(searchParams);
   }, [fetchAllData]);
 

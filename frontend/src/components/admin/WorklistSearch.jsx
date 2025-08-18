@@ -368,19 +368,19 @@ const selectedLocationLabel = useMemo(() => {
   // 🆕 NEW: Backend search API call with dedicated search endpoint
   const handleBackendSearch = useCallback(async (searchParams = {}) => {
     try {
-      // setLoading(true);
       console.log('🔍 API SEARCH: Calling backend search endpoint with params:', searchParams);
 
       // Build API parameters
       const apiParams = {
-        limit: 100, // You can make this configurable
+        limit: 100,
         dateType: dateType,
-        quickDatePreset: dateFilter,
+        // ✅ FIXED: Only add date filter if no search terms provided
+        ...(Object.keys(searchParams).length === 0 ? { quickDatePreset: dateFilter } : { quickDatePreset: 'all' }),
         ...searchParams
       };
 
-      // Add custom date range if applicable
-      if (dateFilter === 'custom') {
+      // ✅ FIXED: Only add custom date range if it was specifically set
+      if (dateFilter === 'custom' && Object.keys(searchParams).length === 0) {
         if (customDateFrom) apiParams.customDateFrom = customDateFrom;
         if (customDateTo) apiParams.customDateTo = customDateTo;
       }
@@ -397,6 +397,7 @@ const selectedLocationLabel = useMemo(() => {
 
       if (response.data.success) {
         console.log(`✅ API SEARCH: Found ${response.data.totalRecords} results`);
+        console.log(`🌍 API SEARCH: Global search performed: ${response.data.meta?.globalSearch || false}`);
         
         // Update search results via callback
         if (onSearchWithBackend) {
@@ -404,6 +405,7 @@ const selectedLocationLabel = useMemo(() => {
             data: response.data.data,
             totalRecords: response.data.totalRecords,
             searchPerformed: true,
+            globalSearch: response.data.meta?.globalSearch,
             executionTime: response.data.meta?.executionTime
           });
         }
