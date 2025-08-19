@@ -27,6 +27,15 @@ const formatDicomDateTime = (studyDate, studyTime) => {
     }).replace(',', '');
 };
 
+// Add this helper function at the top of the file, after imports:
+const safeString = (value) => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value.join(', ');
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+};
+
 // 🔥 HYBRID SEARCH: Quick search + Lab selection only (Advanced filters stay frontend)
 export const searchStudies = async (req, res) => {
     try {
@@ -284,14 +293,14 @@ export const searchStudies = async (req, res) => {
                 orthancStudyID: study.orthancStudyID,
                 studyInstanceUID: study.studyInstanceUID,
                 instanceID: study.studyInstanceUID,
-                accessionNumber: study.accessionNumber,
-                patientId: patientIdForDisplay,
-                patientName: patientDisplay,
-                ageGender: patientAgeGenderDisplay,
-                description: study.studyDescription || study.examDescription || 'N/A',
-                modality: displayModality,
+                accessionNumber: safeString(study.accessionNumber),
+                patientId: safeString(patientIdForDisplay),
+                patientName: safeString(patientDisplay),
+                ageGender: safeString(patientAgeGenderDisplay),
+                description: safeString(study.studyDescription || study.examDescription),
+                modality: safeString(displayModality),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
+                location: safeString(sourceLab?.name),
                 studyDateTime: study.studyDate && study.studyTime 
                     ? formatDicomDateTime(study.studyDate, study.studyTime)
                     : study.studyDate 
@@ -313,21 +322,25 @@ export const searchStudies = async (req, res) => {
                 workflowStatus: study.workflowStatus,
                 currentCategory: study.workflowStatus,
                 createdAt: study.createdAt,
-                reportedBy: study.reportInfo?.reporterName || 'N/A',
+                reportedBy: safeString(study.reportInfo?.reporterName),
                 ReportAvailable: study.ReportAvailable || false,
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
-                // Include all original fields for frontend filtering
-                referredBy: study.referringPhysicianName || study.referringPhysician?.name || '',
+                // ✅ FIX: Ensure all fields used in frontend filtering are safe strings
+                referredBy: safeString(study.referringPhysicianName || study.referringPhysician?.name),
                 mlcCase: study.mlcCase || false,
                 studyType: study.studyType || 'routine',
                 // Include all original study fields
                 sourceLab: sourceLab,
                 patientDetails: patient,
-                // Raw data for frontend filtering
+                // ✅ CRITICAL FIX: Ensure all fields used in frontend filtering are strings
                 patientInfo: study.patientInfo,
                 modalitiesInStudy: study.modalitiesInStudy,
-                clinicalHistory: study.clinicalHistory
+                clinicalHistory: safeString(study.clinicalHistory), // ✅ This was causing the error
+                // Add other fields that might be used in filtering
+                referringPhysicianName: safeString(study.referringPhysicianName),
+                studyDescription: safeString(study.studyDescription),
+                examDescription: safeString(study.examDescription)
             };
         });
 
