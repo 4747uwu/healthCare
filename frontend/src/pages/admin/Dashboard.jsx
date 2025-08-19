@@ -60,43 +60,95 @@ const AdminDashboard = React.memo(() => {
   }, []);
   console.log(activeCategory)
 
-  // 🔧 UPDATED: Fetch studies with dynamic endpoint
+  // 🔧 UPDATED: Fetch studies with correct endpoint selection
   const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
       setLoading(true);
-      console.log(`🔄 DASHBOARD: Fetching data using backend search for category: ${activeCategory}`);
+      console.log(`🔄 DASHBOARD: Fetching data for category: ${activeCategory}`);
       
-      // Use backend search for all data fetching
-      const backendParams = {
-        limit: recordsPerPage,
-        dateType: dateType,
-        workflowStatus: activeCategory !== 'all' ? activeCategory : 'all',
-        ...searchParams
-      };
-      
-      // Add date filter parameters
-      if (dateFilter === 'custom') {
-        if (customDateFrom) backendParams.customDateFrom = customDateFrom;
-        if (customDateTo) backendParams.customDateTo = customDateTo;
-        backendParams.dateFilter = 'custom';
-      } else if (dateFilter && dateFilter !== 'all') {
-        backendParams.quickDatePreset = dateFilter;
+      // ✅ CHECK: If this is a search request (has search parameters), use search endpoint
+      const hasSearchParams = searchParams && (
+        searchParams.searchTerm || 
+        searchParams.patientName || 
+        searchParams.patientId || 
+        searchParams.accessionNumber ||
+        searchParams.description ||
+        searchParams.refName ||
+        searchParams.modality ||
+        searchParams.location ||
+        searchParams.emergencyCase ||
+        searchParams.mlcCase
+      );
+
+      let studiesResponse, valuesResponse;
+
+      if (hasSearchParams) {
+        // 🔍 SEARCH MODE: Use search endpoint
+        console.log('🔍 DASHBOARD: Using SEARCH endpoint for search query');
+        
+        const searchApiParams = {
+          limit: recordsPerPage,
+          dateType: dateType,
+          ...searchParams
+        };
+        
+        // Add date filter parameters for search
+        if (dateFilter === 'custom') {
+          if (customDateFrom) searchApiParams.customDateFrom = customDateFrom;
+          if (customDateTo) searchApiParams.customDateTo = customDateTo;
+          searchApiParams.dateFilter = 'custom';
+        } else if (dateFilter && dateFilter !== 'all') {
+          searchApiParams.quickDatePreset = dateFilter;
+        }
+        
+        console.log('📤 DASHBOARD: Search API params:', searchApiParams);
+        
+        [studiesResponse, valuesResponse] = await Promise.all([
+          api.get('/admin/studies/search', { params: searchApiParams }),
+          api.get('/admin/values', { params: { dateType, quickDatePreset: dateFilter } })
+        ]);
+        
+      } else {
+        // 📊 NORMAL MODE: Use admin controller endpoint
+        console.log('📊 DASHBOARD: Using ADMIN controller for normal data fetching');
+        
+        const adminParams = {
+          limit: recordsPerPage,
+          dateType: dateType
+        };
+        
+        // Add date filter parameters for admin endpoint
+        if (dateFilter === 'custom') {
+          if (customDateFrom) adminParams.customDateFrom = customDateFrom;
+          if (customDateTo) adminParams.customDateTo = customDateTo;
+          adminParams.dateFilter = 'custom';
+        } else if (dateFilter && dateFilter !== 'all') {
+          adminParams.quickDatePreset = dateFilter;
+        }
+        
+        // Add category filter for admin endpoint
+        if (activeCategory && activeCategory !== 'all') {
+          adminParams.category = activeCategory;
+        }
+        
+        console.log('📤 DASHBOARD: Admin API params:', adminParams);
+        
+        // Use different endpoints based on category
+        const studiesEndpoint = getEndpointForCategory(activeCategory);
+        
+        [studiesResponse, valuesResponse] = await Promise.all([
+          api.get(studiesEndpoint, { params: adminParams }),
+          api.get('/admin/values', { params: adminParams })
+        ]);
       }
-      
-      console.log('📤 DASHBOARD: fetchAllData backend params:', backendParams);
-      
-      // Use the backend search endpoint for all data fetching
-      const [studiesResponse, valuesResponse] = await Promise.all([
-        api.get('/admin/studies/search', { params: backendParams }),
-        api.get('/admin/values', { params: backendParams })
-      ]);
       
       // Process studies response
       if (studiesResponse.data.success) {
         setAllStudies(studiesResponse.data.data);
         setTotalRecords(studiesResponse.data.totalRecords);
         
-        console.log(`✅ DASHBOARD: Backend data fetch successful: ${studiesResponse.data.data.length} studies`);
+        console.log(`✅ DASHBOARD: Data fetch successful: ${studiesResponse.data.data.length} studies`);
+        console.log(`📊 DASHBOARD: Using ${hasSearchParams ? 'SEARCH' : 'ADMIN'} controller`);
       }
 
       // Process values response
@@ -110,10 +162,10 @@ const AdminDashboard = React.memo(() => {
       }
     
       
-      console.log(`✅ ${activeCategory} data fetched successfully`);
+      console.log(`✅ ${hasSearchParams ? 'Search' : 'Admin'} data fetched successfully`);
       
     } catch (error) {
-      console.error(`❌ Error fetching ${activeCategory} data:`, error);
+      console.error(`❌ Error fetching data:`, error);
       setAllStudies([]);
       setTotalRecords(0);
       setValues({
@@ -179,90 +231,38 @@ const AdminDashboard = React.memo(() => {
       // ✅ CHECK: If searchParams contains direct data, use it immediately
       if (searchParams.data && searchParams.totalRecords !== undefined) {
         console.log(`🔍 DASHBOARD: Using direct search results: ${searchParams.data.length} studies`);
-        console.log(`🌍 DASHBOARD: Backend filtering: ${searchParams.backendFiltering || false}`);
         
         setAllStudies(searchParams.data);
         setTotalRecords(searchParams.totalRecords);
         setLoading(false);
         
-        // Update dashboard stats for search results
+        // Update values for the search results
         const stats = {
-          totalStudies: searchParams.totalRecords,
-          pendingStudies: searchParams.data.filter(s => 
+          pending: searchParams.data.filter(s => 
             ['new_study_received', 'pending_assignment'].includes(s.workflowStatus)
           ).length,
-          inProgressStudies: searchParams.data.filter(s => 
+          inprogress: searchParams.data.filter(s => 
             ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 
              'report_drafted', 'report_finalized', 'report_uploaded'].includes(s.workflowStatus)
           ).length,
-          completedStudies: searchParams.data.filter(s => 
+          completed: searchParams.data.filter(s => 
             ['final_report_downloaded'].includes(s.workflowStatus)
           ).length,
-          activeLabs: [...new Set(searchParams.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
-          activeDoctors: [...new Set(searchParams.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length,
-          searchPerformed: true,
-          backendFiltering: searchParams.backendFiltering
         };
         
-        setDashboardStats(stats);
-        
-        // Update values for the search results
         setValues({
           today: searchParams.totalRecords,
-          pending: stats.pendingStudies,
-          inprogress: stats.inProgressStudies,
-          completed: stats.completedStudies,
+          pending: stats.pending,
+          inprogress: stats.inprogress,
+          completed: stats.completed,
         });
         
         return;
       }
       
-      // ✅ FALLBACK: If no direct data, perform backend search via API
-      setLoading(true);
-      console.log('🔍 DASHBOARD: Performing backend API search');
-      
-      const apiParams = {
-        limit: 5000,
-        dateType: dateType,
-        ...searchParams
-      };
-      
-      // Add date filter parameters
-      if (dateFilter === 'custom') {
-        if (customDateFrom) apiParams.customDateFrom = customDateFrom;
-        if (customDateTo) apiParams.customDateTo = customDateTo;
-        apiParams.dateFilter = 'custom';
-      } else if (dateFilter && dateFilter !== 'all') {
-        apiParams.quickDatePreset = dateFilter;
-      }
-      
-      console.log('📤 DASHBOARD: Backend search API params:', apiParams);
-      
-      const response = await api.get('/admin/studies/search', { params: apiParams });
-      
-      if (response.data.success) {
-        console.log(`✅ DASHBOARD: Backend search successful: ${response.data.data.length} studies`);
-        
-        setAllStudies(response.data.data);
-        setTotalRecords(response.data.totalRecords);
-        
-        // Update stats from backend response
-        if (response.data.summary) {
-          setDashboardStats({
-            totalStudies: response.data.totalRecords,
-            pendingStudies: response.data.summary.pendingStudies || 0,
-            inProgressStudies: response.data.summary.inProgressStudies || 0,
-            completedStudies: response.data.summary.completedStudies || 0,
-            activeLabs: response.data.summary.activeLabs || 0,
-            activeDoctors: response.data.summary.activeDoctors || 0
-          });
-        }
-        
-      } else {
-        console.error('❌ DASHBOARD: Backend search failed:', response.data.message);
-        setAllStudies([]);
-        setTotalRecords(0);
-      }
+      // ✅ DELEGATE: Call fetchAllData with search parameters
+      console.log('🔍 DASHBOARD: Delegating to fetchAllData with search params');
+      await fetchAllData(searchParams);
       
     } catch (error) {
       console.error('❌ DASHBOARD: Backend search error:', error);
@@ -271,7 +271,7 @@ const AdminDashboard = React.memo(() => {
     } finally {
       setLoading(false);
     }
-  }, [recordsPerPage, dateType, dateFilter, customDateFrom, customDateTo]);
+  }, [fetchAllData]);
 
   // Handle records per page change
   const handleRecordsPerPageChange = useCallback((newRecordsPerPage) => {
