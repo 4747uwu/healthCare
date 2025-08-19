@@ -67,22 +67,32 @@ const AdminDashboard = React.memo(() => {
       console.log(`🔄 DASHBOARD: Fetching data for category: ${activeCategory}`);
       console.log(`🔍 DASHBOARD: Search params:`, searchParams);
       
-      // ✅ CHECK: If this is a hybrid search (quick search + lab selection)
-      const hasHybridSearchParams = searchParams && 
+      // ✅ FIX: Handle null/undefined search params
+      const hasSearchParams = searchParams && 
         searchParams !== null && 
         typeof searchParams === 'object' &&
         Object.keys(searchParams).length > 0 && (
           searchParams.searchTerm || 
-          (searchParams.selectedLocation && searchParams.selectedLocation !== 'ALL')
+          searchParams.patientName || 
+          searchParams.patientId || 
+          searchParams.accessionNumber ||
+          searchParams.description ||
+          searchParams.refName ||
+          searchParams.modality ||
+          (searchParams.selectedLocation && searchParams.selectedLocation !== 'ALL') ||
+          searchParams.emergencyCase === 'true' ||
+          searchParams.mlcCase === 'true' ||
+          (searchParams.workflowStatus && searchParams.workflowStatus !== 'all')
         );
 
-      console.log(`🔍 DASHBOARD: Has hybrid search params: ${hasHybridSearchParams}`);
+      console.log(`🔍 DASHBOARD: Has search params: ${hasSearchParams}`);
+      console.log(`🔍 DASHBOARD: Search params object:`, searchParams);
 
       let studiesResponse, valuesResponse;
 
-      if (hasHybridSearchParams) {
-        // 🔍 HYBRID SEARCH MODE: Use search endpoint for quick search + lab
-        console.log('🔍 DASHBOARD: Using HYBRID search endpoint');
+      if (hasSearchParams) {
+        // 🔍 SEARCH MODE: Use search endpoint
+        console.log('🔍 DASHBOARD: Using SEARCH endpoint for search query');
         
         const searchApiParams = {
           limit: recordsPerPage,
@@ -99,7 +109,7 @@ const AdminDashboard = React.memo(() => {
           searchApiParams.quickDatePreset = dateFilter;
         }
         
-        console.log('📤 DASHBOARD: Hybrid search API params:', searchApiParams);
+        console.log('📤 DASHBOARD: Search API params:', searchApiParams);
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get('/admin/studies/search', { params: searchApiParams }),
@@ -136,7 +146,7 @@ const AdminDashboard = React.memo(() => {
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get(studiesEndpoint, { params: adminParams }),
-          api.get('/admin/values', { params: adminParams })
+          api.get('/admin/values', { params: adminParams }) // ✅ Use normal values
         ]);
       }
       
@@ -145,12 +155,18 @@ const AdminDashboard = React.memo(() => {
         setAllStudies(studiesResponse.data.data);
         setTotalRecords(studiesResponse.data.totalRecords);
         
-        console.log(`✅ DASHBOARD: Data fetch successful: ${studiesResponse.data.data.length} studies`);
-        console.log(`📊 DASHBOARD: Using ${hasHybridSearchParams ? 'HYBRID SEARCH' : 'ADMIN'} controller`);
-        
-        // Log hybrid mode info
-        if (studiesResponse.data.hybridMode) {
-          console.log(`🔄 DASHBOARD: Hybrid mode active - Backend: ${JSON.stringify(studiesResponse.data.backendFilters)}`);
+        // Update dashboard stats from backend response
+        if (studiesResponse.data.summary?.byCategory) {
+          setDashboardStats({
+            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
+            pendingStudies: studiesResponse.data.summary.byCategory.pending || 0,
+            inProgressStudies: studiesResponse.data.summary.byCategory.inprogress || 0,
+            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
+            activeLabs: studiesResponse.data.summary.activeLabs || 
+                        [...new Set(studiesResponse.data.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
+            activeDoctors: studiesResponse.data.summary.activeDoctors || 
+                           [...new Set(studiesResponse.data.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length
+          });
         }
       }
 
@@ -165,7 +181,7 @@ const AdminDashboard = React.memo(() => {
       }
     
       
-      console.log(`✅ ${hasHybridSearchParams ? 'Hybrid search' : 'Admin'} data fetched successfully`);
+      console.log(`✅ ${hasSearchParams ? 'Search' : 'Admin'} data fetched successfully`);
       
     } catch (error) {
       console.error(`❌ Error fetching data:`, error);

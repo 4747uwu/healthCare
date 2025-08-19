@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import WorklistTable from './WorklistTable';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
+// import { debounce } from 'lodash';
 // 🔧 COMPACT & MODERN UI: WorklistSearch component
 const WorklistSearch = React.memo(({ 
   allStudies = [], 
@@ -49,7 +50,7 @@ const WorklistSearch = React.memo(({
   // Basic filters for advanced search
   const [patientName, setPatientName] = useState('');
   const [patientId, setPatientId] = useState('');
-  const [accessionNumber, setPatientAccessionNumber] = useState('');
+  const [accessionNumber, setAccessionNumber] = useState('');
   const [description, setDescription] = useState('');
   
   // Enhanced filters matching the UI design
@@ -140,151 +141,78 @@ const selectedLocationLabel = useMemo(() => {
 
   // 🔧 SIMPLIFIED: Frontend filtering only for non-date filters
   const filteredStudies = useMemo(() => {
-    console.log('🔧 FRONTEND FILTERING: Starting with', allStudies.length, 'studies from backend');
-    
-    let filtered = [...allStudies];
+    // ✅ NO FRONTEND FILTERING: Return all studies as-is from backend
+    console.log('📊 FRONTEND: Using backend-filtered studies directly:', allStudies.length);
+    return allStudies;
+  }, [allStudies]);
 
-    // ✅ FRONTEND ONLY: Advanced search filters (NOT quick search or lab)
-    
-    // Advanced patient search (separate from quick search)
-    if (patientName.trim()) {
-      filtered = filtered.filter(study => 
-        (study.patientName || '').toLowerCase().includes(patientName.toLowerCase())
-      );
-      console.log(`🔧 FRONTEND FILTERING: Applied patient name filter, ${filtered.length} remaining`);
-    }
-
-    if (patientId.trim()) {
-      filtered = filtered.filter(study => 
-        (study.patientId || '').toLowerCase().includes(patientId.toLowerCase())
-      );
-      console.log(`🔧 FRONTEND FILTERING: Applied patient ID filter, ${filtered.length} remaining`);
-    }
-
-    if (refName.trim()) {
-      filtered = filtered.filter(study => 
-        (study.referredBy || '').toLowerCase().includes(refName.toLowerCase())
-      );
-      console.log(`🔧 FRONTEND FILTERING: Applied referring physician filter, ${filtered.length} remaining`);
-    }
-
-    if (accessionNumber.trim()) {
-      filtered = filtered.filter(study => 
-        (study.accessionNumber || '').toLowerCase().includes(accessionNumber.toLowerCase())
-      );
-      console.log(`🔧 FRONTEND FILTERING: Applied accession filter, ${filtered.length} remaining`);
-    }
-
-    if (description.trim()) {
-      filtered = filtered.filter(study => 
-        (study.description || '').toLowerCase().includes(description.toLowerCase())
-      );
-      console.log(`🔧 FRONTEND FILTERING: Applied description filter, ${filtered.length} remaining`);
-    }
-
-    // Workflow status filter
-    if (workflowStatus !== 'all') {
-      const statusMap = {
-        pending: ['new_study_received', 'pending_assignment'],
-        inprogress: ['assigned_to_doctor', 'report_in_progress'],
-        completed: ['report_finalized', 'final_report_downloaded']
-      };
-      filtered = filtered.filter(study => 
-        statusMap[workflowStatus]?.includes(study.workflowStatus) || study.workflowStatus === workflowStatus
-      );
-      console.log(`🔧 FRONTEND FILTERING: Applied workflow status filter, ${filtered.length} remaining`);
-    }
-
-    // Modality filter
-    const selectedModalities = Object.entries(modalities)
-      .filter(([key, value]) => value)
-      .map(([key]) => key);
-    
-    if (selectedModalities.length > 0) {
-      filtered = filtered.filter(study => {
-        const studyModality = study.modality || '';
-        return selectedModalities.some(mod => studyModality.includes(mod));
-      });
-      console.log(`🔧 FRONTEND FILTERING: Applied modality filter, ${filtered.length} remaining`);
-    }
-
-    // Emergency case filter
-    if (emergencyCase) {
-      filtered = filtered.filter(study => 
-        study.caseType === 'urgent' || study.caseType === 'emergency' || study.priority === 'URGENT'
-      );
-      console.log(`🔧 FRONTEND FILTERING: Applied emergency filter, ${filtered.length} remaining`);
-    }
-
-    // MLC case filter
-    if (mlcCase) {
-      filtered = filtered.filter(study => study.mlcCase === true);
-      console.log(`🔧 FRONTEND FILTERING: Applied MLC filter, ${filtered.length} remaining`);
-    }
-
-    // Study type filter
-    if (studyType !== 'all') {
-      filtered = filtered.filter(study => study.studyType === studyType);
-      console.log(`🔧 FRONTEND FILTERING: Applied study type filter, ${filtered.length} remaining`);
-    }
-
-    console.log(`✅ FRONTEND FILTERING: Final result: ${filtered.length} studies`);
-    return filtered;
-  }, [
-    allStudies, 
-    // ❌ NOT INCLUDED: quickSearchTerm, searchType, selectedLocation (these are backend now)
-    patientName, patientId, refName, accessionNumber, description,
-    workflowStatus, modalities, emergencyCase, mlcCase, studyType
-  ]);
-
-  // 🔧 DEBOUNCED SEARCH
-  const debouncedSetQuickSearchTerm = useMemo(
-    () => debounce((value) => {
-      setQuickSearchTerm(value);
-    }, 300),
-    []
-  );
-
-  // 🆕 NEW: Backend search with parameters
-  const handleBackendSearch = useCallback((forceSearch = false) => {
+  // Update the handleBackendSearch function:
+  const handleBackendSearch = useCallback(async (forceSearch = false) => {
     if (!onSearchWithBackend) return;
 
-    console.log('🔍 HYBRID SEARCH: Starting search with params');
+    console.log('🔍 WORKLIST SEARCH: Starting backend search', { forceSearch });
     
-    // ✅ ONLY BACKEND: Quick search + Lab selection criteria
-    const hasQuickSearch = quickSearchTerm.trim();
-    const hasLabSelection = selectedLocation !== 'ALL';
-    
-    // Determine if we should use backend search
-    const shouldUseBackendSearch = hasQuickSearch || hasLabSelection || forceSearch;
+    // ✅ ONLY SEARCH: If explicitly forced or has actual search criteria
+    const hasActualSearchCriteria = 
+      quickSearchTerm.trim() ||
+      patientName.trim() ||
+      patientId.trim() ||
+      accessionNumber.trim() ||
+      description.trim() ||
+      refName.trim() ||
+      selectedLocation !== 'ALL' ||
+      Object.values(modalities).some(Boolean) ||
+      emergencyCase ||
+      mlcCase ||
+      workflowStatus !== 'all';
 
-    if (shouldUseBackendSearch) {
-      // ✅ BUILD: Backend search parameters (Quick search + Lab only)
-      const backendParams = {};
+    console.log('🔍 WORKLIST SEARCH: Has actual search criteria:', hasActualSearchCriteria);
+
+    if (forceSearch || hasActualSearchCriteria) {
+      // ✅ BUILD: Search parameters for backend
+      const searchParams = {};
       
-      // Add quick search
+      // Add search term and type
       if (quickSearchTerm.trim()) {
-        backendParams.searchTerm = quickSearchTerm.trim();
-        backendParams.searchType = searchType || 'all';
-        console.log('🔍 HYBRID SEARCH: Adding quick search to backend:', backendParams.searchTerm);
+        searchParams.searchTerm = quickSearchTerm.trim();
+        searchParams.searchType = searchType || 'all';
       }
       
-      // Add lab selection
-      if (selectedLocation !== 'ALL') {
-        backendParams.selectedLocation = selectedLocation;
-        console.log('📍 HYBRID SEARCH: Adding lab selection to backend:', selectedLocation);
+      // Add advanced search fields
+      if (patientName.trim()) searchParams.patientName = patientName.trim();
+      if (patientId.trim()) searchParams.patientId = patientId.trim();
+      if (accessionNumber.trim()) searchParams.accessionNumber = accessionNumber.trim();
+      if (description.trim()) searchParams.description = description.trim();
+      if (refName.trim()) searchParams.refName = refName.trim();
+      
+      // Add filters
+      if (workflowStatus !== 'all') searchParams.workflowStatus = workflowStatus;
+      if (selectedLocation !== 'ALL') searchParams.selectedLocation = selectedLocation;
+      
+      // Add modality filters
+      const selectedModalityList = Object.entries(modalities)
+        .filter(([key, value]) => value)
+        .map(([key]) => key);
+      if (selectedModalityList.length > 0) {
+        searchParams.modality = selectedModalityList.join(',');
       }
       
-      console.log('🔍 HYBRID SEARCH: Triggering backend search with params:', backendParams);
-      onSearchWithBackend(backendParams);
+      if (emergencyCase) searchParams.emergencyCase = 'true';
+      if (mlcCase) searchParams.mlcCase = 'true';
+      if (studyType !== 'all') searchParams.studyType = studyType;
+      
+      console.log('🔍 WORKLIST SEARCH: Triggering SEARCH with params:', searchParams);
+      onSearchWithBackend(searchParams);
       
     } else {
-      // ✅ NO BACKEND SEARCH: Just trigger normal admin data fetch
-      console.log('📊 HYBRID SEARCH: No quick search/lab criteria, using normal admin fetch');
-      onSearchWithBackend(null);
+      // ✅ NO SEARCH: Just trigger normal data refresh (pass empty object)
+      console.log('📊 WORKLIST SEARCH: No search criteria, triggering normal data refresh');
+      onSearchWithBackend(null); // Pass null to indicate no search
     }
   }, [
-    quickSearchTerm, searchType, selectedLocation, onSearchWithBackend
+    quickSearchTerm, searchType, patientName, patientId, accessionNumber, 
+    description, refName, workflowStatus, selectedLocation, modalities, 
+    emergencyCase, mlcCase, studyType, onSearchWithBackend
   ]);
 
   const handleLocationSelect = useCallback((locationValue) => {
@@ -315,7 +243,7 @@ const selectedLocationLabel = useMemo(() => {
       onCustomDateChange('', '');
     }
     if (onDateFilterChange) {
-      onDateFilterChange('today');
+      onDateFilterChange('today'); // Reset to default
     }
     if (onDateTypeChange) {
       onDateTypeChange('UploadDate');
@@ -335,7 +263,7 @@ const selectedLocationLabel = useMemo(() => {
     
     // Trigger normal admin data fetch (no search)
     console.log('🧹 CLEAR: Triggering normal admin data fetch');
-    onSearchWithBackend(null);
+    onSearchWithBackend({});
   }, [onCustomDateChange, onDateFilterChange, onDateTypeChange, onSearchWithBackend]);
 
   const toggleExpanded = useCallback(() => {
@@ -427,6 +355,22 @@ const selectedLocationLabel = useMemo(() => {
         };
     }
   }, [connectionStatus]);
+
+  // Add this import and create the debounced function
+
+
+// Add this after your state declarations:
+const debouncedSetQuickSearchTerm = useMemo(
+  () => debounce((value) => setQuickSearchTerm(value), 300),
+  []
+);
+
+// Clean up on unmount
+useEffect(() => {
+  return () => {
+    debouncedSetQuickSearchTerm.cancel();
+  };
+}, [debouncedSetQuickSearchTerm]);
 
   return (
     <div className="h-full w-full flex flex-col">
@@ -591,12 +535,8 @@ const selectedLocationLabel = useMemo(() => {
                   <button
                     onClick={() => handleBackendSearch(true)}
                     disabled={loading}
-                    className="inline-flex items-center px-2 sm:px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    title={
-                      quickSearchTerm.trim() || selectedLocation !== 'ALL' 
-                        ? "Search with backend (quick search + lab filter)"
-                        : "Search with current filters"
-                    }
+                    className="inline-flex items-center px-2 sm:px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Search with current criteria"
                   >
                     {loading ? (
                       <svg className="w-3 h-3 sm:mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -608,11 +548,9 @@ const selectedLocationLabel = useMemo(() => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     )}
-                    <span className="hidden sm:inline">
-                      {quickSearchTerm.trim() || selectedLocation !== 'ALL' ? 'Search DB' : 'Search'}
-                    </span>
+                    <span className="hidden sm:inline">Search</span>
                   </button>
-
+                  
                   <button 
                     className={`inline-flex items-center px-2 py-1.5 border rounded text-xs font-medium transition-colors ${
                       isExpanded 
@@ -907,7 +845,7 @@ const selectedLocationLabel = useMemo(() => {
                     <input
                       type="text"
                       value={accessionNumber}
-                      onChange={(e) => setPatientAccessionNumber(e.target.value)}
+                      onChange={(e) => setAccessionNumber(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Enter accession number..."
                     />

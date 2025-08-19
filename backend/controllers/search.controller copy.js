@@ -27,24 +27,36 @@ const formatDicomDateTime = (studyDate, studyTime) => {
     }).replace(',', '');
 };
 
-// 🔥 HYBRID SEARCH: Quick search + Lab selection only (Advanced filters stay frontend)
+// 🔥 COMPLETE BACKEND SEARCH - All filtering happens here
 export const searchStudies = async (req, res) => {
     try {
         const startTime = Date.now();
         
-        console.log('🔍 BACKEND HYBRID SEARCH: Received request with params:', req.query);
+        console.log('🔍 BACKEND SEARCH: Received search request with params:', req.query);
         
-        // Extract ONLY quick search and lab selection parameters
+        // Extract all search parameters
         const {
-            // ✅ BACKEND: Quick search parameters
+            // Quick search
             searchType = 'all',
             searchTerm = '',
             
-            // ✅ BACKEND: Lab selection
+            // Advanced search fields
+            patientName = '',
+            patientId = '',
+            accessionNumber = '',
+            description = '',
+            refName = '',
+            
+            // Filters
+            workflowStatus = 'all',
             selectedLocation = 'ALL',
             location = '',
+            modality = '',
+            emergencyCase = 'false',
+            mlcCase = 'false',
+            studyType = 'all',
             
-            // ✅ BACKEND: Date filters (keep these in backend)
+            // Date filters
             dateFilter = 'all',
             customDateFrom,
             customDateTo,
@@ -59,7 +71,7 @@ export const searchStudies = async (req, res) => {
         const skip = (parseInt(page) - 1) * parseInt(limit);
         const matchConditions = {};
 
-        // 🔍 BACKEND SEARCH LOGIC: Only quick search
+        // 🔍 SEARCH LOGIC: Quick search or advanced fields
         if (searchTerm && searchTerm.trim()) {
             const trimmedSearchTerm = searchTerm.trim();
             console.log(`🔍 BACKEND SEARCH: Quick search "${trimmedSearchTerm}" (type: ${searchType})`);
@@ -82,7 +94,7 @@ export const searchStudies = async (req, res) => {
                     matchConditions.accessionNumber = { $regex: trimmedSearchTerm, $options: 'i' };
                     break;
                     
-                default: // Search all fields
+                default:
                     matchConditions.$or = [
                         { 'patientInfo.patientName': { $regex: trimmedSearchTerm, $options: 'i' } },
                         { 'patientInfo.patientID': { $regex: trimmedSearchTerm, $options: 'i' } },
@@ -92,7 +104,62 @@ export const searchStudies = async (req, res) => {
             }
         }
 
-        // 📍 BACKEND LAB FILTER: Lab selection
+        // 🔍 ADVANCED SEARCH: Individual field searches (override quick search)
+        if (patientName && patientName.trim()) {
+            console.log(`🔍 BACKEND SEARCH: Patient name search: "${patientName}"`);
+            delete matchConditions.$or;
+            matchConditions['patientInfo.patientName'] = { $regex: patientName.trim(), $options: 'i' };
+        }
+
+        if (patientId && patientId.trim()) {
+            console.log(`🔍 BACKEND SEARCH: Patient ID search: "${patientId}"`);
+            delete matchConditions.$or;
+            matchConditions.$or = [
+                { 'patientInfo.patientID': { $regex: patientId.trim(), $options: 'i' } },
+                { patientId: { $regex: patientId.trim(), $options: 'i' } }
+            ];
+        }
+
+        if (accessionNumber && accessionNumber.trim()) {
+            console.log(`🔍 BACKEND SEARCH: Accession number search: "${accessionNumber}"`);
+            delete matchConditions.$or;
+            matchConditions.accessionNumber = { $regex: accessionNumber.trim(), $options: 'i' };
+        }
+
+        if (description && description.trim()) {
+            matchConditions.$or = [
+                ...(matchConditions.$or || []),
+                { description: { $regex: description.trim(), $options: 'i' } },
+                { studyDescription: { $regex: description.trim(), $options: 'i' } },
+                { examDescription: { $regex: description.trim(), $options: 'i' } }
+            ];
+        }
+
+        if (refName && refName.trim()) {
+            matchConditions.$or = [
+                ...(matchConditions.$or || []),
+                { referringPhysicianName: { $regex: refName.trim(), $options: 'i' } },
+                { 'referringPhysician.name': { $regex: refName.trim(), $options: 'i' } }
+            ];
+        }
+
+        // 🏷️ WORKFLOW STATUS FILTER
+        if (workflowStatus && workflowStatus !== 'all') {
+            const statusMap = {
+                'pending': ['new_study_received', 'pending_assignment', 'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 'report_downloaded_radiologist', 'report_downloaded'],
+                'inprogress': ['report_finalized', 'report_drafted', 'report_uploaded'],
+                'completed': ['final_report_downloaded']
+            };
+            
+            if (statusMap[workflowStatus]) {
+                matchConditions.workflowStatus = { $in: statusMap[workflowStatus] };
+            } else {
+                matchConditions.workflowStatus = workflowStatus;
+            }
+            console.log(`🏷️ BACKEND SEARCH: Status filter: ${workflowStatus}`);
+        }
+
+        // 📍 LAB/LOCATION FILTER - This is crucial!
         const locationFilter = selectedLocation !== 'ALL' ? selectedLocation : location;
         if (locationFilter && locationFilter !== 'ALL') {
             console.log(`📍 BACKEND SEARCH: Lab filter: ${locationFilter}`);
@@ -119,7 +186,36 @@ export const searchStudies = async (req, res) => {
             }
         }
 
-        // 📅 BACKEND DATE FILTER: Keep date filtering in backend
+        // 🏥 MODALITY FILTER
+        if (modality && modality.trim()) {
+            const modalities = modality.split(',').map(m => m.trim()).filter(m => m);
+            if (modalities.length > 0) {
+                matchConditions.$or = [
+                    ...(matchConditions.$or || []),
+                    { modality: { $in: modalities } },
+                    { modalitiesInStudy: { $in: modalities } }
+                ];
+                console.log(`🏥 BACKEND SEARCH: Modality filter: ${modalities.join(', ')}`);
+            }
+        }
+
+        // 🚨 EMERGENCY CASE FILTER
+        if (emergencyCase === 'true') {
+            matchConditions.$or = [
+                ...(matchConditions.$or || []),
+                { caseType: { $in: ['urgent', 'emergency'] } },
+                { priority: 'URGENT' }
+            ];
+            console.log('🚨 BACKEND SEARCH: Emergency cases only');
+        }
+
+        // 🏷️ MLC CASE FILTER
+        if (mlcCase === 'true') {
+            matchConditions.mlcCase = true;
+            console.log('🏷️ BACKEND SEARCH: MLC cases only');
+        }
+
+        // 📅 DATE FILTER LOGIC (Use the same logic as admin controller)
         const dateField = dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
         const activeDateFilter = quickDatePreset !== 'all' ? quickDatePreset : dateFilter;
         
@@ -182,16 +278,16 @@ export const searchStudies = async (req, res) => {
             }
         }
 
-        console.log('🔍 BACKEND HYBRID SEARCH: Applied match conditions:', JSON.stringify(matchConditions, null, 2));
+        console.log('🔍 BACKEND SEARCH: Applied match conditions:', JSON.stringify(matchConditions, null, 2));
 
-        // 🚀 EXECUTE: Aggregation pipeline
+        // 🚀 BACKEND SEARCH: Execute aggregation pipeline
         const pipeline = [];
         
         if (Object.keys(matchConditions).length > 0) {
             pipeline.push({ $match: matchConditions });
         }
 
-        // Add lookups for related data
+        // Add lookups for related data (same format as admin controller)
         pipeline.push(
             {
                 $lookup: {
@@ -230,7 +326,7 @@ export const searchStudies = async (req, res) => {
             { $limit: parseInt(limit) }
         );
 
-        console.log('🚀 BACKEND HYBRID SEARCH: Executing aggregation pipeline...');
+        console.log('🚀 BACKEND SEARCH: Executing aggregation pipeline...');
         const queryStart = Date.now();
         
         // Execute main query and count query in parallel
@@ -243,8 +339,8 @@ export const searchStudies = async (req, res) => {
         const studies = studiesResult;
         const totalRecords = countResult;
 
-        console.log(`⚡ BACKEND HYBRID SEARCH: Query executed in ${queryTime}ms`);
-        console.log(`✅ BACKEND HYBRID SEARCH: Found ${totalRecords} studies (returning ${studies.length} for processing)`);
+        console.log(`⚡ BACKEND SEARCH: Query executed in ${queryTime}ms`);
+        console.log(`✅ BACKEND SEARCH: Found ${totalRecords} studies in ${queryTime}ms`);
 
         // 🔧 FORMAT: Studies to match admin controller format exactly
         const formattedStudies = studies.map(study => {
@@ -317,23 +413,15 @@ export const searchStudies = async (req, res) => {
                 ReportAvailable: study.ReportAvailable || false,
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
-                // Include all original fields for frontend filtering
-                referredBy: study.referringPhysicianName || study.referringPhysician?.name || '',
-                mlcCase: study.mlcCase || false,
-                studyType: study.studyType || 'routine',
-                // Include all original study fields
+                // Include all original fields for compatibility
                 sourceLab: sourceLab,
-                patientDetails: patient,
-                // Raw data for frontend filtering
-                patientInfo: study.patientInfo,
-                modalitiesInStudy: study.modalitiesInStudy,
-                clinicalHistory: study.clinicalHistory
+                patientDetails: patient
             };
         });
 
         const processingTime = Date.now() - startTime;
 
-        console.log(`📊 BACKEND HYBRID SEARCH: Returning ${formattedStudies.length} studies for frontend filtering`);
+        console.log(`📊 BACKEND SEARCH: Returning ${formattedStudies.length} studies for page ${page}`);
 
         // Return response in same format as admin controller
         res.status(200).json({
@@ -343,15 +431,8 @@ export const searchStudies = async (req, res) => {
             recordsPerPage: parseInt(limit),
             data: formattedStudies,
             searchPerformed: true,
-            backendFiltering: 'hybrid', // ✅ Indicate hybrid mode
-            globalSearch: activeDateFilter === 'all' && !searchTerm && !locationFilter,
-            hybridMode: true, // ✅ New flag for frontend
-            backendFilters: {
-                searchTerm: searchTerm || null,
-                searchType: searchTerm ? searchType : null,
-                selectedLocation: locationFilter !== 'ALL' ? locationFilter : null,
-                dateFilter: activeDateFilter
-            },
+            backendFiltering: true,
+            globalSearch: activeDateFilter === 'all',
             pagination: {
                 currentPage: parseInt(page),
                 totalPages: Math.ceil(totalRecords / parseInt(limit)),
@@ -360,170 +441,43 @@ export const searchStudies = async (req, res) => {
                 hasNextPage: parseInt(page) < Math.ceil(totalRecords / parseInt(limit)),
                 hasPrevPage: parseInt(page) > 1
             },
+            filters: {
+                searchType,
+                searchTerm,
+                patientName,
+                patientId,
+                accessionNumber,
+                workflowStatus,
+                selectedLocation: locationFilter,
+                modality,
+                emergencyCase: emergencyCase === 'true',
+                mlcCase: mlcCase === 'true',
+                dateFilter: activeDateFilter,
+                dateType
+            },
             performance: {
                 totalTime: processingTime,
                 queryTime,
                 recordsProcessed: totalRecords,
-                backend: 'hybrid-search-lab-date'
+                backend: 'complete'
             },
             meta: {
                 executionTime: processingTime,
                 searchPerformed: true,
                 backend: 'mongodb-aggregation',
                 cacheUsed: false,
-                fieldsSearched: searchTerm ? [searchType || 'all'] : (locationFilter ? ['location'] : ['date']),
-                hybridMode: true
+                fieldsSearched: Object.keys(matchConditions).length > 0 ? Object.keys(matchConditions) : ['all'],
+                globalSearch: activeDateFilter === 'all'
             }
         });
 
     } catch (error) {
-        console.error('❌ BACKEND HYBRID SEARCH: Error executing search:', error);
+        console.error('❌ BACKEND SEARCH: Error executing search:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to execute hybrid search',
+            message: 'Failed to execute search',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined,
             searchPerformed: false
-        });
-    }
-};
-
-// Keep existing functions...
-export const getSearchSuggestions = async (req, res) => {
-    try {
-        const { searchType = 'all', searchTerm = '', limit = 10 } = req.query;
-        
-        if (!searchTerm || searchTerm.trim().length < 2) {
-            return res.json({
-                success: true,
-                suggestions: []
-            });
-        }
-
-        const trimmedSearchTerm = searchTerm.trim();
-        let aggregationPipeline = [];
-
-        switch (searchType) {
-            case 'patientName':
-                aggregationPipeline = [
-                    {
-                        $match: {
-                            'patientInfo.patientName': {
-                                $regex: trimmedSearchTerm,
-                                $options: 'i'
-                            }
-                        }
-                    },
-                    {
-                        $group: {
-                            _id: '$patientInfo.patientName',
-                            count: { $sum: 1 }
-                        }
-                    },
-                    { $sort: { count: -1 } },
-                    { $limit: parseInt(limit) },
-                    {
-                        $project: {
-                            suggestion: '$_id',
-                            count: 1,
-                            _id: 0
-                        }
-                    }
-                ];
-                break;
-
-            case 'patientId':
-                aggregationPipeline = [
-                    {
-                        $match: {
-                            $or: [
-                                {
-                                    'patientInfo.patientID': {
-                                        $regex: trimmedSearchTerm,
-                                        $options: 'i'
-                                    }
-                                },
-                                {
-                                    patientId: {
-                                        $regex: trimmedSearchTerm,
-                                        $options: 'i'
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    {
-                        $group: {
-                            _id: {
-                                $ifNull: ['$patientInfo.patientID', '$patientId']
-                            },
-                            count: { $sum: 1 }
-                        }
-                    },
-                    { $sort: { count: -1 } },
-                    { $limit: parseInt(limit) },
-                    {
-                        $project: {
-                            suggestion: '$_id',
-                            count: 1,
-                            _id: 0
-                        }
-                    }
-                ];
-                break;
-
-            case 'accession':
-                aggregationPipeline = [
-                    {
-                        $match: {
-                            accessionNumber: {
-                                $regex: trimmedSearchTerm,
-                                $options: 'i'
-                            }
-                        }
-                    },
-                    {
-                        $group: {
-                            _id: '$accessionNumber',
-                            count: { $sum: 1 }
-                        }
-                    },
-                    { $sort: { count: -1 } },
-                    { $limit: parseInt(limit) },
-                    {
-                        $project: {
-                            suggestion: '$_id',
-                            count: 1,
-                            _id: 0
-                        }
-                    }
-                ];
-                break;
-
-            default:
-                return res.json({
-                    success: true,
-                    suggestions: []
-                });
-        }
-
-        const suggestions = await DicomStudy.aggregate(aggregationPipeline);
-
-        res.json({
-            success: true,
-            searchType,
-            searchTerm: trimmedSearchTerm,
-            suggestions: suggestions.map(s => ({
-                text: s.suggestion,
-                count: s.count
-            }))
-        });
-
-    } catch (error) {
-        console.error('❌ Error getting search suggestions:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to get search suggestions',
-            suggestions: []
         });
     }
 };
@@ -800,6 +754,147 @@ export const getSearchValues = async (req, res) => {
             success: false, 
             message: 'Server error fetching search statistics.',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// Keep existing getSearchSuggestions function...
+export const getSearchSuggestions = async (req, res) => {
+    try {
+        const { searchType = 'all', searchTerm = '', limit = 10 } = req.query;
+        
+        if (!searchTerm || searchTerm.trim().length < 2) {
+            return res.json({
+                success: true,
+                suggestions: []
+            });
+        }
+
+        const trimmedSearchTerm = searchTerm.trim();
+        let aggregationPipeline = [];
+
+        switch (searchType) {
+            case 'patientName':
+                aggregationPipeline = [
+                    {
+                        $match: {
+                            'patientInfo.patientName': {
+                                $regex: trimmedSearchTerm,
+                                $options: 'i'
+                            }
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: '$patientInfo.patientName',
+                            count: { $sum: 1 }
+                        }
+                    },
+                    { $sort: { count: -1 } },
+                    { $limit: parseInt(limit) },
+                    {
+                        $project: {
+                            suggestion: '$_id',
+                            count: 1,
+                            _id: 0
+                        }
+                    }
+                ];
+                break;
+
+            case 'patientId':
+                aggregationPipeline = [
+                    {
+                        $match: {
+                            $or: [
+                                {
+                                    'patientInfo.patientID': {
+                                        $regex: trimmedSearchTerm,
+                                        $options: 'i'
+                                    }
+                                },
+                                {
+                                    patientId: {
+                                        $regex: trimmedSearchTerm,
+                                        $options: 'i'
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: {
+                                $ifNull: ['$patientInfo.patientID', '$patientId']
+                            },
+                            count: { $sum: 1 }
+                        }
+                    },
+                    { $sort: { count: -1 } },
+                    { $limit: parseInt(limit) },
+                    {
+                        $project: {
+                            suggestion: '$_id',
+                            count: 1,
+                            _id: 0
+                        }
+                    }
+                ];
+                break;
+
+            case 'accession':
+                aggregationPipeline = [
+                    {
+                        $match: {
+                            accessionNumber: {
+                                $regex: trimmedSearchTerm,
+                                $options: 'i'
+                            }
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: '$accessionNumber',
+                            count: { $sum: 1 }
+                        }
+                    },
+                    { $sort: { count: -1 } },
+                    { $limit: parseInt(limit) },
+                    {
+                        $project: {
+                            suggestion: '$_id',
+                            count: 1,
+                            _id: 0
+                        }
+                    }
+                ];
+                break;
+
+            default:
+                return res.json({
+                    success: true,
+                    suggestions: []
+                });
+        }
+
+        const suggestions = await DicomStudy.aggregate(aggregationPipeline);
+
+        res.json({
+            success: true,
+            searchType,
+            searchTerm: trimmedSearchTerm,
+            suggestions: suggestions.map(s => ({
+                text: s.suggestion,
+                count: s.count
+            }))
+        });
+
+    } catch (error) {
+        console.error('❌ Error getting search suggestions:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get search suggestions',
+            suggestions: []
         });
     }
 };
