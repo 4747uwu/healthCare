@@ -148,37 +148,55 @@ const selectedLocationLabel = useMemo(() => {
     
     // Advanced patient search (separate from quick search)
     if (patientName.trim()) {
-      filtered = filtered.filter(study => 
-        (study.patientName || '').toLowerCase().includes(patientName.toLowerCase())
-      );
+      filtered = filtered.filter(study => {
+        const studyPatientName = study.patientName || '';
+        return typeof studyPatientName === 'string' && 
+               studyPatientName.toLowerCase().includes(patientName.toLowerCase());
+      });
       console.log(`🔧 FRONTEND FILTERING: Applied patient name filter, ${filtered.length} remaining`);
     }
 
     if (patientId.trim()) {
-      filtered = filtered.filter(study => 
-        (study.patientId || '').toLowerCase().includes(patientId.toLowerCase())
-      );
+      filtered = filtered.filter(study => {
+        const studyPatientId = study.patientId || '';
+        return typeof studyPatientId === 'string' && 
+               studyPatientId.toLowerCase().includes(patientId.toLowerCase());
+      });
       console.log(`🔧 FRONTEND FILTERING: Applied patient ID filter, ${filtered.length} remaining`);
     }
 
     if (refName.trim()) {
-      filtered = filtered.filter(study => 
-        (study.referredBy || '').toLowerCase().includes(refName.toLowerCase())
-      );
+      filtered = filtered.filter(study => {
+        const studyReferredBy = study.referredBy || '';
+        return typeof studyReferredBy === 'string' && 
+               studyReferredBy.toLowerCase().includes(refName.toLowerCase());
+      });
       console.log(`🔧 FRONTEND FILTERING: Applied referring physician filter, ${filtered.length} remaining`);
     }
 
     if (accessionNumber.trim()) {
-      filtered = filtered.filter(study => 
-        (study.accessionNumber || '').toLowerCase().includes(accessionNumber.toLowerCase())
-      );
+      filtered = filtered.filter(study => {
+        const studyAccessionNumber = study.accessionNumber || '';
+        return typeof studyAccessionNumber === 'string' && 
+               studyAccessionNumber.toLowerCase().includes(accessionNumber.toLowerCase());
+      });
       console.log(`🔧 FRONTEND FILTERING: Applied accession filter, ${filtered.length} remaining`);
     }
 
     if (description.trim()) {
-      filtered = filtered.filter(study => 
-        (study.description || '').toLowerCase().includes(description.toLowerCase())
-      );
+      filtered = filtered.filter(study => {
+        const studyDescription = study.description || '';
+        const studyClinicalHistory = study.clinicalHistory || '';
+        
+        // ✅ FIX: Safe string handling for clinicalHistory
+        const descriptionMatch = typeof studyDescription === 'string' && 
+                                studyDescription.toLowerCase().includes(description.toLowerCase());
+        
+        const clinicalHistoryMatch = typeof studyClinicalHistory === 'string' && 
+                                    studyClinicalHistory.toLowerCase().includes(description.toLowerCase());
+        
+        return descriptionMatch || clinicalHistoryMatch;
+      });
       console.log(`🔧 FRONTEND FILTERING: Applied description filter, ${filtered.length} remaining`);
     }
 
@@ -203,7 +221,8 @@ const selectedLocationLabel = useMemo(() => {
     if (selectedModalities.length > 0) {
       filtered = filtered.filter(study => {
         const studyModality = study.modality || '';
-        return selectedModalities.some(mod => studyModality.includes(mod));
+        return typeof studyModality === 'string' && 
+               selectedModalities.some(mod => studyModality.includes(mod));
       });
       console.log(`🔧 FRONTEND FILTERING: Applied modality filter, ${filtered.length} remaining`);
     }
