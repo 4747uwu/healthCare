@@ -60,7 +60,7 @@ const AdminDashboard = React.memo(() => {
   }, []);
   console.log(activeCategory)
 
-  // 🔧 UPDATED: Fetch studies with correct endpoint selection
+  // 🔧 UPDATED: Fetch studies with dynamic endpoint
   const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
       setLoading(true);
@@ -75,10 +75,13 @@ const AdminDashboard = React.memo(() => {
         searchParams.description ||
         searchParams.refName ||
         searchParams.modality ||
-        searchParams.location ||
+        searchParams.selectedLocation !== 'ALL' ||
         searchParams.emergencyCase ||
-        searchParams.mlcCase
+        searchParams.mlcCase ||
+        searchParams.workflowStatus !== 'all'
       );
+
+      console.log(`🔍 DASHBOARD: Has search params: ${hasSearchParams}`);
 
       let studiesResponse, valuesResponse;
 
@@ -105,7 +108,7 @@ const AdminDashboard = React.memo(() => {
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get('/admin/studies/search', { params: searchApiParams }),
-          api.get('/admin/values', { params: { dateType, quickDatePreset: dateFilter } })
+          api.get('/admin/search/values', { params: searchApiParams }) // ✅ Use search values
         ]);
         
       } else {
@@ -138,7 +141,7 @@ const AdminDashboard = React.memo(() => {
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get(studiesEndpoint, { params: adminParams }),
-          api.get('/admin/values', { params: adminParams })
+          api.get('/admin/values', { params: adminParams }) // ✅ Use normal values
         ]);
       }
       
@@ -147,8 +150,19 @@ const AdminDashboard = React.memo(() => {
         setAllStudies(studiesResponse.data.data);
         setTotalRecords(studiesResponse.data.totalRecords);
         
-        console.log(`✅ DASHBOARD: Data fetch successful: ${studiesResponse.data.data.length} studies`);
-        console.log(`📊 DASHBOARD: Using ${hasSearchParams ? 'SEARCH' : 'ADMIN'} controller`);
+        // Update dashboard stats from backend response
+        if (studiesResponse.data.summary?.byCategory) {
+          setDashboardStats({
+            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
+            pendingStudies: studiesResponse.data.summary.byCategory.pending || 0,
+            inProgressStudies: studiesResponse.data.summary.byCategory.inprogress || 0,
+            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
+            activeLabs: studiesResponse.data.summary.activeLabs || 
+                        [...new Set(studiesResponse.data.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
+            activeDoctors: studiesResponse.data.summary.activeDoctors || 
+                           [...new Set(studiesResponse.data.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length
+          });
+        }
       }
 
       // Process values response
@@ -177,7 +191,7 @@ const AdminDashboard = React.memo(() => {
     } finally {
       setLoading(false);
     }
-  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType]);
+  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType, getEndpointForCategory]);
 
   console.log(allStudies)
   // 🔧 SIMPLIFIED: Single useEffect for initial load and dependency changes
@@ -224,53 +238,9 @@ const AdminDashboard = React.memo(() => {
   }, [resetNewStudyCount]);
 
   // Handle search with backend parameters
-  const handleSearchWithBackend = useCallback(async (searchParams) => {
-    try {
-      console.log('🔍 DASHBOARD: Backend search triggered with params:', searchParams);
-      
-      // ✅ CHECK: If searchParams contains direct data, use it immediately
-      if (searchParams.data && searchParams.totalRecords !== undefined) {
-        console.log(`🔍 DASHBOARD: Using direct search results: ${searchParams.data.length} studies`);
-        
-        setAllStudies(searchParams.data);
-        setTotalRecords(searchParams.totalRecords);
-        setLoading(false);
-        
-        // Update values for the search results
-        const stats = {
-          pending: searchParams.data.filter(s => 
-            ['new_study_received', 'pending_assignment'].includes(s.workflowStatus)
-          ).length,
-          inprogress: searchParams.data.filter(s => 
-            ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 
-             'report_drafted', 'report_finalized', 'report_uploaded'].includes(s.workflowStatus)
-          ).length,
-          completed: searchParams.data.filter(s => 
-            ['final_report_downloaded'].includes(s.workflowStatus)
-          ).length,
-        };
-        
-        setValues({
-          today: searchParams.totalRecords,
-          pending: stats.pending,
-          inprogress: stats.inprogress,
-          completed: stats.completed,
-        });
-        
-        return;
-      }
-      
-      // ✅ DELEGATE: Call fetchAllData with search parameters
-      console.log('🔍 DASHBOARD: Delegating to fetchAllData with search params');
-      await fetchAllData(searchParams);
-      
-    } catch (error) {
-      console.error('❌ DASHBOARD: Backend search error:', error);
-      setAllStudies([]);
-      setTotalRecords(0);
-    } finally {
-      setLoading(false);
-    }
+  const handleSearchWithBackend = useCallback((searchParams) => {
+    console.log('🔍 DASHBOARD: Handling search with backend params:', searchParams);
+    fetchAllData(searchParams);
   }, [fetchAllData]);
 
   // Handle records per page change
