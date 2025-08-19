@@ -106,25 +106,33 @@ export const searchStudies = async (req, res) => {
         if (locationFilter && locationFilter !== 'ALL') {
             console.log(`📍 BACKEND SEARCH: Lab filter: ${locationFilter}`);
             
-            // First, try to find the lab by identifier or name
-            const lab = await Lab.findOne({
-                $or: [
-                    { identifier: locationFilter },
-                    { name: { $regex: locationFilter, $options: 'i' } }
-                ]
-            }).lean();
-            
-            if (lab) {
-                // Filter by lab ObjectId for exact matching
-                matchConditions.sourceLab = lab._id;
-                console.log(`📍 BACKEND SEARCH: Found lab ${lab.name}, filtering by ObjectId: ${lab._id}`);
+            // ✅ FIX: Check if locationFilter is a valid ObjectId first
+            if (mongoose.Types.ObjectId.isValid(locationFilter)) {
+                // Direct ObjectId match - this is the most accurate
+                matchConditions.sourceLab = new mongoose.Types.ObjectId(locationFilter);
+                console.log(`📍 BACKEND SEARCH: Using direct ObjectId match for lab: ${locationFilter}`);
             } else {
-                // Fallback to string matching
-                matchConditions.$or = [
-                    ...(matchConditions.$or || []),
-                    { location: { $regex: locationFilter, $options: 'i' } },
-                    { institutionName: { $regex: locationFilter, $options: 'i' } }
-                ];
+                // Try to find the lab by identifier or name for non-ObjectId values
+                const lab = await Lab.findOne({
+                    $or: [
+                        { identifier: locationFilter },
+                        { name: { $regex: locationFilter, $options: 'i' } }
+                    ]
+                }).lean();
+                
+                if (lab) {
+                    // Filter by lab ObjectId for exact matching
+                    matchConditions.sourceLab = lab._id;
+                    console.log(`📍 BACKEND SEARCH: Found lab ${lab.name}, filtering by ObjectId: ${lab._id}`);
+                } else {
+                    // Fallback to string matching for legacy data
+                    matchConditions.$or = [
+                        ...(matchConditions.$or || []),
+                        { location: { $regex: locationFilter, $options: 'i' } },
+                        { institutionName: { $regex: locationFilter, $options: 'i' } }
+                    ];
+                    console.log(`📍 BACKEND SEARCH: Using string fallback for: ${locationFilter}`);
+                }
             }
         }
 
@@ -645,16 +653,33 @@ export const getSearchValues = async (req, res) => {
         const locationFilter = selectedLocation !== 'ALL' ? selectedLocation : location;
         if (locationFilter && locationFilter !== 'ALL') {
             console.log(`📍 SEARCH VALUES: Lab filter: ${locationFilter}`);
-            const lab = await Lab.findOne({
-                $or: [
-                    { identifier: locationFilter },
-                    { name: { $regex: locationFilter, $options: 'i' } }
-                ]
-            }).lean();
             
-            if (lab) {
-                matchConditions.sourceLab = lab._id;
-                console.log(`📍 SEARCH VALUES: Found lab ${lab.name}, filtering by ObjectId`);
+            // ✅ FIX: Check if locationFilter is a valid ObjectId first
+            if (mongoose.Types.ObjectId.isValid(locationFilter)) {
+                // Direct ObjectId match
+                matchConditions.sourceLab = new mongoose.Types.ObjectId(locationFilter);
+                console.log(`📍 SEARCH VALUES: Using direct ObjectId match for lab: ${locationFilter}`);
+            } else {
+                // Try to find the lab by identifier or name
+                const lab = await Lab.findOne({
+                    $or: [
+                        { identifier: locationFilter },
+                        { name: { $regex: locationFilter, $options: 'i' } }
+                    ]
+                }).lean();
+                
+                if (lab) {
+                    matchConditions.sourceLab = lab._id;
+                    console.log(`📍 SEARCH VALUES: Found lab ${lab.name}, filtering by ObjectId: ${lab._id}`);
+                } else {
+                    // Fallback to string matching
+                    matchConditions.$or = [
+                        ...(matchConditions.$or || []),
+                        { location: { $regex: locationFilter, $options: 'i' } },
+                        { institutionName: { $regex: locationFilter, $options: 'i' } }
+                    ];
+                    console.log(`📍 SEARCH VALUES: Using string fallback for: ${locationFilter}`);
+                }
             }
         }
 
