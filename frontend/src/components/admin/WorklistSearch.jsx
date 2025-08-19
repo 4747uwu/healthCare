@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import WorklistTable from './WorklistTable';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { debounce } from 'lodash';
+// import { debounce } from 'lodash';
 // 🔧 COMPACT & MODERN UI: WorklistSearch component
 const WorklistSearch = React.memo(({ 
   allStudies = [], 
