@@ -64,39 +64,31 @@ const AdminDashboard = React.memo(() => {
   const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
       setLoading(true);
-      console.log(`🔄 Fetching ${activeCategory} studies with synchronized filters`);
+      console.log(`🔄 DASHBOARD: Fetching data using backend search for category: ${activeCategory}`);
       
-      // 🆕 NEW: Use category-specific endpoint
-      const endpoint = getEndpointForCategory(activeCategory);
-      
-      // Build common API parameters
-      const apiParams = {
+      // Use backend search for all data fetching
+      const backendParams = {
         limit: recordsPerPage,
         dateType: dateType,
+        workflowStatus: activeCategory !== 'all' ? activeCategory : 'all',
         ...searchParams
       };
-
+      
       // Add date filter parameters
       if (dateFilter === 'custom') {
-        if (customDateFrom) apiParams.customDateFrom = customDateFrom;
-        if (customDateTo) apiParams.customDateTo = customDateTo;
-        apiParams.quickDatePreset = 'custom';
+        if (customDateFrom) backendParams.customDateFrom = customDateFrom;
+        if (customDateTo) backendParams.customDateTo = customDateTo;
+        backendParams.dateFilter = 'custom';
       } else if (dateFilter && dateFilter !== 'all') {
-        apiParams.quickDatePreset = dateFilter;
+        backendParams.quickDatePreset = dateFilter;
       }
       
-      // Remove undefined values
-      Object.keys(apiParams).forEach(key => 
-        apiParams[key] === undefined && delete apiParams[key]
-      );
-
-      console.log(`📤 API Parameters for ${activeCategory}:`, apiParams);
-      console.log(`🎯 Using endpoint: ${endpoint}`);
+      console.log('📤 DASHBOARD: fetchAllData backend params:', backendParams);
       
-      // 🔧 UPDATED: Make API calls to category-specific endpoints
+      // Use the backend search endpoint for all data fetching
       const [studiesResponse, valuesResponse] = await Promise.all([
-        api.get(endpoint, { params: apiParams }),
-        api.get('/admin/values', { params: apiParams })
+        api.get('/admin/studies/search', { params: backendParams }),
+        api.get('/admin/values', { params: backendParams })
       ]);
       
       // Process studies response
@@ -104,19 +96,7 @@ const AdminDashboard = React.memo(() => {
         setAllStudies(studiesResponse.data.data);
         setTotalRecords(studiesResponse.data.totalRecords);
         
-        // Update dashboard stats from backend response
-        if (studiesResponse.data.summary?.byCategory) {
-          setDashboardStats({
-            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
-            pendingStudies: studiesResponse.data.summary.byCategory.pending || 0,
-            inProgressStudies: studiesResponse.data.summary.byCategory.inprogress || 0,
-            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
-            activeLabs: studiesResponse.data.summary.activeLabs || 
-                        [...new Set(studiesResponse.data.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
-            activeDoctors: studiesResponse.data.summary.activeDoctors || 
-                           [...new Set(studiesResponse.data.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length
-          });
-        }
+        console.log(`✅ DASHBOARD: Backend data fetch successful: ${studiesResponse.data.data.length} studies`);
       }
 
       // Process values response
@@ -145,7 +125,7 @@ const AdminDashboard = React.memo(() => {
     } finally {
       setLoading(false);
     }
-  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType, getEndpointForCategory]);
+  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType]);
 
   console.log(allStudies)
   // 🔧 SIMPLIFIED: Single useEffect for initial load and dependency changes
@@ -192,10 +172,106 @@ const AdminDashboard = React.memo(() => {
   }, [resetNewStudyCount]);
 
   // Handle search with backend parameters
-  const handleSearchWithBackend = useCallback((searchParams) => {
-    console.log('🔍 DASHBOARD: Handling search with backend params:', searchParams);
-    fetchAllData(searchParams);
-  }, [fetchAllData]);
+  const handleSearchWithBackend = useCallback(async (searchParams) => {
+    try {
+      console.log('🔍 DASHBOARD: Backend search triggered with params:', searchParams);
+      
+      // ✅ CHECK: If searchParams contains direct data, use it immediately
+      if (searchParams.data && searchParams.totalRecords !== undefined) {
+        console.log(`🔍 DASHBOARD: Using direct search results: ${searchParams.data.length} studies`);
+        console.log(`🌍 DASHBOARD: Backend filtering: ${searchParams.backendFiltering || false}`);
+        
+        setAllStudies(searchParams.data);
+        setTotalRecords(searchParams.totalRecords);
+        setLoading(false);
+        
+        // Update dashboard stats for search results
+        const stats = {
+          totalStudies: searchParams.totalRecords,
+          pendingStudies: searchParams.data.filter(s => 
+            ['new_study_received', 'pending_assignment'].includes(s.workflowStatus)
+          ).length,
+          inProgressStudies: searchParams.data.filter(s => 
+            ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 
+             'report_drafted', 'report_finalized', 'report_uploaded'].includes(s.workflowStatus)
+          ).length,
+          completedStudies: searchParams.data.filter(s => 
+            ['final_report_downloaded'].includes(s.workflowStatus)
+          ).length,
+          activeLabs: [...new Set(searchParams.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
+          activeDoctors: [...new Set(searchParams.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length,
+          searchPerformed: true,
+          backendFiltering: searchParams.backendFiltering
+        };
+        
+        setDashboardStats(stats);
+        
+        // Update values for the search results
+        setValues({
+          today: searchParams.totalRecords,
+          pending: stats.pendingStudies,
+          inprogress: stats.inProgressStudies,
+          completed: stats.completedStudies,
+        });
+        
+        return;
+      }
+      
+      // ✅ FALLBACK: If no direct data, perform backend search via API
+      setLoading(true);
+      console.log('🔍 DASHBOARD: Performing backend API search');
+      
+      const apiParams = {
+        limit: 5000,
+        dateType: dateType,
+        ...searchParams
+      };
+      
+      // Add date filter parameters
+      if (dateFilter === 'custom') {
+        if (customDateFrom) apiParams.customDateFrom = customDateFrom;
+        if (customDateTo) apiParams.customDateTo = customDateTo;
+        apiParams.dateFilter = 'custom';
+      } else if (dateFilter && dateFilter !== 'all') {
+        apiParams.quickDatePreset = dateFilter;
+      }
+      
+      console.log('📤 DASHBOARD: Backend search API params:', apiParams);
+      
+      const response = await api.get('/admin/studies/search', { params: apiParams });
+      
+      if (response.data.success) {
+        console.log(`✅ DASHBOARD: Backend search successful: ${response.data.data.length} studies`);
+        
+        setAllStudies(response.data.data);
+        setTotalRecords(response.data.totalRecords);
+        
+        // Update stats from backend response
+        if (response.data.summary) {
+          setDashboardStats({
+            totalStudies: response.data.totalRecords,
+            pendingStudies: response.data.summary.pendingStudies || 0,
+            inProgressStudies: response.data.summary.inProgressStudies || 0,
+            completedStudies: response.data.summary.completedStudies || 0,
+            activeLabs: response.data.summary.activeLabs || 0,
+            activeDoctors: response.data.summary.activeDoctors || 0
+          });
+        }
+        
+      } else {
+        console.error('❌ DASHBOARD: Backend search failed:', response.data.message);
+        setAllStudies([]);
+        setTotalRecords(0);
+      }
+      
+    } catch (error) {
+      console.error('❌ DASHBOARD: Backend search error:', error);
+      setAllStudies([]);
+      setTotalRecords(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [recordsPerPage, dateType, dateFilter, customDateFrom, customDateTo]);
 
   // Handle records per page change
   const handleRecordsPerPageChange = useCallback((newRecordsPerPage) => {
