@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import WorklistTable from './WorklistTable';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
+import { debounce } from 'lodash';
 // 🔧 COMPACT & MODERN UI: WorklistSearch component
 const WorklistSearch = React.memo(({ 
   allStudies = [], 
@@ -145,14 +146,14 @@ const selectedLocationLabel = useMemo(() => {
     return allStudies;
   }, [allStudies]);
 
-  // Replace the handleBackendSearch function with this:
+  // Update the handleBackendSearch function:
   const handleBackendSearch = useCallback(async (forceSearch = false) => {
     if (!onSearchWithBackend) return;
 
-    console.log('🔍 WORKLIST SEARCH: Starting backend search');
+    console.log('🔍 WORKLIST SEARCH: Starting backend search', { forceSearch });
     
-    // ✅ DETERMINE: If this is actually a search or just normal data fetch
-    const hasSearchCriteria = 
+    // ✅ ONLY SEARCH: If explicitly forced or has actual search criteria
+    const hasActualSearchCriteria = 
       quickSearchTerm.trim() ||
       patientName.trim() ||
       patientId.trim() ||
@@ -163,10 +164,11 @@ const selectedLocationLabel = useMemo(() => {
       Object.values(modalities).some(Boolean) ||
       emergencyCase ||
       mlcCase ||
-      workflowStatus !== 'all' ||
-      forceSearch;
+      workflowStatus !== 'all';
 
-    if (hasSearchCriteria) {
+    console.log('🔍 WORKLIST SEARCH: Has actual search criteria:', hasActualSearchCriteria);
+
+    if (forceSearch || hasActualSearchCriteria) {
       // ✅ BUILD: Search parameters for backend
       const searchParams = {};
       
@@ -203,9 +205,9 @@ const selectedLocationLabel = useMemo(() => {
       onSearchWithBackend(searchParams);
       
     } else {
-      // ✅ NO SEARCH: Trigger normal admin data fetch (no search params)
-      console.log('📊 WORKLIST SEARCH: Triggering normal admin data fetch');
-      onSearchWithBackend({});
+      // ✅ NO SEARCH: Just trigger normal data refresh (pass empty object)
+      console.log('📊 WORKLIST SEARCH: No search criteria, triggering normal data refresh');
+      onSearchWithBackend(null); // Pass null to indicate no search
     }
   }, [
     quickSearchTerm, searchType, patientName, patientId, accessionNumber, 
@@ -353,6 +355,22 @@ const selectedLocationLabel = useMemo(() => {
         };
     }
   }, [connectionStatus]);
+
+  // Add this import and create the debounced function
+
+
+// Add this after your state declarations:
+const debouncedSetQuickSearchTerm = useMemo(
+  () => debounce((value) => setQuickSearchTerm(value), 300),
+  []
+);
+
+// Clean up on unmount
+useEffect(() => {
+  return () => {
+    debouncedSetQuickSearchTerm.cancel();
+  };
+}, [debouncedSetQuickSearchTerm]);
 
   return (
     <div className="h-full w-full flex flex-col">

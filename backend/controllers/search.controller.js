@@ -488,7 +488,7 @@ export const getSearchValues = async (req, res) => {
         const startTime = Date.now();
         console.log(`🔍 BACKEND SEARCH VALUES: Fetching filtered dashboard values with params:`, req.query);
         
-        // Use the same filtering logic as searchStudies
+        // ✅ COPY EXACT SAME FILTERING LOGIC AS searchStudies
         const {
             searchType = 'all',
             searchTerm = '',
@@ -513,25 +513,29 @@ export const getSearchValues = async (req, res) => {
 
         const matchConditions = {};
 
-        // Apply the same filters as searchStudies function
-        // ... (copy all the filtering logic from searchStudies)
-
-        // Quick search
+        // 🔍 EXACT SAME SEARCH LOGIC
         if (searchTerm && searchTerm.trim()) {
             const trimmedSearchTerm = searchTerm.trim();
+            console.log(`🔍 SEARCH VALUES: Quick search "${trimmedSearchTerm}" (type: ${searchType})`);
+            
             switch (searchType) {
                 case 'patientName':
-                    matchConditions.$or = [{ 'patientInfo.patientName': { $regex: trimmedSearchTerm, $options: 'i' } }];
+                    matchConditions.$or = [
+                        { 'patientInfo.patientName': { $regex: trimmedSearchTerm, $options: 'i' } }
+                    ];
                     break;
+                    
                 case 'patientId':
                     matchConditions.$or = [
                         { 'patientInfo.patientID': { $regex: trimmedSearchTerm, $options: 'i' } },
                         { patientId: { $regex: trimmedSearchTerm, $options: 'i' } }
                     ];
                     break;
+                    
                 case 'accession':
                     matchConditions.accessionNumber = { $regex: trimmedSearchTerm, $options: 'i' };
                     break;
+                    
                 default:
                     matchConditions.$or = [
                         { 'patientInfo.patientName': { $regex: trimmedSearchTerm, $options: 'i' } },
@@ -544,11 +548,13 @@ export const getSearchValues = async (req, res) => {
 
         // Advanced search fields
         if (patientName && patientName.trim()) {
+            console.log(`🔍 SEARCH VALUES: Patient name search: "${patientName}"`);
             delete matchConditions.$or;
             matchConditions['patientInfo.patientName'] = { $regex: patientName.trim(), $options: 'i' };
         }
 
         if (patientId && patientId.trim()) {
+            console.log(`🔍 SEARCH VALUES: Patient ID search: "${patientId}"`);
             delete matchConditions.$or;
             matchConditions.$or = [
                 { 'patientInfo.patientID': { $regex: patientId.trim(), $options: 'i' } },
@@ -556,9 +562,30 @@ export const getSearchValues = async (req, res) => {
             ];
         }
 
+        if (accessionNumber && accessionNumber.trim()) {
+            console.log(`🔍 SEARCH VALUES: Accession search: "${accessionNumber}"`);
+            delete matchConditions.$or;
+            matchConditions.accessionNumber = { $regex: accessionNumber.trim(), $options: 'i' };
+        }
+
+        // Status filter
+        if (workflowStatus && workflowStatus !== 'all') {
+            const statusMap = {
+                'pending': ['new_study_received', 'pending_assignment', 'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 'report_downloaded_radiologist', 'report_downloaded'],
+                'inprogress': ['report_finalized', 'report_drafted', 'report_uploaded'],
+                'completed': ['final_report_downloaded']
+            };
+            
+            if (statusMap[workflowStatus]) {
+                matchConditions.workflowStatus = { $in: statusMap[workflowStatus] };
+            }
+            console.log(`🏷️ SEARCH VALUES: Status filter: ${workflowStatus}`);
+        }
+
         // Lab filter
         const locationFilter = selectedLocation !== 'ALL' ? selectedLocation : location;
         if (locationFilter && locationFilter !== 'ALL') {
+            console.log(`📍 SEARCH VALUES: Lab filter: ${locationFilter}`);
             const lab = await Lab.findOne({
                 $or: [
                     { identifier: locationFilter },
@@ -568,10 +595,11 @@ export const getSearchValues = async (req, res) => {
             
             if (lab) {
                 matchConditions.sourceLab = lab._id;
+                console.log(`📍 SEARCH VALUES: Found lab ${lab.name}, filtering by ObjectId`);
             }
         }
 
-        // Other filters (modality, emergency, etc.)
+        // Modality filter
         if (modality && modality.trim()) {
             const modalities = modality.split(',').map(m => m.trim()).filter(m => m);
             if (modalities.length > 0) {
@@ -580,6 +608,7 @@ export const getSearchValues = async (req, res) => {
                     { modality: { $in: modalities } },
                     { modalitiesInStudy: { $in: modalities } }
                 ];
+                console.log(`🏥 SEARCH VALUES: Modality filter: ${modalities.join(', ')}`);
             }
         }
 
@@ -589,14 +618,70 @@ export const getSearchValues = async (req, res) => {
                 { caseType: { $in: ['urgent', 'emergency'] } },
                 { priority: 'URGENT' }
             ];
+            console.log('🚨 SEARCH VALUES: Emergency cases only');
         }
 
-        // Date filtering (same as searchStudies)
+        // ✅ COPY EXACT DATE FILTERING LOGIC
         const dateField = dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
         const activeDateFilter = quickDatePreset !== 'all' ? quickDatePreset : dateFilter;
         
         if (activeDateFilter && activeDateFilter !== 'all') {
-            // ... (copy date filtering logic from searchStudies)
+            const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+            const now = new Date();
+            const today = new Date(now.getTime() + IST_OFFSET);
+            today.setUTCHours(18, 30, 0, 0); // IST midnight
+            
+            if (activeDateFilter === 'custom' && (customDateFrom || customDateTo)) {
+                const dateQuery = {};
+                
+                if (customDateFrom) {
+                    dateQuery.$gte = new Date(customDateFrom);
+                }
+                
+                if (customDateTo) {
+                    const toDate = new Date(customDateTo);
+                    toDate.setHours(23, 59, 59, 999);
+                    dateQuery.$lte = toDate;
+                }
+                
+                if (Object.keys(dateQuery).length > 0) {
+                    matchConditions[dateField] = dateQuery;
+                }
+                console.log(`📅 SEARCH VALUES: Custom date filter: ${customDateFrom} to ${customDateTo}`);
+            } else {
+                const dateQuery = {};
+                
+                switch (activeDateFilter) {
+                    case 'today':
+                        const todayStart = new Date(today);
+                        const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+                        dateQuery.$gte = todayStart;
+                        dateQuery.$lt = todayEnd;
+                        break;
+                    case 'yesterday':
+                        const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                        dateQuery.$gte = yesterdayStart;
+                        dateQuery.$lt = today;
+                        break;
+                    case 'thisWeek':
+                        const startOfWeek = new Date(today);
+                        startOfWeek.setDate(today.getDate() - today.getDay());
+                        dateQuery.$gte = startOfWeek;
+                        break;
+                    case 'thisMonth':
+                        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                        dateQuery.$gte = startOfMonth;
+                        break;
+                    case 'last24h':
+                        dateQuery.$gte = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                        break;
+                }
+                
+                if (Object.keys(dateQuery).length > 0) {
+                    matchConditions[dateField] = dateQuery;
+                }
+                console.log(`📅 SEARCH VALUES: Date filter: ${activeDateFilter}`);
+            }
         }
 
         console.log(`🔍 SEARCH VALUES: Applied filters:`, JSON.stringify(matchConditions, null, 2));
@@ -609,17 +694,18 @@ export const getSearchValues = async (req, res) => {
         };
 
         // Execute aggregation with filters
-        const pipeline = [
-            {
-                $match: matchConditions
-            },
-            {
-                $group: {
-                    _id: '$workflowStatus',
-                    count: { $sum: 1 }
-                }
+        const pipeline = [];
+        
+        if (Object.keys(matchConditions).length > 0) {
+            pipeline.push({ $match: matchConditions });
+        }
+        
+        pipeline.push({
+            $group: {
+                _id: '$workflowStatus',
+                count: { $sum: 1 }
             }
-        ];
+        });
 
         const [statusCountsResult, totalFilteredResult] = await Promise.all([
             DicomStudy.aggregate(pipeline).allowDiskUse(false),
@@ -646,6 +732,7 @@ export const getSearchValues = async (req, res) => {
 
         const processingTime = Date.now() - startTime;
         console.log(`🎯 SEARCH VALUES: Fetched in ${processingTime}ms with filters applied`);
+        console.log(`📊 SEARCH VALUES: Results - Total: ${totalFiltered}, Pending: ${pending}, InProgress: ${inprogress}, Completed: ${completed}`);
 
         res.status(200).json({
             success: true,

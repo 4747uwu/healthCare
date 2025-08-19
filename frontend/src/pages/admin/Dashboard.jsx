@@ -65,23 +65,28 @@ const AdminDashboard = React.memo(() => {
     try {
       setLoading(true);
       console.log(`🔄 DASHBOARD: Fetching data for category: ${activeCategory}`);
+      console.log(`🔍 DASHBOARD: Search params:`, searchParams);
       
-      // ✅ CHECK: If this is a search request (has search parameters), use search endpoint
-      const hasSearchParams = searchParams && (
-        searchParams.searchTerm || 
-        searchParams.patientName || 
-        searchParams.patientId || 
-        searchParams.accessionNumber ||
-        searchParams.description ||
-        searchParams.refName ||
-        searchParams.modality ||
-        searchParams.selectedLocation !== 'ALL' ||
-        searchParams.emergencyCase ||
-        searchParams.mlcCase ||
-        searchParams.workflowStatus !== 'all'
-      );
+      // ✅ FIX: Handle null/undefined search params
+      const hasSearchParams = searchParams && 
+        searchParams !== null && 
+        typeof searchParams === 'object' &&
+        Object.keys(searchParams).length > 0 && (
+          searchParams.searchTerm || 
+          searchParams.patientName || 
+          searchParams.patientId || 
+          searchParams.accessionNumber ||
+          searchParams.description ||
+          searchParams.refName ||
+          searchParams.modality ||
+          (searchParams.selectedLocation && searchParams.selectedLocation !== 'ALL') ||
+          searchParams.emergencyCase === 'true' ||
+          searchParams.mlcCase === 'true' ||
+          (searchParams.workflowStatus && searchParams.workflowStatus !== 'all')
+        );
 
       console.log(`🔍 DASHBOARD: Has search params: ${hasSearchParams}`);
+      console.log(`🔍 DASHBOARD: Search params object:`, searchParams);
 
       let studiesResponse, valuesResponse;
 
@@ -108,7 +113,7 @@ const AdminDashboard = React.memo(() => {
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get('/admin/studies/search', { params: searchApiParams }),
-          api.get('/admin/search/values', { params: searchApiParams }) // ✅ Use search values
+          api.get('/admin/search/values', { params: searchApiParams })
         ]);
         
       } else {

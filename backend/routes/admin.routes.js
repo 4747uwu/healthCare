@@ -71,7 +71,7 @@ router.put('/doctors/update/:doctorId',
     updateDoctorForAdmin
 );
 router.delete('/doctors/delete/:doctorId', protect, authorize('admin'), deleteDoctorForAdmin);
-router.get('/studies/search', protect, authorize('admin'), searchStudiesForAdmin);
+// router.get('/studies/search', protect, authorize('admin'), searchStudiesForAdmin);
 
 // ===============================
 // 🆕 LABS MANAGEMENT ROUTES  
