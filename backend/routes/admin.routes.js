@@ -43,15 +43,21 @@ import {
     searchStudiesForAdmin
 } from '../controllers/adminCRUD.controller.js';
 
-import { searchStudies, getSearchSuggestions } from '../controllers/search.controller.js';
-
+import { 
+    searchStudies, 
+    getSearchSuggestions, 
+    getSearchValues // ✅ NEW: Search-based values
+} from '../controllers/search.controller.js';
 
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
-
-router.get('/studies/search', protect,  searchStudies);
+// ===============================
+// 🔧 SEARCH ROUTES: Only for actual searches
+// ===============================
+router.get('/studies/search', protect, authorize('admin'), searchStudies);
 router.get('/search/suggestions', protect, getSearchSuggestions);
+router.get('/search/values', protect, authorize('admin'), getSearchValues);
 
 // ===============================
 // 🆕 DOCTORS MANAGEMENT ROUTES
