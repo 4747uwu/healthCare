@@ -43,9 +43,15 @@ import {
     searchStudiesForAdmin
 } from '../controllers/adminCRUD.controller.js';
 
+import { searchStudies, getSearchSuggestions } from '../controllers/search.controller.js';
+
+
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+router.get('/studies/search', protect,  searchStudies);
+router.get('/search/suggestions', protect, getSearchSuggestions);
 
 // ===============================
 // 🆕 DOCTORS MANAGEMENT ROUTES

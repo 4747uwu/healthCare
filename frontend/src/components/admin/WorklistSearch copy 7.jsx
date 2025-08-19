@@ -272,211 +272,179 @@ const selectedLocationLabel = useMemo(() => {
 
   // 🆕 NEW: Dedicated search function with backend integration
   const handleDedicatedSearch = useCallback(async () => {
+    // Get the search term
+    const searchTerm = quickSearchTerm.trim();
+    
+    console.log('🔍 SEARCH: Search term:', searchTerm);
+    console.log('🔍 SEARCH: Search type:', searchType);
+    
+    // ✅ FIXED: Build search parameters even if search term is empty
+    const searchParams = {};
+
+    // Determine search type
+    let finalSearchType = searchType;
+    
+    // 🔧 DEFAULT: If "All" is selected or empty, default to "patientName" BUT only if we have a search term
+    if ((!searchType || searchType === '' || searchType === 'all') && searchTerm) {
+      finalSearchType = 'patientName';
+      setSearchType('patientName'); // Update UI to show the default
+      console.log('🔍 SEARCH: Defaulting to patientName search');
+    }
+
+    // ✅ FIXED: Only add search parameters if we have a search term
+    if (searchTerm) {
+      switch (finalSearchType) {
+        case 'patientName':
+          searchParams.patientName = searchTerm;
+          console.log(`🔍 SEARCH: Searching by Patient Name: "${searchTerm}"`);
+          break;
+          
+        case 'patientId':
+          searchParams.patientId = searchTerm;
+          console.log(`🔍 SEARCH: Searching by Patient ID: "${searchTerm}"`);
+          break;
+          
+        case 'accession':
+          searchParams.accessionNumber = searchTerm;
+          console.log(`🔍 SEARCH: Searching by Accession Number: "${searchTerm}"`);
+          break;
+          
+        default:
+          // Fallback to general search
+          searchParams.search = searchTerm;
+          console.log(`🔍 SEARCH: General search: "${searchTerm}"`);
+      }
+    } else {
+      console.log('🔍 SEARCH: No search term provided - performing filter-based search');
+    }
+
+    // ✅ ALWAYS ADD: Other active filters regardless of search term
+    if (selectedLocation !== 'ALL') {
+      const selectedLocationData = backendLocations.find(loc => loc.value === selectedLocation);
+      if (selectedLocationData) {
+        searchParams.location = selectedLocationData.label;
+        console.log(`🔍 SEARCH: Location filter: "${selectedLocationData.label}"`);
+      }
+    }
+
+    if (workflowStatus !== 'all') {
+      searchParams.status = workflowStatus;
+      console.log(`🔍 SEARCH: Status filter: "${workflowStatus}"`);
+    }
+
+    // Add modality filters
+    const selectedModalities = Object.entries(modalities)
+      .filter(([key, value]) => value)
+      .map(([key]) => key);
+    
+    if (selectedModalities.length > 0) {
+      searchParams.modality = selectedModalities.join(',');
+      console.log(`🔍 SEARCH: Modality filter: "${selectedModalities.join(', ')}"`);
+    }
+
+    // Add emergency and MLC filters
+    if (emergencyCase) {
+      searchParams.emergency = 'true';
+      console.log('🔍 SEARCH: Emergency filter active');
+    }
+
+    if (mlcCase) {
+      searchParams.mlc = 'true';
+      console.log('🔍 SEARCH: MLC filter active');
+    }
+
+    // ✅ FIXED: Add advanced search filters
+    if (patientName.trim()) {
+      searchParams.patientName = patientName.trim();
+      console.log(`🔍 SEARCH: Advanced patient name: "${patientName.trim()}"`);
+    }
+
+    if (patientId.trim()) {
+      searchParams.patientId = patientId.trim();
+      console.log(`🔍 SEARCH: Advanced patient ID: "${patientId.trim()}"`);
+    }
+
+    if (accessionNumber.trim()) {
+      searchParams.accessionNumber = accessionNumber.trim();
+      console.log(`🔍 SEARCH: Advanced accession: "${accessionNumber.trim()}"`);
+    }
+
+    console.log('🔍 SEARCH: Final search parameters:', searchParams);
+    
+    // ✅ CALL BACKEND: Use dedicated search endpoint
+    await handleBackendSearch(searchParams);
+  }, [
+    quickSearchTerm, 
+    searchType, 
+    selectedLocation, 
+    backendLocations, 
+    workflowStatus, 
+    modalities, 
+    emergencyCase, 
+    mlcCase,
+    patientName,
+    patientId,
+    accessionNumber
+  ]);
+
+  // 🆕 NEW: Backend search API call with dedicated search endpoint
+  const handleBackendSearch = useCallback(async (searchParams = {}) => {
     try {
-      // setLoading(true);
-      console.log('🔍 FRONTEND: Starting dedicated backend search');
-      
-      // Build comprehensive search parameters
-      const searchParams = {};
-      
-      // 🔧 QUICK SEARCH: Add search term and type
-      const trimmedSearchTerm = quickSearchTerm.trim();
-      if (trimmedSearchTerm) {
-        searchParams.searchTerm = trimmedSearchTerm;
-        searchParams.searchType = searchType || 'all';
-        console.log(`🔍 Quick search: "${trimmedSearchTerm}" (type: ${searchType || 'all'})`);
-      }
-      
-      // 🔧 ADVANCED SEARCH: Add all advanced search fields
-      if (patientName.trim()) {
-        searchParams.patientName = patientName.trim();
-        console.log(`🔍 Advanced - Patient Name: "${patientName.trim()}"`);
-      }
-      
-      if (patientId.trim()) {
-        searchParams.patientId = patientId.trim();
-        console.log(`🔍 Advanced - Patient ID: "${patientId.trim()}"`);
-      }
-      
-      if (accessionNumber.trim()) {
-        searchParams.accessionNumber = accessionNumber.trim();
-        console.log(`🔍 Advanced - Accession: "${accessionNumber.trim()}"`);
-      }
-      
-      if (description.trim()) {
-        searchParams.description = description.trim();
-        console.log(`🔍 Advanced - Description: "${description.trim()}"`);
-      }
-      
-      if (refName.trim()) {
-        searchParams.refName = refName.trim();
-        console.log(`🔍 Advanced - Referring Physician: "${refName.trim()}"`);
-      }
-      
-      // 🔧 WORKFLOW STATUS
-      if (workflowStatus !== 'all') {
-        searchParams.workflowStatus = workflowStatus;
-        console.log(`🔍 Workflow Status: ${workflowStatus}`);
-      }
-      
-      // 🔧 LOCATION FILTER
-      if (selectedLocation !== 'ALL') {
-        const selectedLocationData = backendLocations.find(loc => loc.value === selectedLocation);
-        if (selectedLocationData) {
-          searchParams.location = selectedLocationData.label;
-          console.log(`🔍 Location: ${selectedLocationData.label}`);
+      console.log('🔍 API SEARCH: Calling backend search endpoint with params:', searchParams);
+
+      // Build API parameters
+      const apiParams = {
+        limit: 100,
+        dateType: dateType,
+        // ✅ FIXED: Always use 'all' for global search unless explicitly filtering by date
+        quickDatePreset: 'all', // Always search globally
+        ...searchParams
+      };
+
+      // ✅ ONLY add date filters if explicitly requested through date filter UI
+      if (dateFilter && dateFilter !== 'all' && Object.keys(searchParams).length === 0) {
+        // Only apply date filters when no search/filter parameters are provided
+        apiParams.quickDatePreset = dateFilter;
+        
+        if (dateFilter === 'custom') {
+          if (customDateFrom) apiParams.customDateFrom = customDateFrom;
+          if (customDateTo) apiParams.customDateTo = customDateTo;
         }
       }
-      
-      // 🔧 MODALITY FILTERS
-      const selectedModalities = Object.entries(modalities)
-        .filter(([key, value]) => value)
-        .map(([key]) => key);
-      
-      if (selectedModalities.length > 0) {
-        searchParams.modality = selectedModalities.join(',');
-        console.log(`🔍 Modalities: ${selectedModalities.join(', ')}`);
-      }
-      
-      // 🔧 EMERGENCY AND MLC CASES
-      if (emergencyCase) {
-        searchParams.emergencyCase = 'true';
-        console.log('🔍 Emergency cases filter active');
-      }
-      
-      if (mlcCase) {
-        searchParams.mlcCase = 'true';
-        console.log('🔍 MLC cases filter active');
-      }
-      
-      // 🔧 STUDY TYPE
-      if (studyType !== 'all') {
-        searchParams.studyType = studyType;
-        console.log(`🔍 Study Type: ${studyType}`);
-      }
-      
-      // 🔧 DATE FILTERS
-      searchParams.dateType = dateType;
-      
-      if (dateFilter === 'custom' && (customDateFrom || customDateTo)) {
-        searchParams.dateFilter = 'custom';
-        if (customDateFrom) searchParams.customDateFrom = customDateFrom;
-        if (customDateTo) searchParams.customDateTo = customDateTo;
-        console.log(`🔍 Custom Date: ${customDateFrom} to ${customDateTo}`);
-      } else if (dateFilter && dateFilter !== 'all') {
-        searchParams.quickDatePreset = dateFilter;
-        console.log(`🔍 Date Filter: ${dateFilter}`);
-      }
-      
-      // 🔧 PAGINATION
-      searchParams.limit = 5000; // Get all results for now
-      searchParams.page = 1;
-      
-      console.log('🔍 FRONTEND: Final search parameters:', searchParams);
-      
-      // 🚀 CALL BACKEND SEARCH ENDPOINT
-      const response = await api.get('/admin/studies/search', { 
-        params: searchParams 
-      });
-      
+
+      // Remove undefined values
+      Object.keys(apiParams).forEach(key => 
+        apiParams[key] === undefined && delete apiParams[key]
+      );
+
+      console.log('📤 API SEARCH: Final API parameters:', apiParams);
+
+      // ✅ CALL: Dedicated search endpoint
+      const response = await api.get('/admin/studies/search', { params: apiParams });
+
       if (response.data.success) {
-        console.log(`✅ Backend search successful: ${response.data.data.length} studies found`);
-        console.log(`📊 Total records: ${response.data.totalRecords}`);
+        console.log(`✅ API SEARCH: Found ${response.data.totalRecords} results`);
+        console.log(`🌍 API SEARCH: Global search performed: ${response.data.meta?.globalSearch || true}`);
         
-        // 🔧 UPDATE: Pass results through onSearchWithBackend callback
+        // Update search results via callback
         if (onSearchWithBackend) {
           onSearchWithBackend({
             data: response.data.data,
             totalRecords: response.data.totalRecords,
             searchPerformed: true,
-            backendFiltering: true,
-            globalSearch: true,
-            executionTime: response.data.performance?.totalTime,
-            filters: response.data.filters
+            globalSearch: true, // Always true for search functionality
+            executionTime: response.data.meta?.executionTime
           });
         }
-        
       } else {
-        console.error('❌ Backend search failed:', response.data.message);
+        console.error('❌ API SEARCH: Search request failed:', response.data.message);
       }
-      
+
     } catch (error) {
-      console.error('❌ Backend search error:', error);
-      // Handle error - maybe show toast notification
-    } 
-  }, [
-    quickSearchTerm, 
-    searchType, 
-    patientName, 
-    patientId, 
-    accessionNumber, 
-    description, 
-    refName,
-    workflowStatus, 
-    selectedLocation, 
-    backendLocations, 
-    modalities, 
-    emergencyCase, 
-    mlcCase, 
-    studyType,
-    dateType, 
-    dateFilter, 
-    customDateFrom, 
-    customDateTo,
-    onSearchWithBackend,
-    api
-]);
-
-// 🔧 UPDATE: Replace the existing handleBackendSearch function
-const handleBackendSearch = useCallback(async (searchParams = {}) => {
-  try {
-    // setLoading(true);
-    console.log('🔍 BACKEND SEARCH: Starting with params:', searchParams);
-
-    // Merge with current filters if no specific search params provided
-    const finalParams = {
-      limit: 5000,
-      page: 1,
-      dateType: dateType,
-      ...searchParams
-    };
-
-    // Add current date filter if no search params provided
-    if (Object.keys(searchParams).length === 0) {
-      if (dateFilter === 'custom' && (customDateFrom || customDateTo)) {
-        finalParams.dateFilter = 'custom';
-        if (customDateFrom) finalParams.customDateFrom = customDateFrom;
-        if (customDateTo) finalParams.customDateTo = customDateTo;
-      } else if (dateFilter && dateFilter !== 'all') {
-        finalParams.quickDatePreset = dateFilter;
-      }
+      console.error('❌ API SEARCH: Network error:', error);
+      // Show error message or fallback
     }
-
-    console.log('📤 BACKEND SEARCH: Final API parameters:', finalParams);
-
-    const response = await api.get('/admin/studies/search', { 
-      params: finalParams 
-    });
-
-    if (response.data.success) {
-      console.log(`✅ BACKEND SEARCH: Found ${response.data.data.length} results`);
-      
-      if (onSearchWithBackend) {
-        onSearchWithBackend({
-          data: response.data.data,
-          totalRecords: response.data.totalRecords,
-          searchPerformed: true,
-          backendFiltering: true,
-          executionTime: response.data.performance?.totalTime
-        });
-      }
-    }
-  } catch (error) {
-    console.error('❌ BACKEND SEARCH: Error:', error);
-  } finally {
-    // setLoading(false);
-  }
-}, [dateType, dateFilter, customDateFrom, customDateTo, onSearchWithBackend]);
+  }, [dateType, dateFilter, customDateFrom, customDateTo, onSearchWithBackend]);
 
   const handleLocationSelect = useCallback((locationValue) => {
   setSelectedLocation(locationValue);
@@ -789,10 +757,23 @@ const handleBackendSearch = useCallback(async (searchParams = {}) => {
 
                   {/* 🆕 NEW: Dedicated Search Button */}
                   <button
-                    onClick={handleDedicatedSearch}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDedicatedSearch(); // Call without passing the event
+                    }}
                     disabled={loading}
                     className="inline-flex items-center px-2 sm:px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Search using backend"
+                    title={
+                      quickSearchTerm.trim() 
+                        ? `Search by ${
+                            searchType === 'patientName' ? 'Patient Name' :
+                            searchType === 'patientId' ? 'Patient ID' :
+                            searchType === 'accession' ? 'Accession Number' :
+                            'All Fields (defaults to Patient Name)'
+                          }: "${quickSearchTerm.trim()}"` 
+                        : 'Search with current filters'
+                    }
                   >
                     {loading ? (
                       <svg className="w-3 h-3 sm:mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
