@@ -138,16 +138,23 @@ const selectedLocationLabel = useMemo(() => {
     setStatusCounts(counts);
   }, [allStudies]);
 
-  // 🔧 SIMPLIFIED: Frontend filtering only for non-date filters
+  // 🔧 SIMPLIFIED: Frontend filtering only for non-backend search results
   const filteredStudies = useMemo(() => {
+    // ✅ BYPASS: If we have backend search results, use them directly
+    if (onSearchWithBackend && allStudies.length > 0) {
+      console.log('🔍 FRONTEND: Using backend search results directly, bypassing frontend filters');
+      return allStudies;
+    }
+
+    // Continue with frontend filtering for non-search scenarios
     let filtered = [...allStudies];
 
     // Quick search
     if (quickSearchTerm.trim()) {
       const searchTerm = quickSearchTerm.toLowerCase();
       filtered = filtered.filter(study => {
-        const name = (study.patientName || '').toLowerCase();
-        const id = (study.patientId || '').toLowerCase();
+        const name = (study.patientInfo?.patientName || study.patientName || '').toLowerCase();
+        const id = (study.patientInfo?.patientID || study.patientId || '').toLowerCase();
         const accession = (study.accessionNumber || '').toLowerCase();
 
         if (searchType === 'patientName') {
@@ -251,7 +258,8 @@ const selectedLocationLabel = useMemo(() => {
   }, [
     allStudies, quickSearchTerm, searchType, selectedLocation, 
     patientName, patientId, refName, accessionNumber, description,
-    workflowStatus, modalities, emergencyCase, mlcCase, studyType
+    workflowStatus, modalities, emergencyCase, mlcCase, studyType,
+    onSearchWithBackend // Add this dependency
   ]);
 
   // 🔧 DEBOUNCED SEARCH
@@ -262,39 +270,213 @@ const selectedLocationLabel = useMemo(() => {
     []
   );
 
-  // 🆕 NEW: Backend search with parameters
-  const handleBackendSearch = useCallback(() => {
-    if (!onSearchWithBackend) return;
-
-    const searchParams = {};
-    
-    // Add search filters
-    if (quickSearchTerm.trim()) {
-      searchParams.search = quickSearchTerm.trim();
-    }
-    
-    if (patientName.trim()) {
-      searchParams.patientName = patientName.trim();
-    }
-    
-    if (workflowStatus !== 'all') {
-      searchParams.status = workflowStatus;
-    }
-
-    // Add modality filters
-    const selectedModalities = Object.entries(modalities)
-      .filter(([key, value]) => value)
-      .map(([key]) => key);
-    
-    if (selectedModalities.length > 0) {
-      searchParams.modality = selectedModalities.join(',');
-    }
-
-    console.log('🔍 WORKLIST SEARCH: Triggering backend search with params:', searchParams);
-    onSearchWithBackend(searchParams);
+  // 🆕 NEW: Dedicated search function with backend integration
+  const handleDedicatedSearch = useCallback(async () => {
+    try {
+      // setLoading(true);
+      console.log('🔍 FRONTEND: Starting dedicated backend search');
+      
+      // Build comprehensive search parameters
+      const searchParams = {};
+      
+      // 🔧 QUICK SEARCH: Add search term and type
+      const trimmedSearchTerm = quickSearchTerm.trim();
+      if (trimmedSearchTerm) {
+        searchParams.searchTerm = trimmedSearchTerm;
+        searchParams.searchType = searchType || 'all';
+        console.log(`🔍 Quick search: "${trimmedSearchTerm}" (type: ${searchType || 'all'})`);
+      }
+      
+      // 🔧 ADVANCED SEARCH: Add all advanced search fields
+      if (patientName.trim()) {
+        searchParams.patientName = patientName.trim();
+        console.log(`🔍 Advanced - Patient Name: "${patientName.trim()}"`);
+      }
+      
+      if (patientId.trim()) {
+        searchParams.patientId = patientId.trim();
+        console.log(`🔍 Advanced - Patient ID: "${patientId.trim()}"`);
+      }
+      
+      if (accessionNumber.trim()) {
+        searchParams.accessionNumber = accessionNumber.trim();
+        console.log(`🔍 Advanced - Accession: "${accessionNumber.trim()}"`);
+      }
+      
+      if (description.trim()) {
+        searchParams.description = description.trim();
+        console.log(`🔍 Advanced - Description: "${description.trim()}"`);
+      }
+      
+      if (refName.trim()) {
+        searchParams.refName = refName.trim();
+        console.log(`🔍 Advanced - Referring Physician: "${refName.trim()}"`);
+      }
+      
+      // 🔧 WORKFLOW STATUS
+      if (workflowStatus !== 'all') {
+        searchParams.workflowStatus = workflowStatus;
+        console.log(`🔍 Workflow Status: ${workflowStatus}`);
+      }
+      
+      // 🔧 LOCATION FILTER
+      if (selectedLocation !== 'ALL') {
+        const selectedLocationData = backendLocations.find(loc => loc.value === selectedLocation);
+        if (selectedLocationData) {
+          searchParams.location = selectedLocationData.label;
+          console.log(`🔍 Location: ${selectedLocationData.label}`);
+        }
+      }
+      
+      // 🔧 MODALITY FILTERS
+      const selectedModalities = Object.entries(modalities)
+        .filter(([key, value]) => value)
+        .map(([key]) => key);
+      
+      if (selectedModalities.length > 0) {
+        searchParams.modality = selectedModalities.join(',');
+        console.log(`🔍 Modalities: ${selectedModalities.join(', ')}`);
+      }
+      
+      // 🔧 EMERGENCY AND MLC CASES
+      if (emergencyCase) {
+        searchParams.emergencyCase = 'true';
+        console.log('🔍 Emergency cases filter active');
+      }
+      
+      if (mlcCase) {
+        searchParams.mlcCase = 'true';
+        console.log('🔍 MLC cases filter active');
+      }
+      
+      // 🔧 STUDY TYPE
+      if (studyType !== 'all') {
+        searchParams.studyType = studyType;
+        console.log(`🔍 Study Type: ${studyType}`);
+      }
+      
+      // 🔧 DATE FILTERS
+      searchParams.dateType = dateType;
+      
+      if (dateFilter === 'custom' && (customDateFrom || customDateTo)) {
+        searchParams.dateFilter = 'custom';
+        if (customDateFrom) searchParams.customDateFrom = customDateFrom;
+        if (customDateTo) searchParams.customDateTo = customDateTo;
+        console.log(`🔍 Custom Date: ${customDateFrom} to ${customDateTo}`);
+      } else if (dateFilter && dateFilter !== 'all') {
+        searchParams.quickDatePreset = dateFilter;
+        console.log(`🔍 Date Filter: ${dateFilter}`);
+      }
+      
+      // 🔧 PAGINATION
+      searchParams.limit = 5000; // Get all results for now
+      searchParams.page = 1;
+      
+      console.log('🔍 FRONTEND: Final search parameters:', searchParams);
+      
+      // 🚀 CALL BACKEND SEARCH ENDPOINT
+      const response = await api.get('/admin/studies/search', { 
+        params: searchParams 
+      });
+      
+      if (response.data.success) {
+        console.log(`✅ Backend search successful: ${response.data.data.length} studies found`);
+        console.log(`📊 Total records: ${response.data.totalRecords}`);
+        
+        // 🔧 UPDATE: Pass results through onSearchWithBackend callback
+        if (onSearchWithBackend) {
+          onSearchWithBackend({
+            data: response.data.data,
+            totalRecords: response.data.totalRecords,
+            searchPerformed: true,
+            backendFiltering: true,
+            globalSearch: true,
+            executionTime: response.data.performance?.totalTime,
+            filters: response.data.filters
+          });
+        }
+        
+      } else {
+        console.error('❌ Backend search failed:', response.data.message);
+      }
+      
+    } catch (error) {
+      console.error('❌ Backend search error:', error);
+      // Handle error - maybe show toast notification
+    } 
   }, [
-    quickSearchTerm, patientName, workflowStatus, modalities, onSearchWithBackend
-  ]);
+    quickSearchTerm, 
+    searchType, 
+    patientName, 
+    patientId, 
+    accessionNumber, 
+    description, 
+    refName,
+    workflowStatus, 
+    selectedLocation, 
+    backendLocations, 
+    modalities, 
+    emergencyCase, 
+    mlcCase, 
+    studyType,
+    dateType, 
+    dateFilter, 
+    customDateFrom, 
+    customDateTo,
+    onSearchWithBackend,
+    api
+]);
+
+// 🔧 UPDATE: Replace the existing handleBackendSearch function
+const handleBackendSearch = useCallback(async (searchParams = {}) => {
+  try {
+    // setLoading(true);
+    console.log('🔍 BACKEND SEARCH: Starting with params:', searchParams);
+
+    // Merge with current filters if no specific search params provided
+    const finalParams = {
+      limit: 5000,
+      page: 1,
+      dateType: dateType,
+      ...searchParams
+    };
+
+    // Add current date filter if no search params provided
+    if (Object.keys(searchParams).length === 0) {
+      if (dateFilter === 'custom' && (customDateFrom || customDateTo)) {
+        finalParams.dateFilter = 'custom';
+        if (customDateFrom) finalParams.customDateFrom = customDateFrom;
+        if (customDateTo) finalParams.customDateTo = customDateTo;
+      } else if (dateFilter && dateFilter !== 'all') {
+        finalParams.quickDatePreset = dateFilter;
+      }
+    }
+
+    console.log('📤 BACKEND SEARCH: Final API parameters:', finalParams);
+
+    const response = await api.get('/admin/studies/search', { 
+      params: finalParams 
+    });
+
+    if (response.data.success) {
+      console.log(`✅ BACKEND SEARCH: Found ${response.data.data.length} results`);
+      
+      if (onSearchWithBackend) {
+        onSearchWithBackend({
+          data: response.data.data,
+          totalRecords: response.data.totalRecords,
+          searchPerformed: true,
+          backendFiltering: true,
+          executionTime: response.data.performance?.totalTime
+        });
+      }
+    }
+  } catch (error) {
+    console.error('❌ BACKEND SEARCH: Error:', error);
+  } finally {
+    // setLoading(false);
+  }
+}, [dateType, dateFilter, customDateFrom, customDateTo, onSearchWithBackend]);
 
   const handleLocationSelect = useCallback((locationValue) => {
   setSelectedLocation(locationValue);
@@ -604,6 +786,45 @@ const selectedLocationLabel = useMemo(() => {
                     </svg>
                     <span className="hidden sm:inline">Search</span>
                   </button>
+
+                  {/* 🆕 NEW: Dedicated Search Button */}
+                  <button
+                    onClick={handleDedicatedSearch}
+                    disabled={loading}
+                    className="inline-flex items-center px-2 sm:px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Search using backend"
+                  >
+                    {loading ? (
+                      <svg className="w-3 h-3 sm:mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-3 h-3 sm:mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    )}
+                    <span className="hidden sm:inline">
+                      {quickSearchTerm.trim() ? 'Search' : 'Filter'}
+                    </span>
+                  </button>
+
+                  {/* Clear Search Term Button */}
+                  {quickSearchTerm.trim() && (
+                    <button
+                      onClick={() => {
+                        setQuickSearchTerm('');
+                        // Optionally trigger a new search without the term
+                        handleBackendSearch({});
+                      }}
+                      className="inline-flex items-center px-2 py-1.5 bg-gray-500 text-white rounded text-xs font-medium hover:bg-gray-600 transition-colors"
+                      title="Clear search term"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
 
                   <button 
                     className={`inline-flex items-center px-2 py-1.5 border rounded text-xs font-medium transition-colors ${
