@@ -80,7 +80,7 @@ export const searchStudies = async (req, res) => {
         if (doctorProfile) {
             matchConditions.$or = [
                 { 'lastAssignedDoctor.doctorId': doctorProfile._id },
-                { 'assignment.assignedTo': doctorProfile._id }
+                { 'assignment.assignedTo': doctorProfile.userAccount }       // ✅ User account ID
             ];
             console.log(`🔒 DOCTOR SEARCH: Applied doctor restriction for: ${doctorProfile._id}`);
         }
@@ -512,7 +512,7 @@ export const getSearchValues = async (req, res) => {
         if (doctorProfile) {
             matchConditions.$or = [
                 { 'lastAssignedDoctor.doctorId': doctorProfile._id },
-                { 'assignment.assignedTo': doctorProfile._id }
+                { 'assignment.assignedTo': doctorProfile.userAccount }       // ✅ User account ID
             ];
             console.log(`🔒 DOCTOR VALUES: Applied doctor restriction for: ${doctorProfile._id}`);
         }
@@ -787,7 +787,7 @@ export const getSearchSuggestions = async (req, res) => {
             baseMatch = {
                 $or: [
                     { 'lastAssignedDoctor.doctorId': doctorProfile._id },
-                    { 'assignment.assignedTo': doctorProfile._id }
+                    { 'assignment.assignedTo': doctorProfile.userAccount }       // ✅ User account ID
                 ]
             };
         }
