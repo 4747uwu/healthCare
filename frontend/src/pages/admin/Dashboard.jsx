@@ -67,27 +67,29 @@ const AdminDashboard = React.memo(() => {
       console.log(`🔄 DASHBOARD: Fetching data for category: ${activeCategory}`);
       console.log(`🔍 DASHBOARD: Search params:`, searchParams);
       
-      // ✅ CHECK: If this is a hybrid search (quick search + lab selection)
-      const hasHybridSearchParams = searchParams && 
-        searchParams !== null && 
-        typeof searchParams === 'object' &&
-        Object.keys(searchParams).length > 0 && (
-          searchParams.searchTerm || 
-          (searchParams.selectedLocation && searchParams.selectedLocation !== 'ALL')
-        );
-
-      console.log(`🔍 DASHBOARD: Has hybrid search params: ${hasHybridSearchParams}`);
+      // ✅ FIXED: More strict hybrid search detection
+      const hasQuickSearch = searchParams?.searchTerm && searchParams.searchTerm.trim().length > 0;
+      const hasLabSelection = searchParams?.selectedLocation && 
+                             searchParams.selectedLocation !== 'ALL' && 
+                             searchParams.selectedLocation.trim().length > 0;
+      
+      const hasHybridSearchParams = hasQuickSearch || hasLabSelection;
+      
+      console.log(`🔍 DASHBOARD: Quick search: ${hasQuickSearch}, Lab selection: ${hasLabSelection}`);
+      console.log(`🔍 DASHBOARD: Using hybrid search: ${hasHybridSearchParams}`);
 
       let studiesResponse, valuesResponse;
 
       if (hasHybridSearchParams) {
-        // 🔍 HYBRID SEARCH MODE: Use search endpoint for quick search + lab
+        // 🔍 HYBRID SEARCH MODE: Use search endpoint ONLY for quick search + lab
         console.log('🔍 DASHBOARD: Using HYBRID search endpoint');
         
         const searchApiParams = {
           limit: recordsPerPage,
           dateType: dateType,
-          ...searchParams
+          searchTerm: searchParams.searchTerm || '',
+          searchType: searchParams.searchType || 'all',
+          selectedLocation: searchParams.selectedLocation || 'ALL'
         };
         
         // Add date filter parameters for search
@@ -107,8 +109,8 @@ const AdminDashboard = React.memo(() => {
         ]);
         
       } else {
-        // 📊 NORMAL MODE: Use admin controller endpoint
-        console.log('📊 DASHBOARD: Using ADMIN controller for normal data fetching');
+        // 📊 NORMAL MODE: Use admin controller endpoint for category-specific data
+        console.log(`📊 DASHBOARD: Using ADMIN controller for category: ${activeCategory}`);
         
         const adminParams = {
           limit: recordsPerPage,
@@ -124,19 +126,19 @@ const AdminDashboard = React.memo(() => {
           adminParams.quickDatePreset = dateFilter;
         }
         
-        // Add category filter for admin endpoint
+        // ✅ CRITICAL: Add category filter for admin endpoint
         if (activeCategory && activeCategory !== 'all') {
           adminParams.category = activeCategory;
         }
         
         console.log('📤 DASHBOARD: Admin API params:', adminParams);
         
-        // Use different endpoints based on category
+        // ✅ FIXED: Use category-specific endpoints
         const studiesEndpoint = getEndpointForCategory(activeCategory);
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get(studiesEndpoint, { params: adminParams }),
-          api.get('/admin/values', { params: adminParams })
+          api.get('/admin/values', { params: adminParams }) // ✅ This should match the studies params
         ]);
       }
       
@@ -147,11 +149,6 @@ const AdminDashboard = React.memo(() => {
         
         console.log(`✅ DASHBOARD: Data fetch successful: ${studiesResponse.data.data.length} studies`);
         console.log(`📊 DASHBOARD: Using ${hasHybridSearchParams ? 'HYBRID SEARCH' : 'ADMIN'} controller`);
-        
-        // Log hybrid mode info
-        if (studiesResponse.data.hybridMode) {
-          console.log(`🔄 DASHBOARD: Hybrid mode active - Backend: ${JSON.stringify(studiesResponse.data.backendFilters)}`);
-        }
       }
 
       // Process values response
@@ -162,13 +159,19 @@ const AdminDashboard = React.memo(() => {
           inprogress: valuesResponse.data.inprogress || 0,
           completed: valuesResponse.data.completed || 0,
         });
+        
+        console.log(`📊 DASHBOARD: Values updated:`, {
+          total: valuesResponse.data.total,
+          pending: valuesResponse.data.pending,
+          inprogress: valuesResponse.data.inprogress,
+          completed: valuesResponse.data.completed
+        });
       }
-    
-      
-      console.log(`✅ ${hasHybridSearchParams ? 'Hybrid search' : 'Admin'} data fetched successfully`);
+
+      console.log(`✅ ${hasHybridSearchParams ? 'Hybrid search' : `Admin ${activeCategory}`} data fetched successfully`);
       
     } catch (error) {
-      console.error(`❌ Error fetching data:`, error);
+      console.error(`❌ Error fetching ${activeCategory} data:`, error);
       setAllStudies([]);
       setTotalRecords(0);
       setValues({
