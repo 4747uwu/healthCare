@@ -822,6 +822,7 @@ export const getValues = async (req, res) => {
     console.log(`🔍 Fetching dashboard values with filters: ${JSON.stringify(req.query)}`);
     try {
         const startTime = Date.now();
+        delete req.query.category;
         
         // 🔧 STEP 1: Build lean query filters with optimized date handling (same as getAllStudiesForAdmin)
         const queryFilters = {};

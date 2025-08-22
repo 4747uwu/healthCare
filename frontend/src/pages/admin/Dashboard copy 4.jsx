@@ -123,8 +123,7 @@ const AdminDashboard = React.memo(() => {
         
         const adminParams = {
           limit: recordsPerPage,
-          dateType: dateType,
-          ...searchParams
+          dateType: dateType
         };
         
         // Add date filter parameters for admin endpoint
