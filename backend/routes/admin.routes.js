@@ -55,9 +55,9 @@ const router = express.Router();
 // ===============================
 // 🔧 SEARCH ROUTES: Only for actual searches
 // ===============================
-router.get('/studies/search', protect, authorize('admin'), searchStudies);
+router.get('/studies/search', protect,  searchStudies);
 router.get('/search/suggestions', protect, getSearchSuggestions);
-router.get('/search/values', protect, authorize('admin'), getSearchValues);
+router.get('/search/values', protect, getSearchValues);
 
 // ===============================
 // 🆕 DOCTORS MANAGEMENT ROUTES
