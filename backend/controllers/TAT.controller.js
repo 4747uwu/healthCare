@@ -143,6 +143,43 @@ export const getTATReport = async (req, res) => {
 
         console.log(`🔍 Generating TAT report - Location: ${location || 'ALL'}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}`);
 
+        // 🔧 ADD: Helper functions at the top of the function
+        const formatStudyDate = (studyDate) => {
+            if (!studyDate) return '-';
+            
+            if (typeof studyDate === 'string' && studyDate.length === 8) {
+                const year = studyDate.substring(0, 4);
+                const month = studyDate.substring(4, 6);
+                const day = studyDate.substring(6, 8);
+                return `${day}/${month}/${year}`;
+            }
+            
+            if (studyDate instanceof Date) {
+                return studyDate.toLocaleDateString('en-GB');
+            }
+            
+            try {
+                const date = new Date(studyDate);
+                if (!isNaN(date.getTime())) {
+                    return date.toLocaleDateString('en-GB');
+                }
+            } catch (error) {
+                console.warn('Invalid study date format:', studyDate);
+            }
+            
+            return studyDate?.toString() || '-';
+        };
+
+        const formatDate = (date) => {
+            if (!date) return '-';
+            try {
+                return new Date(date).toLocaleString('en-GB');
+            } catch (error) {
+                console.warn('Invalid date format:', date);
+                return date?.toString() || '-';
+            }
+        };
+
         // 🔧 MODIFIED: Location is no longer required - allow fetching from all locations
         // if (!location) {
         //     return res.status(400).json({
@@ -271,6 +308,30 @@ export const getTATReport = async (req, res) => {
                         { $project: { 'userAccount.fullName': 1, specialization: 1, _id: 1 } }
                     ]
                 }
+            },
+            // 🆕 NEW: Lookup documents to get uploadedBy info for doctor filtering
+            {
+                $lookup: {
+                    from: 'documents',
+                    localField: '_id',
+                    foreignField: 'studyId',
+                    as: 'documentData',
+                    pipeline: [
+                        { $match: { documentType: 'clinical' } },
+                        { $sort: { uploadedAt: -1 } }, // Get latest document
+                        { $limit: 1 },
+                        { 
+                            $lookup: {
+                                from: 'users',
+                                localField: 'uploadedBy',
+                                foreignField: '_id',
+                                as: 'uploaderInfo',
+                                pipeline: [{ $project: { fullName: 1, _id: 1 } }]
+                            }
+                        },
+                        { $project: { uploadedBy: 1, uploaderInfo: { $arrayElemAt: ['$uploaderInfo', 0] } } }
+                    ]
+                }
             }
         );
 
@@ -282,13 +343,14 @@ export const getTATReport = async (req, res) => {
                 examDescription: 1, modality: 1, modalitiesInStudy: 1, referredBy: 1,
                 seriesCount: 1, instanceCount: 1,
                 // Assignment & Report Info
-                assignment: 1, reportInfo: 1,
+                assignment: 1, reportInfo: 1, doctorReports: 1, // 🔧 ADD: doctorReports
                 // THE GOAL: Include the pre-calculated TAT object from the database
                 calculatedTAT: 1,
                 // Flattened lookups for easier access
                 patient: { $arrayElemAt: ['$patientData', 0] },
                 lab: { $arrayElemAt: ['$labData', 0] },
-                doctor: { $arrayElemAt: ['$doctorData', 0] }
+                doctor: { $arrayElemAt: ['$doctorData', 0] },
+                documentData: { $arrayElemAt: ['$documentData', 0] } // 🆕 NEW: Document data for uploadedBy
             }
     });
 
@@ -315,13 +377,12 @@ export const getTATReport = async (req, res) => {
             const assignedDoctorId = study.assignment?.[0]?.assignedTo || study.assignment?.assignedTo;
             const reportedBy = study.reportInfo?.reporterName || study.doctor?.userAccount?.[0]?.fullName || '-';
             
-            // 🆕 NEW: Get uploadedBy from latest doctor report
+            // 🆕 FIXED: Get uploadedBy from document data
             let uploadedById = null;
-            if (study.doctorReports && study.doctorReports.length > 0) {
-                // Get the latest report
-                const latestReport = study.doctorReports.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
-                // The _id in doctorReports points to the document, we need to get uploadedBy from documents collection
-                // For now, we'll use the assignedTo doctor ID as fallback
+            if (study.documentData?.uploadedBy) {
+                uploadedById = study.documentData.uploadedBy;
+            } else if (assignedDoctorId) {
+                // Fallback to assigned doctor if no document data
                 uploadedById = assignedDoctorId;
             }
 
@@ -343,7 +404,7 @@ export const getTATReport = async (req, res) => {
                 reportDate: formatDate(study.reportInfo?.finalizedAt),
                 reportedBy,
                 
-                // 🆕 NEW: Add doctor IDs for filtering
+                // 🆕 FIXED: Add doctor IDs for filtering
                 assignedDoctorId: assignedDoctorId ? assignedDoctorId.toString() : null,
                 uploadedById: uploadedById ? uploadedById.toString() : null,
                 
