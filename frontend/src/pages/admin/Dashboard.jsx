@@ -67,17 +67,26 @@ const AdminDashboard = React.memo(() => {
       console.log(`🔄 DASHBOARD: Fetching data for category: ${activeCategory}`);
       console.log(`🔍 DASHBOARD: Search params:`, searchParams);
       
+      // ✅ ADD: Detailed debugging
+      console.log(`🔍 DEBUG: searchParams type:`, typeof searchParams);
+      console.log(`🔍 DEBUG: searchParams keys:`, Object.keys(searchParams || {}));
+      console.log(`🔍 DEBUG: searchTerm value:`, searchParams?.searchTerm);
+      console.log(`🔍 DEBUG: selectedLocation value:`, searchParams?.selectedLocation);
+      console.log(`🔍 DEBUG: activeCategory:`, activeCategory);
+      
       // ✅ FIXED: More strict hybrid search detection
       const hasQuickSearch = searchParams?.searchTerm && searchParams.searchTerm.trim().length > 0;
       const hasLabSelection = searchParams?.selectedLocation && 
-                             searchParams.selectedLocation !== 'ALL' && 
-                             searchParams.selectedLocation.trim().length > 0;
-      
+                           searchParams.selectedLocation !== 'ALL' && 
+                           searchParams.selectedLocation.trim().length > 0;
+    
       const hasHybridSearchParams = hasQuickSearch || hasLabSelection;
+    
+      console.log(`🔍 DEBUG: hasQuickSearch:`, hasQuickSearch);
+      console.log(`🔍 DEBUG: hasLabSelection:`, hasLabSelection);
+      console.log(`🔍 DEBUG: hasHybridSearchParams:`, hasHybridSearchParams);
+      console.log(`🔍 DEBUG: Will use ${hasHybridSearchParams ? 'SEARCH' : 'ADMIN'} controller`);
       
-      console.log(`🔍 DASHBOARD: Quick search: ${hasQuickSearch}, Lab selection: ${hasLabSelection}`);
-      console.log(`🔍 DASHBOARD: Using hybrid search: ${hasHybridSearchParams}`);
-
       let studiesResponse, valuesResponse;
 
       if (hasHybridSearchParams) {
