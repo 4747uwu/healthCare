@@ -278,49 +278,45 @@ const TATReport = () => {
   const filteredStudies = useMemo(() => {
     let filtered = [...studies];
 
-    // 🆕 STEP 1: Doctor filter FIRST (on full dataset before any pagination)
+    // 🆕 STEP 1: Doctor filter FIRST (using uploadedBy ID matching)
     if (selectedDoctor) {
-      filtered = filtered.filter(study => {
-        const reportedBy = study.reportedBy || '';
-        // Get the selected doctor's name
-        const selectedDoctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || '';
-        
-        // Check if the study's reportedBy matches the selected doctor
-        return reportedBy.toLowerCase().includes(selectedDoctorName.toLowerCase()) ||
-               reportedBy === selectedDoctorName;
-      });
+        filtered = filtered.filter(study => {
+            // 🔧 ENHANCED: Match by uploadedById instead of name
+            return study.uploadedById === selectedDoctor || 
+                   study.assignedDoctorId === selectedDoctor;
+        });
     }
 
     // 🔧 STEP 2: Search filter (after doctor filter)
     if (searchTerm.trim()) {
-      const search = searchTerm.toLowerCase();
-      filtered = filtered.filter(study => 
-        (study.patientName || '').toLowerCase().includes(search) ||
-        (study.patientId || '').toLowerCase().includes(search) ||
-        (study.accessionNumber || '').toLowerCase().includes(search) ||
-        (study.referredBy || '').toLowerCase().includes(search) ||
-        (study.reportedBy || '').toLowerCase().includes(search) ||
-        (study.studyDescription || '').toLowerCase().includes(search)
-      );
+        const search = searchTerm.toLowerCase();
+        filtered = filtered.filter(study => 
+            (study.patientName || '').toLowerCase().includes(search) ||
+            (study.patientId || '').toLowerCase().includes(search) ||
+            (study.accessionNumber || '').toLowerCase().includes(search) ||
+            (study.referredBy || '').toLowerCase().includes(search) ||
+            (study.reportedBy || '').toLowerCase().includes(search) ||
+            (study.studyDescription || '').toLowerCase().includes(search)
+        );
     }
 
     // 🔧 STEP 3: Modality filter (after search filter)
     if (selectedModalities.length > 0) {
-      filtered = filtered.filter(study => {
-        const studyModality = study.modality || '';
-        return selectedModalities.some(selectedMod => {
-          if (selectedMod.includes('/')) {
-            const modalityParts = selectedMod.split('/');
-            return modalityParts.every(part => studyModality.includes(part));
-          } else {
-            return studyModality.includes(selectedMod);
-          }
+        filtered = filtered.filter(study => {
+            const studyModality = study.modality || '';
+            return selectedModalities.some(selectedMod => {
+                if (selectedMod.includes('/')) {
+                    const modalityParts = selectedMod.split('/');
+                    return modalityParts.every(part => studyModality.includes(part));
+                } else {
+                    return studyModality.includes(selectedMod);
+                }
+            });
         });
-      });
     }
 
     return filtered;
-  }, [studies, selectedDoctor, doctors, searchTerm, selectedModalities]);
+  }, [studies, selectedDoctor, searchTerm, selectedModalities]);
 
   // Pagination
   const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
@@ -709,54 +705,56 @@ const TATReport = () => {
                 {/* Filtered doctors with study counts */}
                 {filteredDoctors.length > 0 ? (
                   filteredDoctors.map((doctor) => {
-                    // 🔧 Calculate study count for this doctor from FULL dataset
+                    // 🔧 Calculate study count for this doctor using uploadedById
                     const doctorStudyCount = studies.filter(study => {
-                      const reportedBy = study.reportedBy || '';
-                      return reportedBy.toLowerCase().includes(doctor.label.toLowerCase()) ||
-                             reportedBy === doctor.label;
+                        return study.uploadedById === doctor.value || 
+                               study.assignedDoctorId === doctor.value;
                     }).length;
 
                     return (
-                      <div
-                        key={doctor.value}
-                        onClick={() => handleDoctorSelect(doctor)}
-                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
-                          selectedDoctor === doctor.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
-                            <div>
-                              <div className="font-medium">{doctor.label}</div>
-                              {doctor.specialization && doctor.specialization !== 'N/A' && (
-                                <div className="text-xs text-gray-500">{doctor.specialization}</div>
-                              )}
-                              {doctor.email && (
-                                <div className="text-xs text-gray-400">{doctor.email}</div>
-                              )}
+                        <div
+                            key={doctor.value}
+                            onClick={() => handleDoctorSelect(doctor)}
+                            className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
+                                selectedDoctor === doctor.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                            }`}
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center">
+                                    <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                    </svg>
+                                    <div>
+                                        <div className="font-medium">{doctor.label}</div>
+                                        {doctor.specialization && doctor.specialization !== 'N/A' && (
+                                            <div className="text-xs text-gray-500">{doctor.specialization}</div>
+                                        )}
+                                        {doctor.email && (
+                                            <div className="text-xs text-gray-400">{doctor.email}</div>
+                                        )}
+                                        {/* 🆕 NEW: Show backend report count */}
+                                        <div className="text-xs text-blue-600">
+                                            Backend Reports: {doctor.reportCount || 0}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    {/* Study count badge - based on current data */}
+                                    <span className={`text-xs px-2 py-1 rounded-full ${
+                                        doctorStudyCount > 0 
+                                            ? 'bg-blue-100 text-blue-800' 
+                                            : 'bg-gray-100 text-gray-500'
+                                    }`}>
+                                        {doctorStudyCount}
+                                    </span>
+                                    {selectedDoctor === doctor.value && (
+                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    )}
+                                </div>
                             </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            {/* Study count badge */}
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              doctorStudyCount > 0 
-                                ? 'bg-blue-100 text-blue-800' 
-                                : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {doctorStudyCount}
-                            </span>
-                            {/* Selected checkmark */}
-                            {selectedDoctor === doctor.value && (
-                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </div>
                         </div>
-                      </div>
                     );
                   })
                 ) : (
