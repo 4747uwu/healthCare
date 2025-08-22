@@ -104,8 +104,8 @@ const DoctorDashboard = React.memo(() => {
         console.log('📤 DOCTOR: Hybrid search API params:', searchApiParams);
         
         [studiesResponse, valuesResponse] = await Promise.all([
-          api.get('/doctor/studies/search', { params: searchApiParams }),
-          api.get('/doctor/search/values', { params: searchApiParams })
+          api.get('/admin/studies/search', { params: searchApiParams }),
+          api.get('/admin/search/values', { params: searchApiParams })
         ]);
         
       } else {
@@ -138,7 +138,7 @@ const DoctorDashboard = React.memo(() => {
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get(studiesEndpoint, { params: doctorParams }),
-          api.get('/doctor/values', { params: doctorParams })
+          api.get('/admin/values', { params: doctorParams })
         ]);
       }
       
