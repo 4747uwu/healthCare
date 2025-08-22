@@ -1045,32 +1045,32 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
         });
 
         // 🔥 STEP 3: If category filter is applied, adjust the totals accordingly
-        if (req.query.category && req.query.category !== 'all') {
-            const categoryFilter = req.query.category;
+        // if (req.query.category && req.query.category !== 'all') {
+        //     const categoryFilter = req.query.category;
             
-            // Reset all counts to 0 first
-            let filteredPending = 0;
-            let filteredInprogress = 0;
-            let filteredCompleted = 0;
+        //     // Reset all counts to 0 first
+        //     let filteredPending = 0;
+        //     let filteredInprogress = 0;
+        //     let filteredCompleted = 0;
             
-            // Set only the filtered category to the total count
-            switch (categoryFilter) {
-                case 'pending':
-                    filteredPending = totalFiltered;
-                    break;
-                case 'inprogress':
-                    filteredInprogress = totalFiltered;
-                    break;
-                case 'completed':
-                    filteredCompleted = totalFiltered;
-                    break;
-            }
+        //     // Set only the filtered category to the total count
+        //     switch (categoryFilter) {
+        //         case 'pending':
+        //             filteredPending = totalFiltered;
+        //             break;
+        //         case 'inprogress':
+        //             filteredInprogress = totalFiltered;
+        //             break;
+        //         case 'completed':
+        //             filteredCompleted = totalFiltered;
+        //             break;
+        //     }
             
-            // Override the calculated values with filtered values
-            pending = filteredPending;
-            inprogress = filteredInprogress;
-            completed = filteredCompleted;
-        }
+        //     // Override the calculated values with filtered values
+        //     pending = filteredPending;
+        //     inprogress = filteredInprogress;
+        //     completed = filteredCompleted;
+        // }
 
         const processingTime = Date.now() - startTime;
         console.log(`🎯 Dashboard values fetched in ${processingTime}ms with filters applied`);
