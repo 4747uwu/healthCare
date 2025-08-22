@@ -64,6 +64,7 @@ const TATReport = () => {
     const fetchDoctors = async () => {
       try {
         const response = await api.get('/tat/doctors');
+        console.log(response.data.success);
         if (response.data.success) {
           setDoctors(response.data.doctors);
         }
@@ -198,7 +199,8 @@ const TATReport = () => {
       }
 
       const response = await api.get('/tat/report', { params });
-      
+      console.log(response.data);
+
       if (response.data.success) {
         setStudies(response.data.studies);
         setCurrentPage(1);
@@ -218,61 +220,87 @@ const TATReport = () => {
 
   // 🔧 MODIFIED: Export function also works without location
   const exportToExcel = useCallback(async () => {
-    // 🔧 REMOVED: Location requirement for export
-    // if (!selectedLocation) {
-    //   toast.error('Please select a location first');  
-    //   return;
-    // }
+    if (loading) return;
+    
+    setLoading(true);
 
     try {
-      setLoading(true);
-      const params = {
-        dateType,
-        fromDate,
-        toDate
-      };
+        // 🆕 CRITICAL: Include selectedDoctor in export parameters
+        const exportParams = new URLSearchParams({
+            dateType,
+            fromDate,
+            toDate
+        });
 
-      // 🔧 MODIFIED: Only add location param if a specific location is selected
-      if (selectedLocation) {
-        params.location = selectedLocation;
-      }
+        // Add optional parameters
+        if (selectedLocation) {
+            exportParams.append('location', selectedLocation);
+        }
 
-      const response = await api.get('/tat/report/export', { 
-        params,
-        responseType: 'blob'
-      });
+        if (selectedDoctor) {
+            exportParams.append('selectedDoctor', selectedDoctor);
+            console.log(`📊 Exporting TAT report with doctor filter: ${selectedDoctor}`);
+        }
 
-      // Create blob link to download
-      const blob = new Blob([response.data], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      
-      // 🔧 MODIFIED: Generate filename with proper location handling
-      const locationName = selectedLocation 
-        ? locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown'
-        : 'All_Locations';
-      const doctorName = selectedDoctor 
-        ? doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown_Doctor' 
-        : 'All_Doctors';
-      const dateStr = new Date().toISOString().split('T')[0];
-      link.download = `TAT_Report_${locationName}_${doctorName}_${dateStr}.xlsx`;
-      
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+        if (selectedModalities.length > 0) {
+            exportParams.append('modality', selectedModalities.join(','));
+        }
 
-      toast.success('Excel report downloaded successfully!');
+        const response = await api.get('/tat/report/export', { 
+            params: Object.fromEntries(exportParams),
+            responseType: 'blob'
+        });
+
+        if (!response.data || response.data.size === 0) {
+            throw new Error('No data received from server');
+        }
+
+        // Download the file
+        const blob = new Blob([response.data], { 
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+        });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        
+        // 🔧 ENHANCED: Include doctor name in filename
+        let filename = 'TAT_Report';
+        if (selectedLocation) {
+            const locationName = locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown';
+            filename += `_${locationName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        } else {
+            filename += '_All_Locations';
+        }
+        
+        if (selectedDoctor) {
+            const doctor = doctors.find(d => d.value === selectedDoctor);
+            const doctorName = doctor?.label?.replace(/[^a-zA-Z0-9]/g, '_') || 'Selected_Doctor';
+            filename += `_${doctorName}`;
+        }
+        
+        filename += `_${new Date().toISOString().split('T')[0]}.xlsx`;
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        const successMessage = selectedDoctor 
+            ? `✅ TAT report exported successfully with doctor filter (${filteredStudies.length} studies)`
+            : `✅ TAT report exported successfully (${filteredStudies.length} studies)`;
+        
+        console.log(successMessage);
+        toast.success('Excel report downloaded successfully!');
+
     } catch (error) {
-      console.error('❌ Error exporting Excel:', error);
-      toast.error('Failed to export Excel report');
+        console.error('❌ Export failed:', error);
+        toast.error('Failed to export Excel report');
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
-  }, [selectedLocation, dateType, fromDate, toDate, locations, selectedDoctor, doctors]);
+  }, [selectedLocation, selectedDoctor, dateType, fromDate, toDate, selectedModalities, locations, doctors, filteredStudies.length, loading]);
 
   // 🔧 ENHANCED: Reorder filtering - Doctor filter BEFORE pagination
   const filteredStudies = useMemo(() => {

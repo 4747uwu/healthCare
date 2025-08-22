@@ -466,14 +466,10 @@ export const getTATReport = async (req, res) => {
 export const exportTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
-        const { location, dateType, fromDate, toDate, status } = req.query;
+        // 🆕 ADD: Include selectedDoctor parameter
+        const { location, dateType, fromDate, toDate, status, selectedDoctor } = req.query;
 
-        console.log(`📊 Exporting TAT report - Location: ${location || 'ALL'}`);
-
-        // 🔧 MODIFIED: Location is no longer required
-        // if (!location) {
-        //     return res.status(400).json({ success: false, message: 'Location is required' });
-        // }
+        console.log(`📊 Exporting TAT report - Location: ${location || 'ALL'}, Doctor: ${selectedDoctor || 'ALL'}`);
 
         // 🔧 CONSISTENCY: Use the same base pipeline as getTATReport
         const pipeline = [];
@@ -514,12 +510,99 @@ export const exportTATReport = async (req, res) => {
         if (status) {
             pipeline.push({ $match: { workflowStatus: status } });
         }
+
+        // 🆕 CRITICAL: Doctor filtering logic - BEFORE lookups to optimize performance
+        if (selectedDoctor) {
+            console.log(`🔍 Applying doctor filter for user ID: ${selectedDoctor}`);
+            
+            // Step 1: Get all document IDs that belong to this doctor
+            const doctorDocuments = await mongoose.connection.db.collection('documents').find(
+                { 
+                    uploadedBy: new mongoose.Types.ObjectId(selectedDoctor),
+                    documentType: 'clinical',
+                    isActive: true
+                },
+                { projection: { _id: 1 } }
+            ).toArray();
+            
+            const doctorDocumentIds = doctorDocuments.map(doc => doc._id);
+            console.log(`📋 Found ${doctorDocumentIds.length} documents uploaded by selected doctor`);
+
+            if (doctorDocumentIds.length > 0) {
+                // Step 2: Filter studies that have doctorReports._id matching any of these document IDs
+                // OR studies assigned to this doctor (fallback)
+                pipeline.push({
+                    $match: {
+                        $or: [
+                            { 'doctorReports._id': { $in: doctorDocumentIds } },
+                            { 'assignment.assignedTo': new mongoose.Types.ObjectId(selectedDoctor) }
+                        ]
+                    }
+                });
+            } else {
+                // If no documents found, only match assigned studies
+                pipeline.push({
+                    $match: { 'assignment.assignedTo': new mongoose.Types.ObjectId(selectedDoctor) }
+                });
+            }
+        }
         
-        // Add same lookups and projection as getTATReport to include calculatedTAT
+        // 🔧 ENHANCED: Add same lookups as getTATReport INCLUDING document lookup
         pipeline.push(
-            { $lookup: { from: 'patients', localField: 'patient', foreignField: '_id', as: 'patientData', pipeline: [{ $project: { patientID: 1, firstName: 1, lastName: 1, patientNameRaw: 1, gender: 1, 'computed.fullName': 1 } }] } },
-            { $lookup: { from: 'labs', localField: 'sourceLab', foreignField: '_id', as: 'labData', pipeline: [{ $project: { name: 1, identifier: 1 } }] } },
-            { $lookup: { from: 'doctors', localField: 'assignment.assignedTo', foreignField: '_id', as: 'doctorData', pipeline: [{ $lookup: { from: 'users', localField: 'userAccount', foreignField: '_id', as: 'userAccount' }}, { $project: { 'userAccount.fullName': 1, specialization: 1, _id: 1 } }]}}
+            {
+                $lookup: {
+                    from: 'patients',
+                    localField: 'patient',
+                    foreignField: '_id',
+                    as: 'patientData',
+                    pipeline: [{ $project: { patientID: 1, firstName: 1, lastName: 1, patientNameRaw: 1, gender: 1, 'computed.fullName': 1 } }]
+                }
+            },
+            {
+                $lookup: {
+                    from: 'labs',
+                    localField: 'sourceLab',
+                    foreignField: '_id',
+                    as: 'labData',
+                    pipeline: [{ $project: { name: 1, identifier: 1 } }]
+                }
+            },
+            {
+                $lookup: {
+                    from: 'doctors',
+                    localField: 'assignment.assignedTo',
+                    foreignField: '_id',
+                    as: 'doctorData',
+                    pipeline: [
+                        { $lookup: { from: 'users', localField: 'userAccount', foreignField: '_id', as: 'userAccount' } },
+                        { $project: { 'userAccount.fullName': 1, specialization: 1, _id: 1 } }
+                    ]
+                }
+            },
+            // 🆕 CRITICAL: Add document lookup to get uploadedBy info
+            {
+                $lookup: {
+                    from: 'documents',
+                    localField: 'doctorReports._id',
+                    foreignField: '_id',
+                    as: 'documentData',
+                    pipeline: [
+                        { $match: { documentType: 'clinical', isActive: true } },
+                        { $sort: { uploadedAt: -1 } },
+                        { $limit: 1 },
+                        { 
+                            $lookup: {
+                                from: 'users',
+                                localField: 'uploadedBy',
+                                foreignField: '_id',
+                                as: 'uploaderInfo',
+                                pipeline: [{ $project: { fullName: 1, _id: 1 } }]
+                            }
+                        },
+                        { $project: { uploadedBy: 1, uploaderInfo: { $arrayElemAt: ['$uploaderInfo', 0] } } }
+                    ]
+                }
+            }
         );
 
         pipeline.push({
@@ -530,7 +613,8 @@ export const exportTATReport = async (req, res) => {
                 calculatedTAT: 1, // Include calculatedTAT
                 patientData: { $arrayElemAt: ['$patientData', 0] },
                 labData: { $arrayElemAt: ['$labData', 0] },
-                doctorData: { $arrayElemAt: ['$doctorData', 0] }
+                doctorData: { $arrayElemAt: ['$doctorData', 0] },
+                documentData: { $arrayElemAt: ['$documentData', 0] } // 🆕 ADD: Document data for verification
             }
         });
 
@@ -538,10 +622,34 @@ export const exportTATReport = async (req, res) => {
         const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
         const worksheet = workbook.addWorksheet('TAT Report');
 
-        // 🔧 MODIFIED: Update filename to reflect all locations when no location selected
-        const locationName = location ? (await Lab.findById(location))?.name || 'Unknown' : 'All_Locations';
+        // 🔧 ENHANCED: Update filename to include doctor info
+        let fileName = 'TAT_Report';
+        if (location) {
+            const lab = await Lab.findById(location);
+            fileName += `_${lab?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'Unknown'}`;
+        } else {
+            fileName += '_All_Locations';
+        }
+        
+        // 🆕 ADD: Include doctor name in filename if filtering
+        if (selectedDoctor) {
+            try {
+                // Get doctor user info directly
+                const doctorUser = await mongoose.connection.db.collection('users').findOne(
+                    { _id: new mongoose.Types.ObjectId(selectedDoctor) },
+                    { projection: { fullName: 1 } }
+                );
+                const doctorName = doctorUser?.fullName?.replace(/[^a-zA-Z0-9]/g, '_') || 'Unknown_Doctor';
+                fileName += `_${doctorName}`;
+            } catch (error) {
+                fileName += '_Selected_Doctor';
+            }
+        }
+        
+        fileName += `_${new Date().toISOString().split('T')[0]}.xlsx`;
+        
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="TAT_Report_${locationName}_${new Date().toISOString().split('T')[0]}.xlsx"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
         
         // 🔧 ENHANCED: More comprehensive Excel columns
         worksheet.columns = [
@@ -560,10 +668,13 @@ export const exportTATReport = async (req, res) => {
             { header: 'Assigned Date', key: 'assignedDate', width: 20 },
             { header: 'Report Date', key: 'reportDate', width: 20 },
             { header: 'Upload-to-Assign TAT (min)', key: 'uploadToAssignment', width: 25 },
-            // { header: 'Study-to-Report TAT (min)', key: 'studyToReport', width: 25 },
             { header: 'Upload-to-Report TAT (min)', key: 'uploadToReport', width: 25 },
             { header: 'Assign-to-Report TAT (min)', key: 'assignToReport', width: 25 },
-            { header: 'Reported By', key: 'reportedBy', width: 25 }
+            { header: 'Reported By', key: 'reportedBy', width: 25 },
+            // 🆕 ADD: Verification columns for debugging
+            { header: 'Assigned Doctor ID', key: 'assignedDoctorId', width: 25 },
+            { header: 'Report Uploader ID', key: 'uploadedById', width: 25 },
+            { header: 'Report Uploader Name', key: 'uploaderName', width: 25 }
         ];
         
         // 🔧 STYLING: Make header row bold and with background color
@@ -582,6 +693,7 @@ export const exportTATReport = async (req, res) => {
             .cursor({ batchSize: 200 });
         
         let processedCount = 0;
+        let doctorFilteredCount = 0;
 
         // Helper function to format study date
         const formatStudyDate = (studyDate) => {
@@ -624,6 +736,11 @@ export const exportTATReport = async (req, res) => {
                 const patientName = patient.computed?.fullName ||
                     (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
 
+                // 🆕 EXTRACT: Doctor IDs and names for verification
+                const assignedDoctorId = study.assignment?.[0]?.assignedTo || study.assignment?.assignedTo;
+                const uploadedById = study.documentData?.uploadedBy;
+                const uploaderName = study.documentData?.uploaderInfo?.fullName || '-';
+
                 const row = worksheet.addRow({
                     studyStatus: study.workflowStatus || '-',
                     patientId: patient.patientID || '-',
@@ -640,10 +757,13 @@ export const exportTATReport = async (req, res) => {
                     assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
                     reportDate: formatDate(study.reportInfo?.finalizedAt),
                     uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
-                    // studyToReport: tat.studyToReportTAT || 'N/A',
                     uploadToReport: tat.uploadToReportTAT || 'N/A',
                     assignToReport: tat.assignmentToReportTAT || 'N/A',
-                    reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-'
+                    reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-',
+                    // 🆕 ADD: Verification columns
+                    assignedDoctorId: assignedDoctorId?.toString() || '-',
+                    uploadedById: uploadedById?.toString() || '-',
+                    uploaderName: uploaderName
                 });
 
                 // 🔧 STYLING: Alternate row colors for better readability
@@ -657,11 +777,24 @@ export const exportTATReport = async (req, res) => {
 
                 row.commit();
                 processedCount++;
+                
+                // 🆕 TRACK: Studies that match selected doctor
+                if (selectedDoctor && (
+                    assignedDoctorId?.toString() === selectedDoctor || 
+                    uploadedById?.toString() === selectedDoctor
+                )) {
+                    doctorFilteredCount++;
+                }
             }
 
             await workbook.commit();
             const processingTime = Date.now() - startTime;
-            console.log(`✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records from ${location ? 'selected location' : 'ALL locations'}`);
+            
+            const logMessage = selectedDoctor 
+                ? `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records for selected doctor (${doctorFilteredCount} matched by doctor ID) from ${location ? 'selected location' : 'ALL locations'}`
+                : `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records from ${location ? 'selected location' : 'ALL locations'}`;
+            
+            console.log(logMessage);
 
         } catch (cursorError) {
             console.error('❌ Error during cursor iteration:', cursorError);
@@ -830,6 +963,7 @@ export const getDoctors = async (req, res) => {
         const formattedDoctors = doctors.map(doctor => ({
             value: doctor.userAccount._id.toString(), // 🔧 CHANGED: Use user ID instead of doctor ID
             label: doctor.userAccount.fullName,
+            uploadedBy: documents.uploadedBy, // For reference
             specialization: doctor.specialization || 'N/A',
             email: doctor.userAccount.email,
             reportCount: doctor.reportCount || 0,
