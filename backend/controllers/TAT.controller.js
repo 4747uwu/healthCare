@@ -963,13 +963,14 @@ export const getDoctors = async (req, res) => {
         ]);
 
         const formattedDoctors = doctors.map(doctor => ({
-            value: doctor.userAccount._id.toString(), // 🔧 CHANGED: Use user ID instead of doctor ID
+            value: doctor.userAccount._id.toString(), // ✅ CORRECT: Use user ID (this is right)
             label: doctor.userAccount.fullName,
-            uploadedBy: documents.uploadedBy, // For reference
             specialization: doctor.specialization || 'N/A',
             email: doctor.userAccount.email,
             reportCount: doctor.reportCount || 0,
-            doctorId: doctor._id.toString() // Keep doctor ID for reference
+            // ✅ FIXED: Use user ID instead of doctor profile ID
+            doctorId: doctor.userAccount._id.toString(), // Changed from doctor._id to doctor.userAccount._id
+            userId: doctor.userAccount._id.toString() // ✅ ADD: Clear reference to user ID
         }));
 
         cache.set(cacheKey, formattedDoctors, 1800);
