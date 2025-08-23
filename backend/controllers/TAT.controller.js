@@ -468,15 +468,14 @@ export const getTATReport = async (req, res) => {
 export const exportTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
-        // 🆕 ADD: Include selectedDoctor parameter
         const { location, dateType, fromDate, toDate, status, selectedDoctor } = req.query;
 
         console.log(`📊 Exporting TAT report - Location: ${location || 'ALL'}, Doctor: ${selectedDoctor || 'ALL'}`);
 
-        // 🔧 CONSISTENCY: Use the same base pipeline as getTATReport
+        // 🔧 CRITICAL FIX: Execute the aggregation FIRST to check if we have data
+        // Don't start streaming until we know we have data to export
         const pipeline = [];
 
-        // 🔧 MODIFIED: Only add location filter if location is specified
         if (location) {
             pipeline.push({ $match: { sourceLab: new mongoose.Types.ObjectId(location) } });
         }
@@ -513,11 +512,10 @@ export const exportTATReport = async (req, res) => {
             pipeline.push({ $match: { workflowStatus: status } });
         }
 
-        // 🆕 CRITICAL: Doctor filtering logic - BEFORE lookups to optimize performance
+        // Doctor filtering logic - BEFORE lookups to optimize performance
         if (selectedDoctor) {
             console.log(`🔍 Applying doctor filter for user ID: ${selectedDoctor}`);
             
-            // Step 1: Get all document IDs that belong to this doctor
             const doctorDocuments = await mongoose.connection.db.collection('documents').find(
                 { 
                     uploadedBy: new mongoose.Types.ObjectId(selectedDoctor),
@@ -531,8 +529,6 @@ export const exportTATReport = async (req, res) => {
             console.log(`📋 Found ${doctorDocumentIds.length} documents uploaded by selected doctor`);
 
             if (doctorDocumentIds.length > 0) {
-                // Step 2: Filter studies that have doctorReports._id matching any of these document IDs
-                // OR studies assigned to this doctor (fallback)
                 pipeline.push({
                     $match: {
                         $or: [
@@ -542,14 +538,13 @@ export const exportTATReport = async (req, res) => {
                     }
                 });
             } else {
-                // If no documents found, only match assigned studies
                 pipeline.push({
                     $match: { 'assignment.assignedTo': new mongoose.Types.ObjectId(selectedDoctor) }
                 });
             }
         }
-        
-        // 🔧 ENHANCED: Add same lookups as getTATReport INCLUDING document lookup
+
+        // Add lookups
         pipeline.push(
             {
                 $lookup: {
@@ -581,7 +576,6 @@ export const exportTATReport = async (req, res) => {
                     ]
                 }
             },
-            // 🆕 CRITICAL: Add document lookup to get uploadedBy info
             {
                 $lookup: {
                     from: 'documents',
@@ -612,19 +606,30 @@ export const exportTATReport = async (req, res) => {
                 workflowStatus: 1, studyDate: 1, createdAt: 1, accessionNumber: 1,
                 examDescription: 1, modality: 1, modalitiesInStudy: 1, referredBy: 1,
                 seriesCount: 1, instanceCount: 1, assignment: 1, reportInfo: 1,
-                calculatedTAT: 1, // Include calculatedTAT
+                calculatedTAT: 1,
                 patientData: { $arrayElemAt: ['$patientData', 0] },
                 labData: { $arrayElemAt: ['$labData', 0] },
                 doctorData: { $arrayElemAt: ['$doctorData', 0] },
-                documentData: { $arrayElemAt: ['$documentData', 0] } // 🆕 ADD: Document data for verification
+                documentData: { $arrayElemAt: ['$documentData', 0] }
             }
         });
 
-        // 🔧 PERFORMANCE: Create Excel workbook with streaming
-        const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
-        const worksheet = workbook.addWorksheet('TAT Report');
+        // ✅ CRITICAL FIX: Get count FIRST before starting streaming
+        const countPipeline = [...pipeline, { $count: "total" }];
+        const countResult = await DicomStudy.aggregate(countPipeline);
+        const totalCount = countResult[0]?.total || 0;
 
-        // 🔧 ENHANCED: Update filename to include doctor info
+        console.log(`📊 Found ${totalCount} studies for export`);
+
+        if (totalCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No data found for the specified criteria'
+            });
+        }
+
+        // ✅ NOW start streaming since we know we have data
+        // Create filename
         let fileName = 'TAT_Report';
         if (location) {
             const lab = await Lab.findById(location);
@@ -633,10 +638,8 @@ export const exportTATReport = async (req, res) => {
             fileName += '_All_Locations';
         }
         
-        // 🆕 ADD: Include doctor name in filename if filtering
         if (selectedDoctor) {
             try {
-                // Get doctor user info directly
                 const doctorUser = await mongoose.connection.db.collection('users').findOne(
                     { _id: new mongoose.Types.ObjectId(selectedDoctor) },
                     { projection: { fullName: 1 } }
@@ -649,11 +652,15 @@ export const exportTATReport = async (req, res) => {
         }
         
         fileName += `_${new Date().toISOString().split('T')[0]}.xlsx`;
-        
+
+        // ✅ Set headers ONCE and start streaming
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+        const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
+        const worksheet = workbook.addWorksheet('TAT Report');
         
-        // 🔧 ENHANCED: More comprehensive Excel columns
+        // Set up columns
         worksheet.columns = [
             { header: 'Study Status', key: 'studyStatus', width: 20 },
             { header: 'Patient ID', key: 'patientId', width: 15 },
@@ -673,13 +680,12 @@ export const exportTATReport = async (req, res) => {
             { header: 'Upload-to-Report TAT (min)', key: 'uploadToReport', width: 25 },
             { header: 'Assign-to-Report TAT (min)', key: 'assignToReport', width: 25 },
             { header: 'Reported By', key: 'reportedBy', width: 25 },
-            // 🆕 ADD: Verification columns for debugging
             { header: 'Assigned Doctor ID', key: 'assignedDoctorId', width: 25 },
             { header: 'Report Uploader ID', key: 'uploadedById', width: 25 },
             { header: 'Report Uploader Name', key: 'uploaderName', width: 25 }
         ];
         
-        // 🔧 STYLING: Make header row bold and with background color
+        // Style header
         const headerRow = worksheet.getRow(1);
         headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
         headerRow.fill = {
@@ -689,15 +695,12 @@ export const exportTATReport = async (req, res) => {
         };
         headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
 
-        // 🔧 FIXED: Apply allowDiskUse before cursor, not after
-        const cursor = DicomStudy.aggregate(pipeline)
-            .allowDiskUse(true)
-            .cursor({ batchSize: 200 });
+        // ✅ Process data with cursor - NO more error handling that sends headers
+        const cursor = DicomStudy.aggregate(pipeline).allowDiskUse(true).cursor({ batchSize: 200 });
         
         let processedCount = 0;
         let doctorFilteredCount = 0;
 
-        // Helper function to format study date
         const formatStudyDate = (studyDate) => {
             if (!studyDate) return '-';
             
@@ -724,100 +727,77 @@ export const exportTATReport = async (req, res) => {
             return studyDate.toString();
         };
 
-        // 🔧 FIXED: Better error handling for cursor iteration
-        try {
-            for (let study = await cursor.next(); study != null; study = await cursor.next()) {
-                // 🔧 CONSISTENCY: Use calculatedTAT, with fallback, same as getTATReport
-                const tat = study.calculatedTAT || calculateStudyTAT(study);
+        // ✅ SIMPLIFIED: Process cursor without try-catch that sends headers
+        for (let study = await cursor.next(); study != null; study = await cursor.next()) {
+            const tat = study.calculatedTAT || calculateStudyTAT(study);
 
-                const patient = study.patientData || {};
-                const lab = study.labData || {};
-                const doctor = study.doctorData || {};
-                
-                const formatDate = (date) => date ? new Date(date).toLocaleString('en-GB') : '-';
-                const patientName = patient.computed?.fullName ||
-                    (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
+            const patient = study.patientData || {};
+            const lab = study.labData || {};
+            const doctor = study.doctorData || {};
+            
+            const formatDate = (date) => date ? new Date(date).toLocaleString('en-GB') : '-';
+            const patientName = patient.computed?.fullName ||
+                (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
 
-                // 🆕 EXTRACT: Doctor IDs and names for verification
-                const assignedDoctorId = study.assignment?.[0]?.assignedTo || study.assignment?.assignedTo;
-                const uploadedById = study.documentData?.uploadedBy;
-                const uploaderName = study.documentData?.uploaderInfo?.fullName || '-';
+            const assignedDoctorId = study.assignment?.[0]?.assignedTo || study.assignment?.assignedTo;
+            const uploadedById = study.documentData?.uploadedBy;
+            const uploaderName = study.documentData?.uploaderInfo?.fullName || '-';
 
-                const row = worksheet.addRow({
-                    studyStatus: study.workflowStatus || '-',
-                    patientId: patient.patientID || '-',
-                    patientName,
-                    gender: patient.gender || '-',
-                    referredBy: study.referredBy || '-',
-                    accessionNumber: study.accessionNumber || '-',
-                    studyDescription: study.examDescription || '-',
-                    modality: study.modalitiesInStudy?.join(', ') || '-',
-                    seriesImages: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                    institution: lab.name || '-',
-                    studyDate: formatStudyDate(study.studyDate),
-                    uploadDate: formatDate(study.createdAt),
-                    assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
-                    reportDate: formatDate(study.reportInfo?.finalizedAt),
-                    uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
-                    uploadToReport: tat.uploadToReportTAT || 'N/A',
-                    assignToReport: tat.assignmentToReportTAT || 'N/A',
-                    reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-',
-                    // 🆕 ADD: Verification columns
-                    assignedDoctorId: assignedDoctorId?.toString() || '-',
-                    uploadedById: uploadedById?.toString() || '-',
-                    uploaderName: uploaderName
-                });
+            const row = worksheet.addRow({
+                studyStatus: study.workflowStatus || '-',
+                patientId: patient.patientID || '-',
+                patientName,
+                gender: patient.gender || '-',
+                referredBy: study.referredBy || '-',
+                accessionNumber: study.accessionNumber || '-',
+                studyDescription: study.examDescription || '-',
+                modality: study.modalitiesInStudy?.join(', ') || '-',
+                seriesImages: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
+                institution: lab.name || '-',
+                studyDate: formatStudyDate(study.studyDate),
+                uploadDate: formatDate(study.createdAt),
+                assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
+                reportDate: formatDate(study.reportInfo?.finalizedAt),
+                uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
+                uploadToReport: tat.uploadToReportTAT || 'N/A',
+                assignToReport: tat.assignmentToReportTAT || 'N/A',
+                reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-',
+                assignedDoctorId: assignedDoctorId?.toString() || '-',
+                uploadedById: uploadedById?.toString() || '-',
+                uploaderName: uploaderName
+            });
 
-                // 🔧 STYLING: Alternate row colors for better readability
-                if (processedCount % 2 === 0) {
-                    row.fill = {
-                        type: 'pattern',
-                        pattern: 'solid',
-                        fgColor: { argb: 'F8F9FA' }
-                    };
-                }
-
-                row.commit();
-                processedCount++;
-                
-                // 🆕 TRACK: Studies that match selected doctor
-                if (selectedDoctor && (
-                    assignedDoctorId?.toString() === selectedDoctor || 
-                    uploadedById?.toString() === selectedDoctor
-                )) {
-                    doctorFilteredCount++;
-                }
+            if (processedCount % 2 === 0) {
+                row.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'F8F9FA' }
+                };
             }
 
-            await workbook.commit();
-            const processingTime = Date.now() - startTime;
+            row.commit();
+            processedCount++;
             
-            const logMessage = selectedDoctor 
-                ? `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records for selected doctor (${doctorFilteredCount} matched by doctor ID) from ${location ? 'selected location' : 'ALL locations'}`
-                : `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records from ${location ? 'selected location' : 'ALL locations'}`;
-            
-            console.log(logMessage);
-
-        } catch (cursorError) {
-            console.error('❌ Error during cursor iteration:', cursorError);
-            
-            // Close cursor if it exists
-            if (cursor && typeof cursor.close === 'function') {
-                await cursor.close();
-            }
-            
-            // Only send error response if headers haven't been sent
-            if (!res.headersSent) {
-                res.status(500).json({ 
-                    success: false, 
-                    message: 'Failed to export TAT report', 
-                    error: cursorError.message 
-                });
+            if (selectedDoctor && (
+                assignedDoctorId?.toString() === selectedDoctor || 
+                uploadedById?.toString() === selectedDoctor
+            )) {
+                doctorFilteredCount++;
             }
         }
 
+        await workbook.commit();
+        const processingTime = Date.now() - startTime;
+        
+        const logMessage = selectedDoctor 
+            ? `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records for selected doctor (${doctorFilteredCount} matched by doctor ID) from ${location ? 'selected location' : 'ALL locations'}`
+            : `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records from ${location ? 'selected location' : 'ALL locations'}`;
+        
+        console.log(logMessage);
+
     } catch (error) {
         console.error('❌ Error exporting TAT report:', error);
+        // ✅ CRITICAL: Only send error response if headers haven't been sent
         if (!res.headersSent) {
             res.status(500).json({ 
                 success: false, 
@@ -825,6 +805,8 @@ export const exportTATReport = async (req, res) => {
                 error: error.message 
             });
         }
+        // If headers were already sent, we can't send a JSON response
+        // The client will get a corrupted Excel file, which is better than a crash
     }
 };
 

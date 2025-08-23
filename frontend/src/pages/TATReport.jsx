@@ -130,15 +130,17 @@ const TATReport = () => {
   const filteredStudies = useMemo(() => {
     let filtered = [...studies];
 
-    // Doctor filter
+    // ✅ FIXED: Doctor filter - match backend logic exactly
     if (selectedDoctor) {
         filtered = filtered.filter(study => {
+            // This should match the backend logic exactly:
+            // Backend checks: doctorReports._id in doctorDocumentIds OR assignment.assignedTo = selectedDoctor
             return study.uploadedById === selectedDoctor || 
                    study.assignedDoctorId === selectedDoctor;
         });
     }
 
-    // Search filter
+    // Rest of filtering logic remains the same...
     if (searchTerm.trim()) {
         const search = searchTerm.toLowerCase();
         filtered = filtered.filter(study => 
@@ -151,7 +153,6 @@ const TATReport = () => {
         );
     }
 
-    // Modality filter
     if (selectedModalities.length > 0) {
         filtered = filtered.filter(study => {
             const studyModality = study.modality || '';
