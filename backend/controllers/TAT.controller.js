@@ -461,6 +461,7 @@ export const getTATReport = async (req, res) => {
 };
 
 // 🔧 MODIFIED: Export function also supports all locations
+// ✅ FIX: Make export match frontend filtering exactly
 export const exportTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
@@ -468,8 +469,7 @@ export const exportTATReport = async (req, res) => {
 
         console.log(`📊 Exporting TAT report - Location: ${location || 'ALL'}, Doctor: ${selectedDoctor || 'ALL'}`);
 
-        // 🔧 CRITICAL FIX: Execute the aggregation FIRST to check if we have data
-        // Don't start streaming until we know we have data to export
+        // Build aggregation pipeline
         const pipeline = [];
 
         if (location) {
@@ -508,35 +508,7 @@ export const exportTATReport = async (req, res) => {
             pipeline.push({ $match: { workflowStatus: status } });
         }
 
-        // Doctor filtering logic - BEFORE lookups to optimize performance
-        if (selectedDoctor) {
-            console.log(`🔍 Applying doctor filter for user ID: ${selectedDoctor}`);
-            
-            const doctorDocuments = await mongoose.connection.db.collection('documents').find(
-                { 
-                    uploadedBy: new mongoose.Types.ObjectId(selectedDoctor),
-                    documentType: 'clinical',
-                    isActive: true
-                },
-                { projection: { _id: 1 } }
-            ).toArray();
-            
-            const doctorDocumentIds = doctorDocuments.map(doc => doc._id);
-            console.log(`📋 Found ${doctorDocumentIds.length} documents uploaded by selected doctor`);
-
-            if (doctorDocumentIds.length > 0) {
-                pipeline.push({
-                    $match: {
-                        $or: [
-                            { 'doctorReports._id': { $in: doctorDocumentIds } },
-                            { 'assignment.assignedTo': new mongoose.Types.ObjectId(selectedDoctor) }
-                        ]
-                    }
-                });
-            } 
-        }
-
-        // Add lookups
+        // Add lookups FIRST (we need document data to filter properly)
         pipeline.push(
             {
                 $lookup: {
@@ -568,15 +540,16 @@ export const exportTATReport = async (req, res) => {
                     ]
                 }
             },
+            // ✅ CRITICAL: Lookup documents to get uploadedBy info
             {
                 $lookup: {
                     from: 'documents',
-                    localField: 'doctorReports._id',
-                    foreignField: '_id',
+                    localField: '_id',
+                    foreignField: 'studyId',
                     as: 'documentData',
                     pipeline: [
-                        { $match: { documentType: 'clinical', isActive: true } },
-                        { $sort: { uploadedAt: -1 } },
+                        { $match: { documentType: 'clinical' } },
+                        { $sort: { uploadedAt: -1 } }, // Get latest document
                         { $limit: 1 },
                         { 
                             $lookup: {
@@ -606,12 +579,23 @@ export const exportTATReport = async (req, res) => {
             }
         });
 
+        // ✅ CRITICAL FIX: Apply doctor filtering AFTER lookups, matching frontend logic exactly
+        if (selectedDoctor) {
+            console.log(`🔍 Applying doctor filter for user ID: ${selectedDoctor} (UPLOAD-ONLY FILTER)`);
+            
+            pipeline.push({
+                $match: {
+                    'documentData.uploadedBy': new mongoose.Types.ObjectId(selectedDoctor)  // ✅ ONLY uploaded documents
+                }
+            });
+        }
+
         // ✅ CRITICAL FIX: Get count FIRST before starting streaming
         const countPipeline = [...pipeline, { $count: "total" }];
         const countResult = await DicomStudy.aggregate(countPipeline);
         const totalCount = countResult[0]?.total || 0;
 
-        console.log(`📊 Found ${totalCount} studies for export`);
+        console.log(`📊 Found ${totalCount} studies for export (${selectedDoctor ? 'uploaded documents only' : 'all studies'})`);
 
         if (totalCount === 0) {
             return res.status(404).json({
@@ -620,7 +604,6 @@ export const exportTATReport = async (req, res) => {
             });
         }
 
-        // ✅ NOW start streaming since we know we have data
         // Create filename
         let fileName = 'TAT_Report';
         if (location) {
@@ -637,15 +620,15 @@ export const exportTATReport = async (req, res) => {
                     { projection: { fullName: 1 } }
                 );
                 const doctorName = doctorUser?.fullName?.replace(/[^a-zA-Z0-9]/g, '_') || 'Unknown_Doctor';
-                fileName += `_${doctorName}`;
+                fileName += `_${doctorName}_UPLOADED_ONLY`;  // ✅ Clarify this is upload-only filter
             } catch (error) {
-                fileName += '_Selected_Doctor';
+                fileName += '_Selected_Doctor_UPLOADED_ONLY';
             }
         }
         
         fileName += `_${new Date().toISOString().split('T')[0]}.xlsx`;
 
-        // ✅ Set headers ONCE and start streaming
+        // Set headers and start streaming
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
@@ -687,11 +670,10 @@ export const exportTATReport = async (req, res) => {
         };
         headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
 
-        // ✅ Process data with cursor - NO more error handling that sends headers
+        // Process data with cursor
         const cursor = DicomStudy.aggregate(pipeline).allowDiskUse(true).cursor({ batchSize: 200 });
         
         let processedCount = 0;
-        let doctorFilteredCount = 0;
 
         const formatStudyDate = (studyDate) => {
             if (!studyDate) return '-';
@@ -719,7 +701,7 @@ export const exportTATReport = async (req, res) => {
             return studyDate.toString();
         };
 
-        // ✅ SIMPLIFIED: Process cursor without try-catch that sends headers
+        // ✅ Process cursor - now only studies with uploaded documents will be processed
         for (let study = await cursor.next(); study != null; study = await cursor.next()) {
             const tat = study.calculatedTAT || calculateStudyTAT(study);
 
@@ -734,6 +716,16 @@ export const exportTATReport = async (req, res) => {
             const assignedDoctorId = study.assignment?.[0]?.assignedTo || study.assignment?.assignedTo;
             const uploadedById = study.documentData?.uploadedBy;
             const uploaderName = study.documentData?.uploaderInfo?.fullName || '-';
+
+            // ✅ DEBUG: Log which studies are being exported
+            if (processedCount < 5) {
+                console.log(`📋 Exporting study ${study.accessionNumber}:`, {
+                    uploadedById: uploadedById?.toString(),
+                    assignedDoctorId: assignedDoctorId?.toString(),
+                    selectedDoctor,
+                    hasUploadedDocument: !!uploadedById
+                });
+            }
 
             const row = worksheet.addRow({
                 studyStatus: study.workflowStatus || '-',
@@ -769,27 +761,20 @@ export const exportTATReport = async (req, res) => {
 
             row.commit();
             processedCount++;
-            
-            if (selectedDoctor && (
-                assignedDoctorId?.toString() === selectedDoctor || 
-                uploadedById?.toString() === selectedDoctor
-            )) {
-                doctorFilteredCount++;
-            }
         }
 
         await workbook.commit();
         const processingTime = Date.now() - startTime;
         
         const logMessage = selectedDoctor 
-            ? `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records for selected doctor (${doctorFilteredCount} matched by doctor ID) from ${location ? 'selected location' : 'ALL locations'}`
+            ? `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records for doctor ${selectedDoctor} (UPLOADED DOCUMENTS ONLY) from ${location ? 'selected location' : 'ALL locations'}`
             : `✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records from ${location ? 'selected location' : 'ALL locations'}`;
         
         console.log(logMessage);
 
     } catch (error) {
         console.error('❌ Error exporting TAT report:', error);
-        // ✅ CRITICAL: Only send error response if headers haven't been sent
+        // Only send error response if headers haven't been sent
         if (!res.headersSent) {
             res.status(500).json({ 
                 success: false, 
@@ -797,8 +782,6 @@ export const exportTATReport = async (req, res) => {
                 error: error.message 
             });
         }
-        // If headers were already sent, we can't send a JSON response
-        // The client will get a corrupted Excel file, which is better than a crash
     }
 };
 
