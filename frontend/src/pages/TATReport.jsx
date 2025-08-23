@@ -135,21 +135,19 @@ const TATReport = () => {
         const beforeFilter = filtered.length;
         
         filtered = filtered.filter(study => {
-            const match = study.uploadedById === selectedDoctor;
-            
-            // 🔍 DEBUG: Log for specific doctor
-            if (selectedDoctor === '67037c32e4b23a8c8fb9b5a5') { // Dr. Gamma Ray's ID
-                console.log(`🔍 DEBUG Filter ${study.accessionNumber}:`, {
-                    uploadedById: study.uploadedById,
-                    selectedDoctor: selectedDoctor,
-                    matches: match
-                });
-            }
-            
-            return match;
+            return study.uploadedById === selectedDoctor; // ✅ Simple match
         });
         
         console.log(`🔍 Frontend doctor filter: ${selectedDoctor} - Before: ${beforeFilter}, After: ${filtered.length} studies`);
+        
+        // 🔍 DEBUG: Show which studies matched for Dr. Gamma Ray
+        if (selectedDoctor === '687f7dba53b984fce60ce30c') {
+            console.log('🎯 Filtered studies for Dr. Gamma Ray:', filtered.map(s => ({
+                acc: s.accessionNumber,
+                patientName: s.patientName,
+                uploadedById: s.uploadedById
+            })));
+        }
     }
 
     // Rest of filtering logic remains the same...
@@ -460,20 +458,7 @@ const TATReport = () => {
         
         // ✅ CRITICAL FIX: Use same logic as filteredStudies - only check uploadedById
         const doctorStudies = studies.filter(study => {
-            const match = study.uploadedById === selectedDoctor;
-            
-            // 🔍 DEBUG: Log each study to see what's happening
-            if (selectedDoctor === '67037c32e4b23a8c8fb9b5a5') { // Dr. Gamma Ray's ID
-                console.log(`🔍 DEBUG Study ${study.accessionNumber}:`, {
-                    uploadedById: study.uploadedById,
-                    selectedDoctor: selectedDoctor,
-                    matches: match,
-                    assignedDoctorId: study.assignedDoctorId, // Show but don't use
-                    reportedBy: study.reportedBy // Show but don't use
-                });
-            }
-            
-            return match; // ✅ ONLY check uploadedById
+            return study.uploadedById === selectedDoctor; // ✅ Simple match
         });
         
         console.log(`🎯 DEBUG Filter Summary: Doctor ${doctorName} has ${doctorStudies.length} studies with uploadedById match`);
@@ -613,7 +598,7 @@ const TATReport = () => {
                 stroke="currentColor" 
                 viewBox="0 0 24 24"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
               </svg>
               
             
@@ -793,7 +778,7 @@ const TATReport = () => {
                                         {doctor.email && (
                                             <div className="text-xs text-gray-400">{doctor.email}</div>
                                         )}
-                                        {/* ✅ BACKEND REPORTS: This should match frontend count now */}
+                                        {/* ✅ BACKEND REPORTS: Should match frontend count */}
                                         <div className="text-xs text-blue-600">
                                             Backend Reports: {doctor.reportCount || 0}
                                         </div>
