@@ -130,13 +130,26 @@ const TATReport = () => {
   const filteredStudies = useMemo(() => {
     let filtered = [...studies];
 
-    // ✅ FIXED: Doctor filter - match backend logic exactly
+    // ✅ CRITICAL FIX: Only check uploadedById, no fallback to assignedDoctorId
     if (selectedDoctor) {
+        const beforeFilter = filtered.length;
+        
         filtered = filtered.filter(study => {
-            // This should match the backend logic exactly:
-            // Backend checks: doctorReports._id in doctorDocumentIds OR assignment.assignedTo = selectedDoctor
-            return study.uploadedById === selectedDoctor
+            const match = study.uploadedById === selectedDoctor;
+            
+            // 🔍 DEBUG: Log for specific doctor
+            if (selectedDoctor === '67037c32e4b23a8c8fb9b5a5') { // Dr. Gamma Ray's ID
+                console.log(`🔍 DEBUG Filter ${study.accessionNumber}:`, {
+                    uploadedById: study.uploadedById,
+                    selectedDoctor: selectedDoctor,
+                    matches: match
+                });
+            }
+            
+            return match;
         });
+        
+        console.log(`🔍 Frontend doctor filter: ${selectedDoctor} - Before: ${beforeFilter}, After: ${filtered.length} studies`);
     }
 
     // Rest of filtering logic remains the same...
@@ -328,12 +341,24 @@ const TATReport = () => {
       }
 
       const response = await api.get('/tat/report', { params });
-      console.log(response.data);
+      console.log('📊 DEBUG: Raw TAT data received:', response.data);
 
       if (response.data.success) {
-        setStudies(response.data.studies);
+        const studies = response.data.studies;
+        setStudies(studies);
         setCurrentPage(1);
-        console.log(`✅ Fetched ${response.data.studies.length} studies from ${selectedLocation ? 'selected location' : 'ALL locations'}`);
+        
+        // 🔍 DEBUG: Log sample studies to see uploadedById values
+        console.log('🔍 DEBUG: Sample studies with uploadedById:');
+        studies.slice(0, 5).forEach(study => {
+            console.log(`Study ${study.accessionNumber}:`, {
+                uploadedById: study.uploadedById,
+                assignedDoctorId: study.assignedDoctorId,
+                reportedBy: study.reportedBy
+            });
+        });
+        
+        console.log(`✅ Fetched ${studies.length} studies from ${selectedLocation ? 'selected location' : 'ALL locations'}`);
       } else {
         toast.error('Failed to load TAT data');
         setStudies([]);
@@ -427,26 +452,41 @@ const TATReport = () => {
     }
   }, [selectedLocation, selectedDoctor, dateType, fromDate, toDate, selectedModalities, locations, doctors, filteredStudies.length, loading]);
 
-  // ✅ FIX: Define filter summary after filteredStudies
+  // ✅ FIX: Add debug logging and fix getFilterSummary
   const getFilterSummary = useCallback(() => {
     const filters = [];
     if (selectedDoctor) {
-      const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
-      const doctorStudies = studies.filter(study => {
-        const reportedBy = study.reportedBy || '';
-        return reportedBy.toLowerCase().includes(doctorName.toLowerCase()) ||
-               reportedBy === doctorName;
-      });
-      filters.push(`Doctor: ${doctorName} (${doctorStudies.length} studies)`);
+        const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
+        
+        // ✅ CRITICAL FIX: Use same logic as filteredStudies - only check uploadedById
+        const doctorStudies = studies.filter(study => {
+            const match = study.uploadedById === selectedDoctor;
+            
+            // 🔍 DEBUG: Log each study to see what's happening
+            if (selectedDoctor === '67037c32e4b23a8c8fb9b5a5') { // Dr. Gamma Ray's ID
+                console.log(`🔍 DEBUG Study ${study.accessionNumber}:`, {
+                    uploadedById: study.uploadedById,
+                    selectedDoctor: selectedDoctor,
+                    matches: match,
+                    assignedDoctorId: study.assignedDoctorId, // Show but don't use
+                    reportedBy: study.reportedBy // Show but don't use
+                });
+            }
+            
+            return match; // ✅ ONLY check uploadedById
+        });
+        
+        console.log(`🎯 DEBUG Filter Summary: Doctor ${doctorName} has ${doctorStudies.length} studies with uploadedById match`);
+        filters.push(`Doctor: ${doctorName} (${doctorStudies.length} studies)`);
     }
     if (selectedModalities.length > 0) {
-      filters.push(`Modalities: ${selectedModalities.join(', ')}`);
+        filters.push(`Modalities: ${selectedModalities.join(', ')}`);
     }
     if (searchTerm.trim()) {
-      filters.push(`Search: "${searchTerm}"`);
+        filters.push(`Search: "${searchTerm}"`);
     }
     return filters.length > 0 ? ` (${filters.join(' | ')})` : '';
-  }, [selectedDoctor, doctors, studies, selectedModalities, searchTerm]);
+}, [selectedDoctor, doctors, studies, selectedModalities, searchTerm]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
@@ -722,6 +762,16 @@ const TATReport = () => {
                                
                     }).length;
 
+                    // 🔍 DEBUG: Log for specific doctor
+                    if (doctor.value === '67037c32e4b23a8c8fb9b5a5') { // Dr. Gamma Ray's ID
+                        console.log(`🔍 DEBUG Dropdown Count ${study.accessionNumber}:`, {
+                            uploadedById: study.uploadedById,
+                            doctorValue: doctor.value,
+                            matches: match,
+                            assignedDoctorId: study.assignedDoctorId // Show but don't use
+                        });
+                    }
+                    
                     return (
                         <div
                             key={doctor.value}
@@ -743,14 +793,14 @@ const TATReport = () => {
                                         {doctor.email && (
                                             <div className="text-xs text-gray-400">{doctor.email}</div>
                                         )}
-                                        {/* 🆕 NEW: Show backend report count */}
+                                        {/* ✅ BACKEND REPORTS: This should match frontend count now */}
                                         <div className="text-xs text-blue-600">
                                             Backend Reports: {doctor.reportCount || 0}
                                         </div>
                                     </div>
                                 </div>
                                 <div className="flex items-center space-x-2">
-                                    {/* Study count badge - based on current data */}
+                                    {/* ✅ FRONTEND COUNT: Should now match backend count */}
                                     <span className={`text-xs px-2 py-1 rounded-full ${
                                         doctorStudyCount > 0 
                                             ? 'bg-blue-100 text-blue-800' 
