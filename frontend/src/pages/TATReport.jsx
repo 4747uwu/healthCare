@@ -225,7 +225,7 @@ const TATReport = () => {
     const fetchDoctors = async () => {
       try {
         const response = await api.get('/tat/doctors');
-        console.log(response.data.success);
+        console.log(response.data);
         if (response.data.success) {
           setDoctors(response.data.doctors);
         }
