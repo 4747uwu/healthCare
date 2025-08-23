@@ -533,11 +533,7 @@ export const exportTATReport = async (req, res) => {
                         ]
                     }
                 });
-            } else {
-                pipeline.push({
-                    $match: { 'assignment.assignedTo': new mongoose.Types.ObjectId(selectedDoctor) }
-                });
-            }
+            } 
         }
 
         // Add lookups
