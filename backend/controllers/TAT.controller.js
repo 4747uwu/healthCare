@@ -383,11 +383,7 @@ export const getTATReport = async (req, res) => {
             let uploadedById = null;
             if (study.documentData?.uploadedBy) {
                 uploadedById = study.documentData.uploadedBy;
-            } else if (assignedDoctorId) {
-                // Fallback to assigned doctor if no document data
-                uploadedById = assignedDoctorId;
-            }
-
+            } 
             return {
                 _id: study._id,
                 studyStatus: study.workflowStatus || '-',
