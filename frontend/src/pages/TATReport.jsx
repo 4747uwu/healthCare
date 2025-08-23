@@ -135,8 +135,7 @@ const TATReport = () => {
         filtered = filtered.filter(study => {
             // This should match the backend logic exactly:
             // Backend checks: doctorReports._id in doctorDocumentIds OR assignment.assignedTo = selectedDoctor
-            return study.uploadedById === selectedDoctor || 
-                   study.assignedDoctorId === selectedDoctor;
+            return study.uploadedById === selectedDoctor
         });
     }
 
@@ -719,8 +718,8 @@ const TATReport = () => {
                   filteredDoctors.map((doctor) => {
                     // 🔧 Calculate study count for this doctor using uploadedById
                     const doctorStudyCount = studies.filter(study => {
-                        return study.uploadedById === doctor.value || 
-                               study.assignedDoctorId === doctor.value;
+                        return study.uploadedById === doctor.value 
+                               
                     }).length;
 
                     return (
