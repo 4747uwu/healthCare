@@ -11,10 +11,10 @@ const TATReport = () => {
   // State management
   const [studies, setStudies] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [doctors, setDoctors] = useState([]); // 🆕 NEW
+  const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState('');
-  const [selectedDoctor, setSelectedDoctor] = useState(''); // 🆕 NEW
+  const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedModalities, setSelectedModalities] = useState([]);
   const [recordsPerPage, setRecordsPerPage] = useState(100);
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,23 +25,171 @@ const TATReport = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  // ✅ NEW: Searchable location dropdown state
+  // Dropdown state
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const locationDropdownRef = useRef(null);
 
-  // 🆕 NEW: Searchable doctor dropdown state
   const [doctorSearchTerm, setDoctorSearchTerm] = useState('');
   const [isDoctorDropdownOpen, setIsDoctorDropdownOpen] = useState(false);
   const doctorDropdownRef = useRef(null);
 
-  // ✅ COMPACT: Modality options
+  // ✅ FIX: Define constants before using them in useMemo/useCallback
   const modalityOptions = [
     'CT', 'MR', 'CR', 'DX', 'PR', 'US', 'XR', 'MG', 'NM', 'PT',
     'MR/SR', 'CT/SR', 'CR/SR', 'DX/SR', 'PR/MR', 'CT/MR'
   ];
 
   const recordOptions = [25, 50, 100, 250, 500];
+
+  // ✅ FIX: Move helper functions before they're used
+  const safeValue = useCallback((value, defaultVal = '-') => {
+    if (value === null || value === undefined || value === '') return defaultVal;
+    return String(value);
+  }, []);
+
+  const getTATStatusColor = useCallback((tatValue) => {
+    if (!tatValue || tatValue === '-' || tatValue === null || tatValue === undefined) {
+      return 'bg-gray-100 text-gray-700 border border-gray-200';
+    }
+    
+    const tatString = String(tatValue);
+    const minutes = parseInt(tatString.replace(/[^\d]/g, ''));
+    
+    if (isNaN(minutes) || minutes === 0) {
+      return 'bg-gray-100 text-gray-700 border border-gray-200';
+    }
+    
+    if (minutes <= 60) return 'bg-green-100 text-green-800 border border-green-200';
+    if (minutes <= 240) return 'bg-blue-100 text-blue-800 border border-blue-200';
+    if (minutes <= 480) return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+    if (minutes <= 1440) return 'bg-orange-100 text-orange-800 border border-orange-200';
+    return 'bg-red-100 text-red-800 border border-red-200';
+  }, []);
+
+  const getStatusColor = useCallback((status) => {
+    const statusString = status ? String(status).toLowerCase() : '';
+    
+    switch (statusString) {
+      case 'final_report_downloaded':
+      case 'report_finalized':
+      case 'completed':
+        return 'bg-green-100 text-green-800 border border-green-200';
+      case 'report_in_progress':
+      case 'in_progress':
+        return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+      case 'assigned_to_doctor':
+      case 'assigned':
+        return 'bg-blue-100 text-blue-800 border border-blue-200';
+      case 'pending_assignment':
+      case 'pending':
+        return 'bg-orange-100 text-orange-800 border border-orange-200';
+      case 'new_study_received':
+      case 'new':
+        return 'bg-gray-100 text-gray-800 border border-gray-200';
+      default:
+        return 'bg-gray-100 text-gray-600 border border-gray-200';
+    }
+  }, []);
+
+  const getSafeNestedValue = useCallback((obj, path, defaultValue = '-') => {
+    try {
+      const keys = path.split('.');
+      let current = obj;
+      
+      for (const key of keys) {
+        if (current === null || current === undefined) {
+          return defaultValue;
+        }
+        current = current[key];
+      }
+      
+      return current !== null && current !== undefined ? String(current) : defaultValue;
+    } catch (error) {
+      return defaultValue;
+    }
+  }, []);
+
+  const formatDateTime = useCallback((dateValue) => {
+    if (!dateValue) return '-';
+    
+    try {
+      const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+      
+      if (isNaN(date.getTime())) {
+        return '-';
+      }
+      
+      return format(date, 'MMM dd, yyyy • HH:mm');
+    } catch (error) {
+      return '-';
+    }
+  }, []);
+
+  // ✅ FIX: Define filtered studies with proper dependencies
+  const filteredStudies = useMemo(() => {
+    let filtered = [...studies];
+
+    // Doctor filter
+    if (selectedDoctor) {
+        filtered = filtered.filter(study => {
+            return study.uploadedById === selectedDoctor || 
+                   study.assignedDoctorId === selectedDoctor;
+        });
+    }
+
+    // Search filter
+    if (searchTerm.trim()) {
+        const search = searchTerm.toLowerCase();
+        filtered = filtered.filter(study => 
+            (study.patientName || '').toLowerCase().includes(search) ||
+            (study.patientId || '').toLowerCase().includes(search) ||
+            (study.accessionNumber || '').toLowerCase().includes(search) ||
+            (study.referredBy || '').toLowerCase().includes(search) ||
+            (study.reportedBy || '').toLowerCase().includes(search) ||
+            (study.studyDescription || '').toLowerCase().includes(search)
+        );
+    }
+
+    // Modality filter
+    if (selectedModalities.length > 0) {
+        filtered = filtered.filter(study => {
+            const studyModality = study.modality || '';
+            return selectedModalities.some(selectedMod => {
+                if (selectedMod.includes('/')) {
+                    const modalityParts = selectedMod.split('/');
+                    return modalityParts.every(part => studyModality.includes(part));
+                } else {
+                    return studyModality.includes(selectedMod);
+                }
+            });
+        });
+    }
+
+    return filtered;
+  }, [studies, selectedDoctor, searchTerm, selectedModalities]);
+
+  // ✅ FIX: Define filtered locations and doctors after their dependencies
+  const filteredLocations = useMemo(() => {
+    if (!locationSearchTerm.trim()) return locations;
+    
+    const search = locationSearchTerm.toLowerCase();
+    return locations.filter(location => 
+      location.label.toLowerCase().includes(search) ||
+      location.value.toLowerCase().includes(search)
+    );
+  }, [locations, locationSearchTerm]);
+
+  const filteredDoctors = useMemo(() => {
+    if (!doctorSearchTerm.trim()) return doctors;
+    
+    const search = doctorSearchTerm.toLowerCase();
+    return doctors.filter(doctor => 
+      doctor.label.toLowerCase().includes(search) ||
+      (doctor.specialization && doctor.specialization.toLowerCase().includes(search)) ||
+      (doctor.email && doctor.email.toLowerCase().includes(search))
+    );
+  }, [doctors, doctorSearchTerm]);
 
   // Fetch locations
   useEffect(() => {
@@ -59,7 +207,7 @@ const TATReport = () => {
     fetchLocations();
   }, []);
 
-  // 🆕 NEW: Fetch doctors
+  // Fetch doctors
   useEffect(() => {
     const fetchDoctors = async () => {
       try {
@@ -76,69 +224,54 @@ const TATReport = () => {
     fetchDoctors();
   }, []);
 
-  // ✅ NEW: Filtered locations based on search
-  const filteredLocations = useMemo(() => {
-    if (!locationSearchTerm.trim()) return locations;
-    
-    const search = locationSearchTerm.toLowerCase();
-    return locations.filter(location => 
-      location.label.toLowerCase().includes(search) ||
-      location.value.toLowerCase().includes(search)
-    );
-  }, [locations, locationSearchTerm]);
-
-  // 🆕 NEW: Filtered doctors based on search
-  const filteredDoctors = useMemo(() => {
-    if (!doctorSearchTerm.trim()) return doctors;
-    
-    const search = doctorSearchTerm.toLowerCase();
-    return doctors.filter(doctor => 
-      doctor.label.toLowerCase().includes(search) ||
-      (doctor.specialization && doctor.specialization.toLowerCase().includes(search)) ||
-      (doctor.email && doctor.email.toLowerCase().includes(search))
-    );
-  }, [doctors, doctorSearchTerm]);
-
-  // ✅ NEW: Handle location selection
-  const handleLocationSelect = (location) => {
+  // ✅ FIX: Event handlers defined after their dependencies
+  const handleLocationSelect = useCallback((location) => {
     setSelectedLocation(location ? location.value : '');
     setLocationSearchTerm(location ? location.label : '');
     setIsLocationDropdownOpen(false);
-  };
+  }, []);
 
-  // 🆕 NEW: Handle doctor selection
-  const handleDoctorSelect = (doctor) => {
+  const handleDoctorSelect = useCallback((doctor) => {
     setSelectedDoctor(doctor ? doctor.value : '');
     setDoctorSearchTerm(doctor ? doctor.label : '');
     setIsDoctorDropdownOpen(false);
-    setCurrentPage(1); // 🔧 ADDED: Reset to first page when doctor changes
-  };
+    setCurrentPage(1);
+  }, []);
 
-  // ✅ NEW: Handle search input
-  const handleLocationSearchChange = (e) => {
+  const handleLocationSearchChange = useCallback((e) => {
     const value = e.target.value;
     setLocationSearchTerm(value);
     setIsLocationDropdownOpen(true);
     
-    // Clear selection if search doesn't match current selection
     if (selectedLocation && !value) {
       setSelectedLocation('');
     }
-  };
+  }, [selectedLocation]);
 
-  // 🆕 NEW: Handle doctor search input
-  const handleDoctorSearchChange = (e) => {
+  const handleDoctorSearchChange = useCallback((e) => {
     const value = e.target.value;
     setDoctorSearchTerm(value);
     setIsDoctorDropdownOpen(true);
     
-    // Clear selection if search doesn't match current selection
     if (selectedDoctor && !value) {
       setSelectedDoctor('');
     }
-  };
+  }, [selectedDoctor]);
 
-  // ✅ NEW: Close dropdown when clicking outside
+  const handleModalityToggle = useCallback((modality) => {
+    const newSelection = selectedModalities.includes(modality)
+      ? selectedModalities.filter(m => m !== modality)
+      : [...selectedModalities, modality];
+    
+    setSelectedModalities(newSelection);
+    setCurrentPage(1);
+  }, [selectedModalities]);
+
+  const handlePageChange = useCallback((page) => {
+    setCurrentPage(page);
+  }, []);
+
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target)) {
@@ -153,7 +286,7 @@ const TATReport = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ✅ NEW: Set initial search term when location is selected externally
+  // Set initial search terms
   useEffect(() => {
     if (selectedLocation) {
       const location = locations.find(loc => loc.value === selectedLocation);
@@ -165,7 +298,6 @@ const TATReport = () => {
     }
   }, [selectedLocation, locations]);
 
-  // 🆕 NEW: Set initial search term when doctor is selected externally
   useEffect(() => {
     if (selectedDoctor) {
       const doctor = doctors.find(doc => doc.value === selectedDoctor);
@@ -179,8 +311,6 @@ const TATReport = () => {
 
   // Fetch TAT data
   const fetchTATData = useCallback(async () => {
-    // 🔧 REMOVED: Location requirement - allow fetching from all locations
-
     setLoading(true);
     try {
       const params = {
@@ -189,7 +319,6 @@ const TATReport = () => {
         toDate
       };
 
-      // 🔧 MODIFIED: Only add location param if a specific location is selected
       if (selectedLocation) {
         params.location = selectedLocation;
       }
@@ -218,21 +347,19 @@ const TATReport = () => {
     }
   }, [selectedLocation, dateType, fromDate, toDate, selectedModalities]);
 
-  // 🔧 MODIFIED: Export function also works without location
+  // Export function
   const exportToExcel = useCallback(async () => {
     if (loading) return;
     
     setLoading(true);
 
     try {
-        // 🆕 CRITICAL: Include selectedDoctor in export parameters
         const exportParams = new URLSearchParams({
             dateType,
             fromDate,
             toDate
         });
 
-        // Add optional parameters
         if (selectedLocation) {
             exportParams.append('location', selectedLocation);
         }
@@ -255,7 +382,6 @@ const TATReport = () => {
             throw new Error('No data received from server');
         }
 
-        // Download the file
         const blob = new Blob([response.data], { 
             type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
         });
@@ -264,7 +390,6 @@ const TATReport = () => {
         a.style.display = 'none';
         a.href = url;
         
-        // 🔧 ENHANCED: Include doctor name in filename
         let filename = 'TAT_Report';
         if (selectedLocation) {
             const locationName = locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown';
@@ -302,159 +427,11 @@ const TATReport = () => {
     }
   }, [selectedLocation, selectedDoctor, dateType, fromDate, toDate, selectedModalities, locations, doctors, filteredStudies.length, loading]);
 
-  // 🔧 ENHANCED: Reorder filtering - Doctor filter BEFORE pagination
-  const filteredStudies = useMemo(() => {
-    let filtered = [...studies];
-
-    // 🆕 STEP 1: Doctor filter FIRST (using uploadedBy ID matching)
-    if (selectedDoctor) {
-        filtered = filtered.filter(study => {
-            // 🔧 ENHANCED: Match by uploadedById instead of name
-            return study.uploadedById === selectedDoctor || 
-                   study.assignedDoctorId === selectedDoctor;
-        });
-    }
-
-    // 🔧 STEP 2: Search filter (after doctor filter)
-    if (searchTerm.trim()) {
-        const search = searchTerm.toLowerCase();
-        filtered = filtered.filter(study => 
-            (study.patientName || '').toLowerCase().includes(search) ||
-            (study.patientId || '').toLowerCase().includes(search) ||
-            (study.accessionNumber || '').toLowerCase().includes(search) ||
-            (study.referredBy || '').toLowerCase().includes(search) ||
-            (study.reportedBy || '').toLowerCase().includes(search) ||
-            (study.studyDescription || '').toLowerCase().includes(search)
-        );
-    }
-
-    // 🔧 STEP 3: Modality filter (after search filter)
-    if (selectedModalities.length > 0) {
-        filtered = filtered.filter(study => {
-            const studyModality = study.modality || '';
-            return selectedModalities.some(selectedMod => {
-                if (selectedMod.includes('/')) {
-                    const modalityParts = selectedMod.split('/');
-                    return modalityParts.every(part => studyModality.includes(part));
-                } else {
-                    return studyModality.includes(selectedMod);
-                }
-            });
-        });
-    }
-
-    return filtered;
-  }, [studies, selectedDoctor, searchTerm, selectedModalities]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
-  const startIndex = (currentPage - 1) * recordsPerPage;
-  const paginatedStudies = filteredStudies.slice(startIndex, startIndex + recordsPerPage);
-
-  // ✅ OPTIMIZED: Helper functions
-  const safeValue = (value, defaultVal = '-') => {
-    if (value === null || value === undefined || value === '') return defaultVal;
-    return String(value);
-  };
-
-  const getTATStatusColor = (tatValue) => {
-    if (!tatValue || tatValue === '-' || tatValue === null || tatValue === undefined) {
-      return 'bg-gray-100 text-gray-700 border border-gray-200';
-    }
-    
-    const tatString = String(tatValue);
-    const minutes = parseInt(tatString.replace(/[^\d]/g, ''));
-    
-    if (isNaN(minutes) || minutes === 0) {
-      return 'bg-gray-100 text-gray-700 border border-gray-200';
-    }
-    
-    if (minutes <= 60) return 'bg-green-100 text-green-800 border border-green-200';
-    if (minutes <= 240) return 'bg-blue-100 text-blue-800 border border-blue-200';
-    if (minutes <= 480) return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
-    if (minutes <= 1440) return 'bg-orange-100 text-orange-800 border border-orange-200';
-    return 'bg-red-100 text-red-800 border border-red-200';
-  };
-
-  const getStatusColor = (status) => {
-    const statusString = status ? String(status).toLowerCase() : '';
-    
-    switch (statusString) {
-      case 'final_report_downloaded':
-      case 'report_finalized':
-      case 'completed':
-        return 'bg-green-100 text-green-800 border border-green-200';
-      case 'report_in_progress':
-      case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
-      case 'assigned_to_doctor':
-      case 'assigned':
-        return 'bg-blue-100 text-blue-800 border border-blue-200';
-      case 'pending_assignment':
-      case 'pending':
-        return 'bg-orange-100 text-orange-800 border border-orange-200';
-      case 'new_study_received':
-      case 'new':
-        return 'bg-gray-100 text-gray-800 border border-gray-200';
-      default:
-        return 'bg-gray-100 text-gray-600 border border-gray-200';
-    }
-  };
-
-  const getSafeNestedValue = (obj, path, defaultValue = '-') => {
-    try {
-      const keys = path.split('.');
-      let current = obj;
-      
-      for (const key of keys) {
-        if (current === null || current === undefined) {
-          return defaultValue;
-        }
-        current = current[key];
-      }
-      
-      return current !== null && current !== undefined ? String(current) : defaultValue;
-    } catch (error) {
-      return defaultValue;
-    }
-  };
-
-  const formatDateTime = (dateValue) => {
-    if (!dateValue) return '-';
-    
-    try {
-      const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
-      
-      if (isNaN(date.getTime())) {
-        return '-';
-      }
-      
-      return format(date, 'MMM dd, yyyy • HH:mm');
-    } catch (error) {
-      return '-';
-    }
-  };
-
-  // Event handlers
-  const handleModalityToggle = (modality) => {
-    const newSelection = selectedModalities.includes(modality)
-      ? selectedModalities.filter(m => m !== modality)
-      : [...selectedModalities, modality];
-    
-    setSelectedModalities(newSelection);
-    setCurrentPage(1);
-  };
-
-  const handlePageChange = (page) => {
-    setCurrentPage(page);
-  };
-
-  // 🔧 ENHANCED: Update the title to show active filters
-  const getFilterSummary = () => {
+  // ✅ FIX: Define filter summary after filteredStudies
+  const getFilterSummary = useCallback(() => {
     const filters = [];
     if (selectedDoctor) {
       const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
-      // Show how many studies match this doctor
       const doctorStudies = studies.filter(study => {
         const reportedBy = study.reportedBy || '';
         return reportedBy.toLowerCase().includes(doctorName.toLowerCase()) ||
@@ -469,8 +446,14 @@ const TATReport = () => {
       filters.push(`Search: "${searchTerm}"`);
     }
     return filters.length > 0 ? ` (${filters.join(' | ')})` : '';
-  };
+  }, [selectedDoctor, doctors, studies, selectedModalities, searchTerm]);
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
+  const startIndex = (currentPage - 1) * recordsPerPage;
+  const paginatedStudies = filteredStudies.slice(startIndex, startIndex + recordsPerPage);
+
+  // Rest of your JSX remains the same...
   return (
     <div className="h-screen bg-gray-50 flex flex-col">
       <UniversalNavbar />

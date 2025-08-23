@@ -6,6 +6,8 @@ import mongoose from 'mongoose';
 import NodeCache from 'node-cache';
 import { calculateStudyTAT } from '../utils/TATutility.js';
 import patient from '../models/patientModel.js';
+import Document from '../models/documentModal.js';
+
 
 // 🔧 PERFORMANCE: Advanced caching for TAT reports
 const cache = new NodeCache({
