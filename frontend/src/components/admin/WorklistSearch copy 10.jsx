@@ -328,6 +328,18 @@ const selectedLocationLabel = useMemo(() => {
     setAccessionNumber('');
     setDescription('');
     setWorkflowStatus('all');
+    
+    // Clear date filters via props
+    if (onCustomDateChange) {
+      onCustomDateChange('', '');
+    }
+    if (onDateFilterChange) {
+      onDateFilterChange('today');
+    }
+    if (onDateTypeChange) {
+      onDateTypeChange('UploadDate');
+    }
+    
     setEmergencyCase(false);
     setMlcCase(false);
     setStudyType('all');
@@ -339,22 +351,10 @@ const selectedLocationLabel = useMemo(() => {
       PR: false,
       'CT\\SR': false
     });
-
-    // Clear date filters via props
-    if (onCustomDateChange) {
-      onCustomDateChange('', '');
-    }
-    if (onDateFilterChange) {
-      onDateFilterChange('today');
-    }
-    if (onDateTypeChange) {
-      onDateTypeChange('UploadDate');
-    }
-
-    // 🟢 FIX: Always call onSearchWithBackend(null) to trigger default admin fetch
-    if (onSearchWithBackend) {
-      onSearchWithBackend(null);
-    }
+    
+    // Trigger normal admin data fetch (no search)
+    console.log('🧹 CLEAR: Triggering normal admin data fetch');
+    onSearchWithBackend(null);
   }, [onCustomDateChange, onDateFilterChange, onDateTypeChange, onSearchWithBackend]);
 
   const toggleExpanded = useCallback(() => {

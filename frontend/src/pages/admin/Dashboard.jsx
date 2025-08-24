@@ -242,7 +242,7 @@ const AdminDashboard = React.memo(() => {
   // Handle search with backend parameters
   const handleSearchWithBackend = useCallback((searchParams) => {
     console.log('🔍 DASHBOARD: Handling search with backend params:', searchParams);
-    fetchAllData(searchParams);
+    fetchAllData(searchParams || {});
   }, [fetchAllData]);
 
   // Handle records per page change
