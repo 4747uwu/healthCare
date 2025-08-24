@@ -49,7 +49,7 @@ const WorklistSearch = React.memo(({
   // Basic filters for advanced search
   const [patientName, setPatientName] = useState('');
   const [patientId, setPatientId] = useState('');
-  const [accessionNumber, setPatientAccessionNumber] = useState('');
+  const [accessionNumber, setAccessionNumber] = useState(''); // Changed from setPatientAccessionNumber
   const [description, setDescription] = useState('');
   
   // Enhanced filters matching the UI design
@@ -325,7 +325,7 @@ const selectedLocationLabel = useMemo(() => {
     setPatientName('');
     setPatientId('');
     setRefName('');
-    setAccessionNumber('');
+    setAccessionNumber(''); // ✅ This is correct now
     setDescription('');
     setWorkflowStatus('all');
     setEmergencyCase(false);
@@ -351,7 +351,7 @@ const selectedLocationLabel = useMemo(() => {
       onDateTypeChange('UploadDate');
     }
 
-    // 🟢 FIX: Always call onSearchWithBackend(null) to trigger default admin fetch
+    // Reset to default admin view
     if (onSearchWithBackend) {
       onSearchWithBackend(null);
     }
@@ -926,7 +926,7 @@ const selectedLocationLabel = useMemo(() => {
                     <input
                       type="text"
                       value={accessionNumber}
-                      onChange={(e) => setPatientAccessionNumber(e.target.value)}
+                      onChange={(e) => setAccessionNumber(e.target.value)} // ✅ FIXED: Now matches the state setter
                       className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Enter accession number..."
                     />
