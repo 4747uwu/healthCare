@@ -924,7 +924,7 @@ export const getDoctors = async (req, res) => {
             });
         }
 
-        // 🔧 ENHANCED: Get doctors who have actually uploaded reports
+        // 🔍 ENHANCED DEBUG: Get detailed document counts
         const doctors = await Doctor.aggregate([
             {
                 $lookup: {
@@ -944,7 +944,7 @@ export const getDoctors = async (req, res) => {
                     isActiveProfile: true
                 }
             },
-            // 🆕 NEW: Lookup documents to see which doctors have uploaded reports
+            // 🔍 ENHANCED: Get detailed document analysis
             {
                 $lookup: {
                     from: 'documents',
@@ -953,7 +953,32 @@ export const getDoctors = async (req, res) => {
                     as: 'uploadedDocuments',
                     pipeline: [
                         { $match: { documentType: 'clinical' } },
-                        { $group: { _id: null, count: { $sum: 1 } } }
+                        {
+                            $group: {
+                                _id: '$studyId', // Group by study to see unique studies
+                                documentCount: { $sum: 1 }, // Count documents per study
+                                documents: { 
+                                    $push: { 
+                                        _id: '$_id', 
+                                        uploadedAt: '$uploadedAt',
+                                        studyId: '$studyId'
+                                    } 
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            // 🔍 ENHANCED: Also get raw document count
+            {
+                $lookup: {
+                    from: 'documents',
+                    localField: 'userAccount._id',
+                    foreignField: 'uploadedBy',
+                    as: 'rawDocuments',
+                    pipeline: [
+                        { $match: { documentType: 'clinical' } },
+                        { $project: { studyId: 1, uploadedAt: 1, _id: 1 } }
                     ]
                 }
             },
@@ -962,22 +987,69 @@ export const getDoctors = async (req, res) => {
                     _id: 1,
                     specialization: 1,
                     userAccount: { $arrayElemAt: ['$userAccount', 0] },
-                    reportCount: { $ifNull: [{ $arrayElemAt: ['$uploadedDocuments.count', 0] }, 0] }
+                    // Count unique studies (what frontend counts)
+                    uniqueStudyCount: { $size: '$uploadedDocuments' },
+                    // Count total documents (what we were counting before)
+                    totalDocumentCount: { $size: '$rawDocuments' },
+                    // Debug data
+                    uploadedDocuments: '$uploadedDocuments',
+                    rawDocuments: '$rawDocuments'
                 }
             },
             { $sort: { 'userAccount.fullName': 1 } }
         ]);
 
-        const formattedDoctors = doctors.map(doctor => ({
-            value: doctor.userAccount._id.toString(), // ✅ CORRECT: Use user ID (this is right)
-            label: doctor.userAccount.fullName,
-            specialization: doctor.specialization || 'N/A',
-            email: doctor.userAccount.email,
-            reportCount: doctor.reportCount || 0,
-            // ✅ FIXED: Use user ID instead of doctor profile ID
-            doctorId: doctor.userAccount._id.toString(), // Changed from doctor._id to doctor.userAccount._id
-            userId: doctor.userAccount._id.toString() // ✅ ADD: Clear reference to user ID
-        }));
+        const formattedDoctors = doctors.map(doctor => {
+            // 🔍 DEBUG: Log detailed analysis for each doctor
+            console.log(`🔍 DEBUG Doctor: ${doctor.userAccount.fullName} (${doctor.userAccount._id})`);
+            console.log(`  - Unique Studies: ${doctor.uniqueStudyCount}`);
+            console.log(`  - Total Documents: ${doctor.totalDocumentCount}`);
+            
+            // 🔍 DEBUG: Show document distribution per study
+            if (doctor.uploadedDocuments.length > 0) {
+                console.log(`  - Study breakdown:`);
+                doctor.uploadedDocuments.forEach(studyGroup => {
+                    console.log(`    * Study ${studyGroup._id}: ${studyGroup.documentCount} documents`);
+                });
+                
+                // 🔍 DEBUG: Check for multiple documents per study
+                const multipleDocsPerStudy = doctor.uploadedDocuments.filter(s => s.documentCount > 1);
+                if (multipleDocsPerStudy.length > 0) {
+                    console.log(`  ⚠️  MULTIPLE DOCS PER STUDY:`);
+                    multipleDocsPerStudy.forEach(study => {
+                        console.log(`    * Study ${study._id}: ${study.documentCount} documents`);
+                        study.documents.forEach(doc => {
+                            console.log(`      - Doc ${doc._id} uploaded at ${doc.uploadedAt}`);
+                        });
+                    });
+                }
+            }
+            
+            return {
+                value: doctor.userAccount._id.toString(),
+                label: doctor.userAccount.fullName,
+                specialization: doctor.specialization || 'N/A',
+                email: doctor.userAccount.email,
+                // ✅ CRITICAL FIX: Use uniqueStudyCount to match frontend logic
+                reportCount: doctor.uniqueStudyCount || 0, // Changed from totalDocumentCount
+                doctorId: doctor.userAccount._id.toString(),
+                userId: doctor.userAccount._id.toString(),
+                // 🔍 DEBUG: Include both counts for comparison
+                totalDocuments: doctor.totalDocumentCount || 0,
+                uniqueStudies: doctor.uniqueStudyCount || 0
+            };
+        });
+
+        // 🔍 DEBUG: Log summary
+        console.log(`🔍 DEBUG Summary:`);
+        formattedDoctors.forEach(doctor => {
+            if (doctor.totalDocuments > 0 || doctor.uniqueStudies > 0) {
+                console.log(`${doctor.label}: ${doctor.uniqueStudies} studies, ${doctor.totalDocuments} total documents`);
+                if (doctor.totalDocuments > doctor.uniqueStudies) {
+                    console.log(`  ⚠️  Has ${doctor.totalDocuments - doctor.uniqueStudies} extra documents (multiple docs per study)`);
+                }
+            }
+        });
 
         cache.set(cacheKey, formattedDoctors, 1800);
 
