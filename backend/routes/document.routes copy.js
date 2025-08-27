@@ -34,11 +34,19 @@ const upload = multer({
   }
 });
 
+
+
+
 // Apply protection to all routes
 router.use(protect);
-
-// Get initial report data
 router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
+
+
+router.post('/study/:studyId/upload', 
+  // authorize('admin', 'lab_staff', 'doctor_account'),
+  upload.single('file'), // FIXED: Changed to match frontend
+  DocumentController.uploadStudyReport
+);
 
 // Generate patient report (NO STORAGE - direct download)
 router.get('/study/:studyId/generate-patient-report', 
@@ -46,21 +54,10 @@ router.get('/study/:studyId/generate-patient-report',
   DocumentController.generatePatientReport
 );
 
-router.post('/study/:studyId/convert-and-upload-libreoffice', 
-   
-  DocumentController.convertAndUploadReportWithLibreOffice
-);
-
 // Get all reports for a study (metadata only)
 router.get('/study/:studyId/reports', 
   authorize('admin', 'lab_staff', 'doctor_account'),
   DocumentController.getStudyReports
-);
-
-// 🔧 NEW: Convert HTML report and upload to Wasabi
-router.post('/study/:studyId/convert-and-upload', 
-  authorize('admin', 'lab_staff', 'doctor_account'),
-  DocumentController.convertAndUploadReport
 );
 
 // Upload report to study with Wasabi storage

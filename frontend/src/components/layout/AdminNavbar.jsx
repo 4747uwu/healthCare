@@ -29,7 +29,7 @@ const UniversalNavbar = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // ✅ FIXED: Get role-based configurations with consistent structure
+  // ✅ ENHANCED: Get role-based configurations with all roles and templates link
   const getRoleConfig = () => {
     switch (currentUser?.role) {
       case 'admin':
@@ -46,6 +46,7 @@ const UniversalNavbar = () => {
             { to: '/admin/labs', label: 'Labs Management', icon: 'building', exact: false },
             { to: '/admin/owners', label: 'Owner Management', icon: 'crown', exact: false },
             { to: '/reports/tat', label: 'TAT Reports', icon: 'chart', exact: false },
+            { to: '/admin/templates', label: 'Templates', icon: 'templates', exact: false }, // ✅ ADDED
           ],
           quickActions: [
             { to: '/admin/new-doctor', label: 'Add Doctor', icon: 'userPlus' },
@@ -106,7 +107,7 @@ const UniversalNavbar = () => {
 
   const config = getRoleConfig();
 
-  // ✅ FIXED: Icon component for navigation items
+  // ✅ ENHANCED: Icon component with all icons from both files
   const NavIcon = ({ type, className = "w-5 h-5" }) => {
     const icons = {
       dashboard: (
@@ -150,6 +151,47 @@ const UniversalNavbar = () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5l-5-5-4 4-5-5v-11a2 2 0 012-2h10a2 2 0 012 2v11z" />
         </svg>
       ),
+      // ✅ ADDED: Templates icon
+      templates: (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      // ✅ ADDED: Other icons from the second file
+      doctors: (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className={className}>
+          <g data-name="29-doctor">
+            <path d="M34 13h3v3.77a2.965 2.965 0 0 0-2-.77h-1zM11 13h3v3h-1a2.965 2.965 0 0 0-2 .77z" style={{fill: "#2b3e5b"}} />
+            <path d="M14.04 21c.03.33.07.66.12.98L14 22h-1a3 3 0 0 1-3-3 3.011 3.011 0 0 1 3-3h1v4c0 .34.01.67.04 1z" style={{fill: "#faa68e"}} />
+            <path d="M37 16.77A2.94 2.94 0 0 1 38 19a3 3 0 0 1-3 3h-1v-6h1a2.965 2.965 0 0 1 2 .77z" style={{fill: "#ffcdbe"}} />
+            <path d="M37 16.77a2.965 2.965 0 0 0-2-.77h-1a3 3 0 0 1 0 6h1a3 3 0 0 0 3-3 2.94 2.94 0 0 0-1-2.23z" style={{fill: "#fdddd7"}} />
+            <path d="M11 16.77a2.965 2.965 0 0 1 2-.77h1a3 3 0 0 0 0 6h-1a3 3 0 0 1-3-3 2.94 2.94 0 0 1 1-2.23zM30.89 35.08l-7.13 4.75-6.65-4.75a2.017 2.017 0 0 0 .89-1.66V29l.09-.12a9.3 9.3 0 0 0 11.82 0L30 29v4.42a2.017 2.017 0 0 0 .89 1.66zM34 13v7c0 .34-.01.67-.04 1H14.04c-.03-.33-.04-.66-.04-1v-7h20z" style={{fill: "#ffcdbe"}} />
+            <path d="M14.04 21h19.92a11.475 11.475 0 0 1-2.89 6.78 10.944 10.944 0 0 1-1.16 1.1 9.3 9.3 0 0 1-11.82 0 11.241 11.241 0 0 1-3.93-6.9c-.05-.32-.09-.65-.12-.98zM32 13H11c0-7.18 5.82-12 13-12a13.658 13.658 0 0 1 9.19 3.31A11.416 11.416 0 0 1 37 13h-5z" style={{fill: "#64e1dc"}} />
+          </g>
+        </svg>
+      ),
+      admin: (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className={className}>
+          <g data-name="admin-icon">
+            <circle cx="24" cy="16" r="8" style={{fill: "#ffcdbe"}} />
+            <path d="M16 16c0-4.4 3.6-8 8-8s8 3.6 8 8c0 2.2-.9 4.2-2.3 5.7" style={{fill: "#fdddd7"}} />
+            <path d="M24 8c-4.4 0-8 3.6-8 8 0 1.1.2 2.1.6 3.1C18.1 16.4 20.9 14 24 14s5.9 2.4 7.4 5.1c.4-1 .6-2 .6-3.1 0-4.4-3.6-8-8-8z" style={{fill: "#8b4513"}} />
+            <ellipse cx="20" cy="15" rx="1" ry="1.5" style={{fill: "#2b3e5b"}} />
+            <ellipse cx="28" cy="15" rx="1" ry="1.5" style={{fill: "#2b3e5b"}} />
+            <path d="M24 24c-6 0-11 4-13 10v10c0 2 1.6 3.6 3.6 3.6h18.8c2 0 3.6-1.6 3.6-3.6V34c-2-6-7-10-13-10z" style={{fill: "#1a365d"}} />
+          </g>
+        </svg>
+      ),
+      labs: (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+        </svg>
+      ),
+      reports: (
+        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
     };
     
     return icons[type] || icons.dashboard;
@@ -185,7 +227,7 @@ const UniversalNavbar = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ✅ FIXED: Add safety check for config and links
+  // ✅ PRESERVED: Safety check for config and links
   if (!config || !config.links) {
     return (
       <nav className="bg-white/95 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50 shadow-sm">

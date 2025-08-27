@@ -25,6 +25,9 @@ import LabBillingDetails from './pages/LabBillingDetails';
 import InvoiceManagement from './pages/owner/InvoiceManagement';
 import InvoiceDetail from './pages/owner/InvoiceDetail';
 import OwnerManagement from './pages/OwnerManagement';
+// ✅ NEW: Additional imports
+import TemplateManager from './components/layout/TemplateMangement';
+import OnlineReportingSystem from './components/layout/OnlineReportingSystem';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { currentUser, loading } = useAuth();
@@ -132,6 +135,16 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+
+            {/* ✅ NEW: Template Management Route */}
+            <Route 
+              path="/admin/templates" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <TemplateManager />
+                </ProtectedRoute>
+              } 
+            />
             
             {/* Lab Routes */}
             <Route 
@@ -213,6 +226,16 @@ function App() {
               } 
             />
             <Route path="/share/:token" element={<ShareStudy />} />
+
+            {/* ✅ NEW: Online Reporting System Route */}
+            <Route 
+              path="/reporting/:studyId" 
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'lab_staff', 'doctor_account']}>
+                  <OnlineReportingSystem />
+                </ProtectedRoute>
+              } 
+            />
             
             {/* Catch-all route */}
             <Route path="*" element={<Navigate to="/login" replace />} />

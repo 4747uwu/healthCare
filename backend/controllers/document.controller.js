@@ -14,9 +14,17 @@ import WasabiService from '../services/wasabi.service.js';
 
 import Document from '../models/documentModal.js';
 import { calculateStudyTAT, getLegacyTATFields, updateStudyTAT } from '../utils/TATutility.js';
+import puppeteer from 'puppeteer';
+import { createWriteStream, writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { v4 as uuidv4 } from 'uuid';
+import HTMLtoDOCX from 'html-to-docx';
+import * as cheerio from 'cheerio';
 
-
-
+import FormData from 'form-data';
+import fetch from 'node-fetch';
+import { Readable } from 'stream';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +32,9 @@ const __dirname = path.dirname(__filename);
 
 // 🔧 FIX: Define TEMPLATES_DIR constant
 const TEMPLATES_DIR = path.join(__dirname, '../templates');
+
+// Add LibreOffice configuration
+const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://localhost:8000';
 
 class DocumentController {
   // Generate and download patient report (NO STORAGE)
@@ -325,9 +336,6 @@ class DocumentController {
     }
 }
 
-// Add this new method to your DocumentController class
-
-// In your controller file (e.g., documentController.js)
 
 static async getInitialReportData(req, res) {
   console.log("getInitialReportData hit by user:", req.user.id);
@@ -609,9 +617,7 @@ static async getInitialReportData(req, res) {
     }
   }
 
-  // REMOVE saveDocumentToStudy method since we're not storing generated reports
-
-  // Get report from study (only uploaded reports)
+ 
 static async getStudyReport(req, res) {
   console.log('🔧 Retrieving study report with Wasabi integration...');
   try {
@@ -1672,6 +1678,923 @@ static async generateDocumentWithSignature(templateName, templateData, signature
           return false;
       }
   }
+
+
+
+
+// Add this new method to DocumentController class
+static async convertAndUploadReport(req, res) {
+  console.log('🔄 Converting HTML report and uploading...');
+  console.log('Request body:', req.body); // Debug: Log the entire request body
+  
+  try {
+    const { studyId } = req.params;
+    const { 
+      htmlContent, 
+      format, 
+      reportData, 
+      templateInfo, 
+      reportStatus = 'finalized',
+      reportType = 'final-medical-report' 
+    } = req.body;
+
+    // Validate inputs
+    if (!htmlContent || !htmlContent.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'HTML content is required'
+      });
+    }
+
+    if (!format || !['pdf', 'docx'].includes(format.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Format must be either "pdf" or "docx"'
+      });
+    }
+
+    // Get study data
+    const study = await DicomStudy.findById(studyId)
+      .populate('patient', 'patientID firstName lastName')
+      .populate('assignment.assignedTo');
+
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // Get doctor info
+    let doctor = null;
+    let effectiveDoctorId = null;
+    
+    if (study.assignment?.assignedTo) {
+      effectiveDoctorId = study.assignment.assignedTo;
+      doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+    }
+
+    const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Online System';
+
+    // Prepare enhanced HTML with proper styling
+    const styledHtml = DocumentController.prepareStyledHTML(htmlContent, reportData);
+    
+    let convertedBuffer;
+    let fileName;
+    let contentType;
+
+    if (format.toLowerCase() === 'pdf') {
+      // Convert to PDF
+      const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
+      convertedBuffer = pdfResult.buffer;
+      fileName = `final_report_${reportData?.patientName?.replace(/[^a-zA-Z0-9]/g, '_') || 'patient'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      contentType = 'application/pdf';
+      
+    } else if (format.toLowerCase() === 'docx') {
+      // For DOCX: Use the NEW method to inject inline styles into the raw HTML.
+      console.log('Preparing HTML for DOCX conversion...');
+      const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
+      const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
+      
+      convertedBuffer = docxResult.buffer;
+      fileName = `final_report_${reportData?.patientName?.replace(/[^a-zA-Z0-9]/g, '_') || 'patient'}_${new Date().toISOString().split('T')[0]}.docx`;
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+
+    console.log(`✅ Report converted to ${format.toUpperCase()}, size: ${convertedBuffer.length} bytes`);
+
+    // Upload to Wasabi
+    const wasabiResult = await WasabiService.uploadDocument(
+      convertedBuffer,
+      fileName,
+      'clinical',
+      {
+        patientId: study.patientId,
+        studyId: study.studyInstanceUID,
+        uploadedBy: uploaderName,
+        doctorId: effectiveDoctorId,
+        reportStatus: reportStatus,
+        format: format.toUpperCase(),
+        convertedFromHTML: true
+      }
+    );
+
+    if (!wasabiResult.success) {
+      console.error('❌ Wasabi upload failed:', wasabiResult.error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to upload converted report to storage',
+        error: wasabiResult.error
+      });
+    }
+
+    console.log('✅ Converted report uploaded to Wasabi:', wasabiResult.key);
+
+    // Create Document record
+    const documentRecord = new Document({
+      fileName: fileName,
+      fileSize: convertedBuffer.length,
+      contentType: contentType,
+      documentType: 'clinical',
+      wasabiKey: wasabiResult.key,
+      wasabiBucket: wasabiResult.bucket,
+      patientId: study.patientId,
+      studyId: study._id,
+      uploadedBy: req.user.id
+    });
+
+    await documentRecord.save();
+
+    // Add to study's doctorReports
+    const doctorReportDocument = {
+      _id: documentRecord._id,
+      filename: fileName,
+      contentType: contentType,
+      size: convertedBuffer.length,
+      reportType: doctor ? 'doctor-report' : 'radiologist-report',
+      uploadedAt: new Date(),
+      uploadedBy: uploaderName,
+      reportStatus: reportStatus,
+      doctorId: effectiveDoctorId,
+      wasabiKey: wasabiResult.key,
+      wasabiBucket: wasabiResult.bucket,
+      storageType: 'wasabi',
+      // Add conversion metadata
+      convertedFromHTML: true,
+      originalFormat: 'html',
+      convertedFormat: format.toUpperCase(),
+      templateUsed: templateInfo?.templateName || 'Online Editor'
+    };
+
+    if (!study.doctorReports) {
+      study.doctorReports = [];
+    }
+
+    study.doctorReports.push(doctorReportDocument);
+    study.ReportAvailable = true;
+
+    // Update report info
+    study.reportInfo = study.reportInfo || {};
+    study.reportInfo.finalizedAt = new Date();
+    study.reportInfo.reporterName = uploaderName;
+
+    // Update workflow status
+    try {
+      await updateWorkflowStatus({
+        studyId: studyId,
+        status: 'report_finalized',
+        doctorId: effectiveDoctorId,
+        note: `HTML report converted to ${format.toUpperCase()} and uploaded by ${uploaderName}`,
+        user: req.user
+      });
+    } catch (workflowError) {
+      console.warn('Workflow status update failed:', workflowError.message);
+    }
+
+    await study.save();
+
+    // Generate download URL (optional)
+    const downloadUrl = `/api/documents/study/${studyId}/reports/${study.doctorReports.length - 1}/download`;
+
+    res.json({
+      success: true,
+      message: `Report successfully converted to ${format.toUpperCase()} and uploaded`,
+      report: {
+        _id: documentRecord._id,
+        filename: fileName,
+        size: convertedBuffer.length,
+        format: format.toUpperCase(),
+        reportType: doctorReportDocument.reportType,
+        reportStatus: reportStatus,
+        uploadedBy: uploaderName,
+        uploadedAt: doctorReportDocument.uploadedAt,
+        wasabiKey: wasabiResult.key,
+        storageType: 'wasabi',
+        convertedFromHTML: true
+      },
+      downloadUrl: downloadUrl,
+      workflowStatus: 'report_finalized',
+      study: {
+        _id: study._id,
+        patientName: reportData?.patientName || 'Unknown Patient'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error converting and uploading report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error converting and uploading report',
+      error: error.message
+    });
+  }
+}
+
+static prepareStyledHTML(htmlContent, reportData) {
+  const styledHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {
+                size: A4;
+                margin: 1cm;
+            }
+            
+            body {
+                font-family: Arial, sans-serif;
+                line-height: 1.4;
+                margin: 0;
+                color: #000;
+                font-size: 11pt;
+            }
+            
+            .multi-page-report {
+                max-width: 100%;
+                margin: 0;
+                counter-reset: page;
+            }
+            
+            .report-page {
+                page-break-after: always;
+                counter-increment: page;
+                min-height: calc(100vh - 2cm);
+                position: relative;
+            }
+            
+            .report-page:last-child {
+                page-break-after: auto;
+            }
+            
+            .page-header-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 20px;
+                font-size: 10pt;
+            }
+            
+            .page-header-table td {
+                padding: 6px 8px;
+                border: 1px solid #000;
+                vertical-align: top;
+            }
+            
+            .page-header-table td:first-child, 
+            .page-header-table td:nth-child(3) {
+                background-color: #b2dfdb;
+                font-weight: bold;
+                width: 20%;
+            }
+            
+            .page-header-table td:nth-child(2),
+            .page-header-table td:nth-child(4) {
+                background-color: #ffffff;
+                width: 30%;
+            }
+            
+            .content-flow-area {
+                margin-bottom: 40px;
+            }
+            
+            .floating-signature {
+                margin-top: 40px;
+                text-align: left;
+                font-size: 10pt;
+                line-height: 1.1;
+                page-break-inside: avoid;
+            }
+            
+            .doctor-name {
+                font-weight: bold;
+                margin-bottom: 1px;
+                font-size: 11pt;
+            }
+            
+            .doctor-specialization, .doctor-license {
+                margin: 1px 0;
+                font-size: 11pt;
+            }
+            
+            .signature-image {
+                width: 80px;
+                height: 40px;
+                margin: 5px 0;
+            }
+            
+            .disclaimer {
+                font-style: italic;
+                color: #666;
+                font-size: 8pt;
+                margin-top: 10px;
+                line-height: 1.0;
+            }
+            
+            /* Section styling */
+            .report-title, h1, h2, h3, .section-heading {
+                font-weight: bold;
+                text-decoration: underline;
+                page-break-after: avoid;
+            }
+            
+            .report-title, h1 {
+                font-size: 14pt;
+                text-align: center;
+                margin: 20px 0 15px 0;
+            }
+            
+            h2 {
+                font-size: 12pt;
+                text-align: center;
+                margin: 15px 0 10px 0;
+            }
+            
+            h3, .section-heading {
+                font-size: 11pt;
+                margin: 15px 0 8px 0;
+            }
+            
+            p {
+                margin: 4px 0;
+                font-size: 11pt;
+                line-height: 1.4;
+                orphans: 2;
+                widows: 2;
+            }
+            
+            ul, ol {
+                margin: 8px 0;
+                padding-left: 25px;
+            }
+            
+            li {
+                margin: 3px 0;
+                font-size: 11pt;
+            }
+            
+            strong { font-weight: bold; }
+            u { text-decoration: underline; }
+        </style>
+    </head>
+    <body>
+        ${htmlContent}
+    </body>
+    </html>
+  `;
+  
+  return styledHtml;
+}
+
+// Helper method to convert HTML to PDF using Puppeteer
+static async convertHTMLToPDF(htmlContent, reportData) {
+  let browser = null;
+  
+  try {
+    console.log('🔄 Launching Puppeteer for PDF conversion...');
+    
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    const page = await browser.newPage();
+    
+    // Set content
+    await page.setContent(htmlContent, {
+      waitUntil: 'networkidle0'
+    });
+
+    // Generate PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: {
+        top: '1cm',
+        right: '1cm',
+        bottom: '1cm',
+        left: '1cm'
+      },
+      printBackground: true
+    });
+
+    console.log('✅ PDF generated successfully, size:', pdfBuffer.length, 'bytes');
+    
+    return {
+      buffer: pdfBuffer,
+      success: true
+    };
+
+  } catch (error) {
+    console.error('❌ PDF conversion error:', error);
+    throw new Error(`PDF conversion failed: ${error.message}`);
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+
+// static prepareDocxCompatibleHTML(htmlContent) {
+//     console.log('✨ Preparing DOCX-compatible HTML with refined inline styles...');
+    
+//     const $ = cheerio.load(htmlContent);
+
+//     // --- 1. Style the Patient Info Table ---
+//     const patientTable = $('table').first();
+//     patientTable.css({
+//         'width': '100%',
+//         'border-collapse': 'collapse',
+//         'font-family': 'Arial, sans-serif',
+//         'font-size': '11pt',
+//         'margin-bottom': '20px'
+//     });
+
+
+
+//     // --- FIX: Make borders thinner (using 'pt' is often better for Word) ---
+//     patientTable.find('td').css({
+//         'border': '0.5pt solid black', 
+//         'padding': '5px',
+//         'vertical-align': 'top'
+//     });
+
+//     // --- FIX: Ensure background color is applied to header cells ---
+//     patientTable.find('tr').each((i, row) => {
+//         $(row).find('td:nth-child(1)').css({
+//             'background-color': '#f0f0f0',
+//             'font-weight': 'bold'
+//         });
+//         $(row).find('td:nth-child(3)').css({
+//             'background-color': '#f0f0f0',
+//             'font-weight': 'bold'
+//         });
+//     });
+
+//     // Style all standard paragraphs and list items
+//     $('p, li').css({
+//         'font-family': 'Arial, sans-serif',
+//         'font-size': '11pt',
+//         'margin': '8px 0'
+//     });
+
+//     // --- FIX: Make headings larger and bolder using a more robust selector ---
+//     // This finds paragraphs that contain both <strong> and <u> tags
+//     $('p:has(strong):has(u)').css({
+//         'font-size': '12pt', // Increased from 11pt
+//         'font-weight': 'bold'
+//     });
+    
+//     // --- FIX: Resize signature image to be smaller ---
+//     // This targets all images. If you have multiple, you might need a more specific selector.
+//     $('img').css({
+//         'width': '100px', // Set a fixed width
+//         'height': 'auto'  // Adjust height automatically
+//     });
+
+//     // Style the disclaimer text
+//     $('p:contains("Disclaimer")').css({
+//         'font-size': '9pt',
+//         'font-style': 'italic'
+//     });
+
+//     return $.html();
+// }
+
+
+
+// In DocumentController class
+// Don't forget: import * as cheerio from 'cheerio';
+
+
+
+static prepareDocxCompatibleHTML(htmlContent) {
+    console.log('✨ Applying final styles and layout container for DOCX...');
+    
+    const $ = cheerio.load(htmlContent);
+
+    // --- Apply all the specific styles from before ---
+    
+    // Style the Patient Info Table
+    const patientTable = $('table').first();
+    patientTable.css({
+        'width': '100%', // The table should be 100% of its NEW container
+        'border-collapse': 'collapse',
+        'font-family': 'Arial, sans-serif',
+        'font-size': '10pt'
+    });
+    patientTable.find('td').css({
+        'border': '0.5pt solid #a0a0a0',
+        'padding': '4px 8px',
+        'vertical-align': 'top'
+    });
+    patientTable.find('tr').each((i, row) => {
+        $(row).find('td:nth-child(1), td:nth-child(3)').css({
+            'background-color': '#e7f5fe', 
+            'font-weight': 'bold',
+        });
+    });
+
+    // Style Headings
+    $('h2').css({ 'text-align': 'center', 'font-size': '14pt', 'font-weight': 'bold', 'text-decoration': 'underline' });
+    $('p:has(strong):has(u)').css({ 'font-size': '11pt', 'font-weight': 'bold', 'text-decoration': 'underline' });
+
+    // Style Paragraphs and Lists
+    $('p, li').css({ 'font-family': 'Arial, sans-serif', 'font-size': '11pt', 'margin': '5px 0' });
+
+    // Style Signature Block
+    const signatureBlock = $('p:contains("Dr.")').nextAll().addBack();
+    signatureBlock.each((i, el) => {
+        const element = $(el);
+        if (element.is('p')) {
+            element.css({ 'margin': '1px 0', 'line-height': '1.1', 'font-size': '10pt' });
+        }
+        if (element.is('img')) {
+            element.css({ 'width': '80px', 'height': 'auto', 'margin': '5px 0' });
+        }
+    });
+
+    // --- FIX: Wrap ALL content in a master container div to control width ---
+    // This is the most important change to fix the layout.
+    const originalBodyContent = $('body').html();
+    $('body').html(
+        `<div style="max-width: 680px; margin: 0 auto;">${originalBodyContent}</div>`
+    );
+
+    return $.html();
+}
+
+
+static async convertHTMLToDOCX(htmlContent, reportData) {
+  try {
+    console.log('🔄 Converting HTML to DOCX...');
+    
+    // For DOCX conversion, you'll need a library like 'html-docx-js' or 'html-to-docx'
+    // Install: npm install html-to-docx
+    
+    const HTMLtoDOCX = await import('html-to-docx');
+    
+    const docxBuffer = await HTMLtoDOCX.default(htmlContent, null, {
+      table: { row: { cantSplit: true } },
+      footer: true,
+      pageNumber: true,
+      font: 'Arial'
+    });
+
+    console.log('✅ DOCX generated successfully, size:', docxBuffer.length, 'bytes');
+    
+    return {
+      buffer: docxBuffer,
+      success: true
+    };
+
+  } catch (error) {
+    console.error('❌ DOCX conversion error:', error);
+    throw new Error(`DOCX conversion failed: ${error.message}`);
+  }
+}
+
+  // 🔧 NEW: LibreOffice conversion method
+  static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
+    try {
+      console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
+      console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
+      
+      // Create form data for multipart upload
+      const formData = new FormData();
+      
+      // Create a readable stream from the PDF buffer
+      const pdfStream = Readable.from(pdfBuffer);
+      
+      // Append the PDF file to form data
+      formData.append('file', pdfStream, {
+        filename: `temp_${Date.now()}.pdf`,
+        contentType: 'application/pdf'
+      });
+
+      console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
+      
+      // Make request to LibreOffice service
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
+        method: 'POST',
+        body: formData,
+        headers: formData.getHeaders(),
+        timeout: 30000 // 30 seconds timeout
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ LibreOffice service error:', response.status, errorText);
+        throw new Error(`LibreOffice conversion failed: ${response.status} - ${errorText}`);
+      }
+
+      // Get the DOCX buffer
+      const docxBuffer = await response.buffer();
+      
+      console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
+      
+      return {
+        buffer: docxBuffer,
+        success: true
+      };
+
+    } catch (error) {
+      console.error('❌ LibreOffice conversion error:', error);
+      throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
+    }
+  }
+
+  // 🔧 NEW: Check LibreOffice service health
+  static async checkLibreOfficeService() {
+    try {
+      console.log('🔍 Checking LibreOffice service health...');
+      
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/`, {
+        method: 'GET',
+        timeout: 5000
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ LibreOffice service is healthy:', result);
+        return true;
+      } else {
+        console.warn('⚠️ LibreOffice service unhealthy:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ LibreOffice service unreachable:', error.message);
+      return false;
+    }
+  }
+
+  // 🔧 ENHANCED: Convert and upload report with LibreOffice integration
+  static async convertAndUploadReportWithLibreOffice(req, res) {
+    console.log('🔄 Converting HTML report to DOCX via LibreOffice and uploading...');
+    
+    try {
+      const { studyId } = req.params;
+      const { 
+        htmlContent, 
+        format, 
+        reportData, 
+        templateInfo, 
+        reportStatus = 'finalized'
+      } = req.body;
+
+      // Validate inputs
+      if (!htmlContent || !htmlContent.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'HTML content is required'
+        });
+      }
+
+      if (!format || !['pdf', 'docx'].includes(format.toLowerCase())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format must be either "pdf" or "docx"'
+        });
+      }
+
+      // Get study data
+      const study = await DicomStudy.findById(studyId)
+        .populate('patient', 'patientID firstName lastName')
+        .populate('assignment.assignedTo');
+
+      if (!study) {
+        return res.status(404).json({
+          success: false,
+          message: 'Study not found'
+        });
+      }
+
+      // Get doctor info
+      let doctor = null;
+      let effectiveDoctorId = null;
+      
+      if (study.assignment?.assignedTo) {
+        effectiveDoctorId = study.assignment.assignedTo;
+        doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+      }
+
+      const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Online System';
+
+      // 🔧 CRITICAL FIX: Determine valid reportType based on DicomStudy enum values
+      const getValidReportType = (userRole) => {
+        switch(userRole) {
+          case 'doctor_account':
+            return 'doctor-report';
+          case 'radiologist':
+            return 'radiologist-report';
+          case 'admin':
+          case 'lab_staff':
+          default:
+            return 'doctor-report';
+        }
+      };
+
+      const validReportType = getValidReportType(req.user?.role);
+      console.log(`📋 Using valid reportType: ${validReportType} for user role: ${req.user?.role}`);
+
+      // Prepare enhanced HTML with proper styling
+      const styledHtml = DocumentController.prepareStyledHTML(htmlContent, reportData);
+      
+      let convertedBuffer;
+      let fileName;
+      let contentType;
+
+      if (format.toLowerCase() === 'pdf') {
+        // Direct PDF conversion
+        const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
+        convertedBuffer = pdfResult.buffer;
+        fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.pdf`;
+        contentType = 'application/pdf';
+        
+      } else if (format.toLowerCase() === 'docx') {
+        // 🔧 NEW: LibreOffice conversion pipeline
+        console.log('🔄 Starting LibreOffice conversion pipeline...');
+        
+        // Step 1: Check LibreOffice service health
+        const serviceHealthy = await DocumentController.checkLibreOfficeService();
+        
+        if (!serviceHealthy) {
+          // Fallback to html-to-docx if LibreOffice is unavailable
+          console.log('⚠️ LibreOffice service unavailable, using fallback method...');
+          const docxResult = await DocumentController.convertHTMLToDOCX(styledHtml, reportData);
+          convertedBuffer = docxResult.buffer;
+        } else {
+          // Step 2: Convert HTML to PDF first
+          console.log('📄 Converting HTML to PDF for LibreOffice...');
+          const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
+          
+          // Step 3: Send PDF to LibreOffice service for DOCX conversion
+          console.log('🔄 Converting PDF to DOCX via LibreOffice...');
+          const docxResult = await DocumentController.convertPDFToDocxViaLibreOffice(pdfResult.buffer);
+          convertedBuffer = docxResult.buffer;
+        }
+        
+        fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.docx`;
+        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      }
+
+      console.log(`✅ Report converted to ${format.toUpperCase()}, size: ${convertedBuffer.length} bytes`);
+
+      // Upload to Wasabi
+      const wasabiResult = await WasabiService.uploadDocument(
+        convertedBuffer,
+        fileName,
+        'clinical',
+        {
+          studyId,
+          patientId: study.patient?.patientID || 'Unknown',
+          patientName: reportData?.patientName || 'Unknown Patient',
+          reportType: validReportType,
+          reportStatus: reportStatus,
+          format: format.toUpperCase(),
+          templateId: templateInfo?.templateId,
+          templateName: templateInfo?.templateName,
+          uploadedBy: req.user?.fullName || 'System',
+          uploadedAt: new Date().toISOString(),
+          convertedFrom: 'html',
+          conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer',
+          originalSize: convertedBuffer.length,
+          studyInstanceUID: study.studyInstanceUID
+        }
+      );
+
+      if (!wasabiResult.success) {
+        throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+      }
+
+      console.log(`✅ Converted report uploaded to Wasabi: ${wasabiResult.key}`);
+
+      // Create Document record with correct field names
+      const documentRecord = new Document({
+        studyId: study._id,
+        patientId: study.patient?._id,
+        fileName: fileName,              
+        fileSize: convertedBuffer.length,  
+        contentType: contentType,        
+        wasabiKey: wasabiResult.key,     
+        wasabiBucket: wasabiResult.bucket, 
+        documentType: 'clinical',
+        uploadedBy: req.user._id,
+        uploadedAt: new Date(),
+        
+        metadata: {
+          reportType: validReportType,
+          reportStatus: reportStatus,
+          format: format.toUpperCase(),
+          templateInfo: templateInfo,
+          convertedFrom: 'html',
+          conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer',
+          originalSize: convertedBuffer.length,
+          studyInstanceUID: study.studyInstanceUID
+        }
+      });
+
+      console.log('📋 Document record data before save:', {
+        fileName: documentRecord.fileName,
+        fileSize: documentRecord.fileSize,
+        contentType: documentRecord.contentType,
+        wasabiKey: documentRecord.wasabiKey,
+        wasabiBucket: documentRecord.wasabiBucket,
+        documentType: documentRecord.documentType
+      });
+
+      await documentRecord.save();
+      console.log('✅ Document record saved successfully:', documentRecord._id);
+
+      // Update study's doctorReports array with VALID enum values
+      const doctorReportEntry = {
+        _id: documentRecord._id,
+        filename: fileName,
+        contentType: contentType,
+        size: convertedBuffer.length,
+        reportType: validReportType,     // ✅ Valid enum value
+        reportStatus: reportStatus,      // ✅ Valid values: 'draft' or 'finalized'
+        uploadedAt: new Date(),
+        uploadedBy: uploaderName,
+        doctorId: effectiveDoctorId,
+        format: format.toUpperCase(),
+        storageType: 'wasabi',
+        wasabiKey: wasabiResult.key,
+        wasabiBucket: wasabiResult.bucket,
+        // Additional metadata
+        conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer'
+      };
+
+      if (!study.doctorReports) {
+        study.doctorReports = [];
+      }
+
+      console.log('📋 Adding doctor report entry with valid enum values:', {
+        reportType: doctorReportEntry.reportType,
+        reportStatus: doctorReportEntry.reportStatus,
+        filename: doctorReportEntry.filename,
+        conversionMethod: doctorReportEntry.conversionMethod
+      });
+
+      study.doctorReports.push(doctorReportEntry);
+      study.ReportAvailable = true;
+
+      // Update workflow status based on report status
+      if (reportStatus === 'finalized') {
+        study.workflowStatus = 'report_finalized';
+        study.reportInfo = {
+          ...study.reportInfo,
+          finalizedAt: new Date(),
+          finalizedBy: effectiveDoctorId
+        };
+      } else if (reportStatus === 'draft') {
+        study.workflowStatus = 'report_drafted';
+        study.reportInfo = {
+          ...study.reportInfo,
+          draftedAt: new Date(),
+          draftedBy: effectiveDoctorId
+        };
+      }
+
+      await study.save();
+      console.log('✅ Study updated with doctor report entry');
+
+      // Calculate TAT
+      try {
+        const freshTAT = calculateSimpleTAT(study.toObject());
+        console.log(`✅ TAT recalculated - Assignment to Report: ${freshTAT.assignmentToReportTATFormatted}`);
+      } catch (tatError) {
+        console.warn('⚠️ TAT calculation failed:', tatError.message);
+      }
+
+      res.status(201).json({
+        success: true,
+        message: `${format.toUpperCase()} report converted ${format.toLowerCase() === 'docx' ? 'via LibreOffice' : 'directly'} and uploaded successfully`,
+        data: {
+          documentId: documentRecord._id,
+          filename: fileName,
+          format: format.toUpperCase(),
+          size: convertedBuffer.length,
+          uploadedAt: documentRecord.uploadedAt,
+          wasabiKey: wasabiResult.key,
+          wasabiBucket: wasabiResult.bucket,
+          reportStatus: reportStatus,
+          reportType: validReportType,
+          conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer',
+          studyUpdated: true
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error in LibreOffice conversion and upload:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to convert and upload report via LibreOffice',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+  // ... existing methods remain the same ...
 }
 
 export default DocumentController;
