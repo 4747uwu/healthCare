@@ -34,7 +34,7 @@ const __dirname = path.dirname(__filename);
 const TEMPLATES_DIR = path.join(__dirname, '../templates');
 
 // Add LibreOffice configuration
-const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://localhost:8000';
+const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://libreoffice:8000/';
 
 class DocumentController {
   // Generate and download patient report (NO STORAGE)
@@ -2594,7 +2594,7 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
     }
   }
 
-  // ... existing methods remain the same ...
+ 
 }
 
 export default DocumentController;
