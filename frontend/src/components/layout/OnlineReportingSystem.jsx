@@ -141,8 +141,8 @@ const OnlineReportingSystem = () => {
     console.log('🔍 [Reporting] Study ID:', studyId);
     
     // Check authentication
-    const token = sessionManager.getToken();
-    const currentUser = sessionManager.getUser();
+     const token = sessionManager.getToken();
+    const currentUser = sessionManager.getCurrentUser();
     console.log('🔍 [Reporting] Token available:', !!token);
     console.log('🔍 [Reporting] Current user:', currentUser);
     
