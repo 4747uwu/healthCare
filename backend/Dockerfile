@@ -12,30 +12,47 @@ RUN apt-get update && apt-get install -y \
     git \
     # DCMTK for medical imaging
     dcmtk \
-    # 🔧 NEW: Puppeteer Chrome dependencies
+    # 🔧 ENHANCED: Complete Puppeteer Chrome dependencies
     wget \
     gnupg \
     ca-certificates \
+    curl \
+    # 🔧 CRITICAL: Core system libraries that were missing
+    libc6 \
+    libstdc++6 \
+    libgcc-s1 \
+    # 🔧 FONT and TEXT rendering
     fonts-liberation \
-    libappindicator3-1 \
+    fonts-dejavu-core \
+    fontconfig \
+    # 🔧 AUDIO libraries
     libasound2 \
+    # 🔧 ACCESSIBILITY libraries  
+    libappindicator3-1 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
     libatspi2.0-0 \
+    # 🔧 GRAPHICS and RENDERING libraries
     libcairo-gobject2 \
     libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
     libdrm2 \
-    libfontconfig1 \
     libgbm1 \
+    # 🔧 CRITICAL: GLib and related libraries (this was missing)
     libglib2.0-0 \
+    libglib2.0-dev \
     libgtk-3-0 \
     libgtk-4-1 \
+    # 🔧 PRINTING support
+    libcups2 \
+    # 🔧 DBUS for system communication
+    libdbus-1-3 \
+    # 🔧 MOZILLA/BROWSER libraries
     libnspr4 \
     libnss3 \
+    # 🔧 TEXT and FONT rendering
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
+    # 🔧 X11 and DISPLAY libraries
     libx11-6 \
     libx11-xcb1 \
     libxcb1 \
@@ -49,17 +66,31 @@ RUN apt-get update && apt-get install -y \
     libxrender1 \
     libxss1 \
     libxtst6 \
+    # 🔧 SYSTEM utilities
     lsb-release \
     xdg-utils \
+    # 🔧 SECURITY libraries
     libu2f-udev \
     libvulkan1 \
-    # Additional Chrome dependencies for headless mode
+    # 🔧 ADDITIONAL Chrome dependencies for headless mode
     libgconf-2-4 \
     libxkbcommon0 \
     libepoxy0 \
-    libdrm2 \
     libxkbfile1 \
     libsecret-1-0 \
+    # 🔧 NEW: Additional missing dependencies often required
+    libgdk-pixbuf2.0-0 \
+    libgtk-3-dev \
+    libxss-dev \
+    libasound2-dev \
+    libpangocairo-1.0-0 \
+    libatk1.0-dev \
+    libcairo-gobject2 \
+    libgtk-3-dev \
+    libgdk-pixbuf2.0-dev \
+    # 🔧 SHARED libraries that might be missing
+    libc6-dev \
+    libgcc-s1 \
     # Clean up to reduce image size
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -79,20 +110,27 @@ COPY . .
 RUN groupadd --gid 1001 nodejs && \
     useradd --uid 1001 --gid nodejs --shell /bin/bash --create-home nodejs
 
-# Create temp directory for DICOM operations with proper permissions
-RUN mkdir -p /tmp/dicom_temp && \
-    chown -R nodejs:nodejs /tmp/dicom_temp
 
-# 🔧 NEW: Create directory for Puppeteer cache and set permissions
+
+# 🔧 ENHANCED: Create directory for Puppeteer cache and set permissions
 RUN mkdir -p /home/nodejs/.cache/puppeteer && \
-    chown -R nodejs:nodejs /home/nodejs/.cache
+    mkdir -p /home/nodejs/.local/share/fonts && \
+    chown -R nodejs:nodejs /home/nodejs/.cache && \
+    chown -R nodejs:nodejs /home/nodejs/.local
 
 # Change ownership of app directory
 RUN chown -R nodejs:nodejs /app
 
-# 🔧 NEW: Set Puppeteer environment variables
+# 🔧 ENHANCED: Set Puppeteer environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
 ENV PUPPETEER_CACHE_DIR=/home/nodejs/.cache/puppeteer
+ENV PUPPETEER_EXECUTABLE_PATH=""
+# 🔧 NEW: Additional environment variables for Chrome
+ENV CHROME_BIN=""
+ENV DISPLAY=:99
+
+# 🔧 NEW: Font configuration for better text rendering
+ENV FONTCONFIG_PATH=/etc/fonts
 
 # Switch to non-root user (uncomment if needed)
 # USER nodejs
