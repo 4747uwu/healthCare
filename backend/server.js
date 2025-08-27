@@ -30,6 +30,8 @@ import zipdownloadRoutes from './routes/zipdownload.route.js';
 import ownerRoutes from './routes/owner.routes.js';
 import tatRoutes from './routes/TAT.routes.js';
 import bulkZipDownloadRoutes from './routes/bulkzip.routes.js';
+import htmlTemplateRoutes from './routes/htmlTemplate.routes.js';
+
 
 
 
@@ -209,6 +211,9 @@ app.use('/api/download', zipdownloadRoutes)
 app.use('/api/owner', ownerRoutes);
 app.use('/api/tat', tatRoutes)
 app.use('/api/bulk-download', bulkZipDownloadRoutes);
+app.use('/api/html-templates', htmlTemplateRoutes);
+
+
 
 // app.use('/api/orthanc-proxy', orthancProaxyRoutes);
 
