@@ -3,8 +3,6 @@ import axios from 'axios';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import websocketService from '../config/webSocket.js';
-// 🔧 FIXED: Import the correct service name
-import CloudflareR2ZipService from '../services/cloudflare.r2.zip.service.js';
 
 // Import Mongoose Models
 import DicomStudy from '../models/dicomStudyModel.js';
@@ -35,7 +33,7 @@ class StableStudyQueue {
     this.processing = new Set();
     this.nextJobId = 1;
     this.isProcessing = false;
-    this.concurrency = 10; // Process max 10 stable studies simultaneously
+    this.concurrency = 10; // Process max 2 stable studies simultaneously
   }
 
   async add(jobData) {
@@ -233,7 +231,7 @@ async function findOrCreatePatientFromTags(tags) {
     if (!unknownPatient) {
       unknownPatient = await Patient.create({
         mrn: 'UNKNOWN_STABLE_STUDY',
-        patientID: 'UNKNOWN_PATIENT',
+        patientID: 'UNKNOWN_PATIENT', // 🔧 FIXED: Use consistent unknown ID
         patientNameRaw: 'Unknown Patient (Stable Study)',
         firstName: '',
         lastName: '',
@@ -248,9 +246,10 @@ async function findOrCreatePatientFromTags(tags) {
   let patient = await Patient.findOne({ mrn: patientIdDicom });
 
   if (!patient) {
+    // 🔧 FIXED: Use DICOM PatientID directly instead of generating new one
     patient = new Patient({
       mrn: patientIdDicom || `ANON_${Date.now()}`,
-      patientID: patientIdDicom || `ANON_${Date.now()}`,
+      patientID: patientIdDicom || `ANON_${Date.now()}`, // 🔧 FIXED: Use DICOM PatientID
       patientNameRaw: nameInfo.formattedForDisplay,
       firstName: nameInfo.firstName,
       lastName: nameInfo.lastName,
@@ -398,7 +397,7 @@ async function processStableStudy(job) {
     console.log(`[StableStudy] 🚀 Processing stable study: ${orthancStudyId}`);
     job.progress = 10;
     
-    // 🔧 OPTIMIZED: Single API call to get all series info (EXACTLY AS YOUR CODE)
+    // 🔧 OPTIMIZED: Single API call to get all series info
     const seriesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/series`;
     console.log(`[StableStudy] 🌐 Fetching series from: ${seriesUrl}`);
     
@@ -412,7 +411,7 @@ async function processStableStudy(job) {
     
     job.progress = 30;
     
-    // 🔧 OPTIMIZED: Extract modalities and counts from series data (EXACTLY AS YOUR CODE)
+    // 🔧 OPTIMIZED: Extract modalities and counts from series data (no additional API calls)
     const modalitiesSet = new Set();
     let totalInstances = 0;
     let firstInstanceId = null;
@@ -438,7 +437,7 @@ async function processStableStudy(job) {
     
     job.progress = 50;
     
-    // 🔧 OPTIMIZED: Single API call to get tags from first instance only (EXACTLY AS YOUR CODE)
+    // 🔧 OPTIMIZED: Single API call to get tags from first instance only
     let tags = {};
     
     if (firstInstanceId) {
@@ -453,7 +452,7 @@ async function processStableStudy(job) {
         
         const rawTags = metadataResponse.data;
         
-        // 🔧 OPTIMIZED: Extract all necessary tags in one pass (EXACTLY AS YOUR CODE)
+        // 🔧 OPTIMIZED: Extract all necessary tags in one pass
         tags = {};
         for (const [tagKey, tagData] of Object.entries(rawTags)) {
           if (tagData && typeof tagData === 'object' && tagData.Value !== undefined) {
@@ -463,7 +462,7 @@ async function processStableStudy(job) {
           }
         }
         
-        // Map common DICOM fields (EXACTLY AS YOUR CODE)
+        // Map common DICOM fields (removed StudyInstanceUID)
         tags.PatientName = rawTags["0010,0010"]?.Value || tags.PatientName;
         tags.PatientID = rawTags["0010,0020"]?.Value || tags.PatientID;
         tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex;
@@ -475,7 +474,7 @@ async function processStableStudy(job) {
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
         tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysicianName;
         
-        // 🔧 CRITICAL: Extract private tags for lab identification (EXACTLY AS YOUR CODE)
+        // 🔧 CRITICAL: Extract private tags for lab identification
         tags["0013,0010"] = rawTags["0013,0010"]?.Value || null;
         tags["0015,0010"] = rawTags["0015,0010"]?.Value || null;
         tags["0021,0010"] = rawTags["0021,0010"]?.Value || null;
@@ -485,6 +484,7 @@ async function processStableStudy(job) {
           PatientName: tags.PatientName,
           PatientID: tags.PatientID,
           StudyDescription: tags.StudyDescription,
+          // 🔧 REMOVED: StudyInstanceUID logging
           PrivateTags: {
             "0013,0010": tags["0013,0010"],
             "0015,0010": tags["0015,0010"], 
@@ -496,7 +496,7 @@ async function processStableStudy(job) {
       } catch (metadataError) {
         console.warn(`[StableStudy] ⚠️ Could not get instance metadata:`, metadataError.message);
         
-        // 🔧 FALLBACK: Try simplified-tags if /tags fails (EXACTLY AS YOUR CODE)
+        // 🔧 FALLBACK: Try simplified-tags if /tags fails
         try {
           const simplifiedUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/simplified-tags`;
           const simplifiedResponse = await axios.get(simplifiedUrl, {
@@ -512,14 +512,16 @@ async function processStableStudy(job) {
       }
     }
     
-    // Fallback for empty modalities (EXACTLY AS YOUR CODE)
+    // 🔧 REMOVED: StudyInstanceUID validation - no longer needed
+    
+    // Fallback for empty modalities
     if (modalitiesSet.size === 0) {
       modalitiesSet.add('UNKNOWN');
     }
     
     job.progress = 70;
     
-    // Continue with patient and lab creation (EXACTLY AS YOUR CODE)
+    // Continue with patient and lab creation (same as before)
     const patientRecord = await findOrCreatePatientFromTags(tags);
     const labRecord = await findOrCreateSourceLab(tags);
     
@@ -528,13 +530,14 @@ async function processStableStudy(job) {
     
     job.progress = 80;
     
-    // 🔧 UPDATED: Find existing study by orthancStudyID (EXACTLY AS YOUR CODE)
+    // 🔧 UPDATED: Find existing study by orthancStudyID instead of studyInstanceUID
     let dicomStudyDoc = await DicomStudy.findOne({ orthancStudyID: orthancStudyId });
     
     console.log(`[StableStudy] 📊 Final optimized counts - Series: ${allSeries.length}, Instances: ${totalInstances}`);
     
     const studyData = {
       orthancStudyID: orthancStudyId,
+      // 🔧 REMOVED: studyInstanceUID field
       accessionNumber: tags.AccessionNumber || '',
       patient: patientRecord._id,
       patientId: patientRecord.patientID,
@@ -546,7 +549,7 @@ async function processStableStudy(job) {
       institutionName: tags.InstitutionName || '',
       workflowStatus: totalInstances > 0 ? 'new_study_received' : 'new_metadata_only',
       
-      // 🔧 OPTIMIZED: Use calculated counts (EXACTLY AS YOUR CODE)
+      // 🔧 OPTIMIZED: Use calculated counts
       seriesCount: allSeries.length,
       instanceCount: totalInstances,
       seriesImages: `${allSeries.length}/${totalInstances}`,
@@ -600,7 +603,7 @@ async function processStableStudy(job) {
       studyComments: tags.StudyComments || '',
       additionalPatientHistory: tags.AdditionalPatientHistory || '',
       
-      // Store lab identification info (EXACTLY AS YOUR CODE)
+      // Store lab identification info
       customLabInfo: {
         dicomLabId: tags["0011,1010"] || null,
         labIdSource: tags["0011,1010"] ? 'dicom_custom_tag' : 'private_tags_detection',
@@ -653,31 +656,9 @@ async function processStableStudy(job) {
     await dicomStudyDoc.save();
     console.log(`[StableStudy] ✅ Study saved with ID: ${dicomStudyDoc._id}`);
     
-    // 🆕 ADDITION: Queue ZIP creation job if study has instances
-    if (totalInstances > 0) {
-        console.log(`[StableStudy] 📦 Queuing ZIP creation for study: ${orthancStudyId}`);
-        
-        try {
-            const zipJob = await CloudflareR2ZipService.addZipJob({
-                orthancStudyId: orthancStudyId,
-                studyDatabaseId: dicomStudyDoc._id,
-                studyInstanceUID: dicomStudyDoc.studyInstanceUID || orthancStudyId, // Use orthancStudyId as fallback
-                instanceCount: totalInstances,
-                seriesCount: allSeries.length
-            });
-            
-            console.log(`[StableStudy] 📦 ZIP Job ${zipJob.id} queued for study: ${orthancStudyId}`);
-        } catch (zipError) {
-            console.error(`[StableStudy] ❌ Failed to queue ZIP job:`, zipError.message);
-            // Don't fail the study processing if ZIP queueing fails
-        }
-    } else {
-        console.log(`[StableStudy] ⚠️ Skipping ZIP creation - no instances found`);
-    }
-    
     job.progress = 90;
     
-    // Send notification (EXACTLY AS YOUR CODE)
+    // Send notification
     try {
       await websocketService.notifySimpleNewStudy();
       console.log(`[StableStudy] ✅ Notification sent`);
@@ -691,6 +672,7 @@ async function processStableStudy(job) {
       success: true,
       orthancStudyId: orthancStudyId,
       studyDatabaseId: dicomStudyDoc._id,
+      // 🔧 REMOVED: studyInstanceUID from result
       seriesCount: allSeries.length,
       instanceCount: totalInstances,
       processedAt: new Date(),
@@ -919,122 +901,6 @@ router.get('/job-status/:requestId', async (req, res) => {
       error: error.message
     });
   }
-});
-
-// 🆕 NEW: Manual ZIP creation endpoint
-router.post('/create-zip/:orthancStudyId', async (req, res) => {
-    try {
-        const { orthancStudyId } = req.params;
-        
-        console.log(`[Manual ZIP] 📦 Manual ZIP creation requested for: ${orthancStudyId}`);
-        
-        // Find study in database
-        const study = await DicomStudy.findOne({ orthancStudyID: orthancStudyId });
-        
-        if (!study) {
-            return res.status(404).json({
-                success: false,
-                message: 'Study not found in database'
-            });
-        }
-        
-        // Check if ZIP is already being processed or completed
-        if (study.preProcessedDownload?.zipStatus === 'processing') {
-            return res.json({
-                success: false,
-                message: 'ZIP creation already in progress',
-                status: 'processing',
-                jobId: study.preProcessedDownload.zipJobId
-            });
-        }
-        
-        if (study.preProcessedDownload?.zipStatus === 'completed' && study.preProcessedDownload?.zipUrl) {
-            return res.json({
-                success: true,
-                message: 'ZIP already exists',
-                status: 'completed',
-                zipUrl: study.preProcessedDownload.zipUrl,
-                zipSizeMB: study.preProcessedDownload.zipSizeMB,
-                createdAt: study.preProcessedDownload.zipCreatedAt
-            });
-        }
-        
-        // Queue new ZIP creation job
-        const zipJob = await CloudflareR2ZipService.addZipJob({
-            orthancStudyId: orthancStudyId,
-            studyDatabaseId: study._id,
-            studyInstanceUID: study.studyInstanceUID || orthancStudyId,
-            instanceCount: study.instanceCount || 0,
-            seriesCount: study.seriesCount || 0
-        });
-        
-        res.json({
-            success: true,
-            message: 'ZIP creation queued',
-            jobId: zipJob.id,
-            status: 'queued',
-            checkStatusUrl: `/orthanc/zip-status/${zipJob.id}`
-        });
-        
-    } catch (error) {
-        console.error('[Manual ZIP] ❌ Error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to queue ZIP creation',
-            error: error.message
-        });
-    }
-});
-
-// 🆕 NEW: ZIP job status endpoint
-router.get('/zip-status/:jobId', async (req, res) => {
-    try {
-        const { jobId } = req.params;
-        const job = CloudflareR2ZipService.getJob(parseInt(jobId));
-        
-        if (!job) {
-            return res.status(404).json({
-                success: false,
-                message: 'ZIP job not found'
-            });
-        }
-        
-        res.json({
-            success: true,
-            jobId: job.id,
-            status: job.status,
-            progress: job.progress,
-            createdAt: job.createdAt,
-            result: job.result,
-            error: job.error
-        });
-        
-    } catch (error) {
-        console.error('[ZIP Status] ❌ Error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to get ZIP status',
-            error: error.message
-        });
-    }
-});
-
-// 🆕 NEW: Initialize R2 bucket on startup
-router.get('/init-r2', async (req, res) => {
-    try {
-        await CloudflareR2ZipService.ensureR2Bucket();
-        res.json({
-            success: true,
-            message: 'R2 bucket initialized successfully'
-        });
-    } catch (error) {
-        console.error('[R2 Init] ❌ Error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to initialize R2 bucket',
-            error: error.message
-        });
-    }
 });
 
 export default router;
