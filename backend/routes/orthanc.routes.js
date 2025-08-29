@@ -415,7 +415,6 @@ async function processStableStudy(job) {
     const modalitiesSet = new Set();
     let totalInstances = 0;
     let firstInstanceId = null;
-    let studyInstanceUID = null;
     
     // Process all series to get modalities and instance counts
     for (const series of allSeries) {
@@ -430,11 +429,6 @@ async function processStableStudy(job) {
       // Get first instance ID for tag extraction (only if we don't have one yet)
       if (!firstInstanceId && series.Instances && series.Instances.length > 0) {
         firstInstanceId = series.Instances[0];
-      }
-      
-      // Try to get StudyInstanceUID from series if available
-      if (!studyInstanceUID && series.MainDicomTags?.StudyInstanceUID) {
-        studyInstanceUID = series.MainDicomTags.StudyInstanceUID;
       }
     }
     
@@ -468,7 +462,7 @@ async function processStableStudy(job) {
           }
         }
         
-        // Map common DICOM fields
+        // Map common DICOM fields (removed StudyInstanceUID)
         tags.PatientName = rawTags["0010,0010"]?.Value || tags.PatientName;
         tags.PatientID = rawTags["0010,0020"]?.Value || tags.PatientID;
         tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex;
@@ -479,7 +473,6 @@ async function processStableStudy(job) {
         tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
         tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysicianName;
-        tags.StudyInstanceUID = rawTags["0020,000D"]?.Value || studyInstanceUID;
         
         // 🔧 CRITICAL: Extract private tags for lab identification
         tags["0013,0010"] = rawTags["0013,0010"]?.Value || null;
@@ -491,8 +484,7 @@ async function processStableStudy(job) {
           PatientName: tags.PatientName,
           PatientID: tags.PatientID,
           StudyDescription: tags.StudyDescription,
-          StudyInstanceUID: tags.StudyInstanceUID,
-          // 🔧 LOG: Private tags for lab identification
+          // 🔧 REMOVED: StudyInstanceUID logging
           PrivateTags: {
             "0013,0010": tags["0013,0010"],
             "0015,0010": tags["0015,0010"], 
@@ -520,14 +512,7 @@ async function processStableStudy(job) {
       }
     }
     
-    // Ensure we have StudyInstanceUID
-    if (!studyInstanceUID && tags.StudyInstanceUID) {
-      studyInstanceUID = tags.StudyInstanceUID;
-    }
-    
-    if (!studyInstanceUID) {
-      throw new Error('StudyInstanceUID not found in study or instance data');
-    }
+    // 🔧 REMOVED: StudyInstanceUID validation - no longer needed
     
     // Fallback for empty modalities
     if (modalitiesSet.size === 0) {
@@ -545,14 +530,14 @@ async function processStableStudy(job) {
     
     job.progress = 80;
     
-    // Create study record
-    let dicomStudyDoc = await DicomStudy.findOne({ studyInstanceUID });
+    // 🔧 UPDATED: Find existing study by orthancStudyID instead of studyInstanceUID
+    let dicomStudyDoc = await DicomStudy.findOne({ orthancStudyID: orthancStudyId });
     
     console.log(`[StableStudy] 📊 Final optimized counts - Series: ${allSeries.length}, Instances: ${totalInstances}`);
     
     const studyData = {
       orthancStudyID: orthancStudyId,
-      studyInstanceUID: studyInstanceUID,
+      // 🔧 REMOVED: studyInstanceUID field
       accessionNumber: tags.AccessionNumber || '',
       patient: patientRecord._id,
       patientId: patientRecord.patientID,
@@ -687,7 +672,7 @@ async function processStableStudy(job) {
       success: true,
       orthancStudyId: orthancStudyId,
       studyDatabaseId: dicomStudyDoc._id,
-      studyInstanceUID: studyInstanceUID,
+      // 🔧 REMOVED: studyInstanceUID from result
       seriesCount: allSeries.length,
       instanceCount: totalInstances,
       processedAt: new Date(),
