@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import websocketService from '../config/webSocket.js';
 // 🔧 FIXED: Import the correct service name
-import CloudflareR2ZipService from '../services/cloudflare.r2.zip.service.js';
+import CloudflareR2ZipService from '../services/wasabi.zip.service.js';
 
 // Import Mongoose Models
 import DicomStudy from '../models/dicomStudyModel.js';
