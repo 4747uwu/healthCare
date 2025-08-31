@@ -1755,7 +1755,7 @@ static async convertAndUploadReport(req, res) {
       // For DOCX: Use the NEW method to inject inline styles into the raw HTML.
       console.log('Preparing HTML for DOCX conversion...');
       const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
-      const docxResult = await DocumentController.convertHTMLToPDF(styledHtmlForDocx, reportData);
+      const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
       
       convertedBuffer = docxResult.buffer;
       fileName = `final_report_${reportData?.patientName?.replace(/[^a-zA-Z0-9]/g, '_') || 'patient'}_${new Date().toISOString().split('T')[0]}.docx`;
@@ -2166,298 +2166,7 @@ static async convertHTMLToPDF(htmlContent, reportData) {
 // In DocumentController class
 // Don't forget: import * as cheerio from 'cheerio';
 
-// 🔧 NEW: Add the missing LibreOffice conversion method
-static async convertAndUploadReportWithLibreOffice(req, res) {
-  console.log('🔄 Starting LibreOffice conversion pipeline...');
-  console.log('Request body:', req.body);
-  
-  try {
-    const { studyId } = req.params;
-    const { 
-      htmlContent, 
-      format, 
-      reportData, 
-      templateInfo, 
-      reportStatus = 'finalized',
-      reportType = 'final-medical-report' 
-    } = req.body;
 
-    // Validate inputs
-    if (!htmlContent || !htmlContent.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'HTML content is required'
-      });
-    }
-
-    if (!format || !['pdf', 'docx'].includes(format.toLowerCase())) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format must be either "pdf" or "docx"'
-      });
-    }
-
-    // Get study data
-    const study = await DicomStudy.findById(studyId)
-      .populate('patient', 'patientID firstName lastName')
-      .populate('assignment.assignedTo');
-
-    if (!study) {
-      return res.status(404).json({
-        success: false,
-        message: 'Study not found'
-      });
-    }
-
-    // Get doctor info
-    let doctor = null;
-    let effectiveDoctorId = null;
-    
-    if (study.assignment?.assignedTo) {
-      effectiveDoctorId = study.assignment.assignedTo;
-      doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
-    }
-
-    const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Online System';
-
-    // Prepare enhanced HTML with proper styling
-    const styledHtml = DocumentController.prepareStyledHTML(htmlContent, reportData);
-    
-    let convertedBuffer;
-    let fileName;
-    let contentType;
-
-    if (format.toLowerCase() === 'pdf') {
-      // Convert to PDF
-      const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
-      convertedBuffer = pdfResult.buffer;
-      fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.pdf`;
-      contentType = 'application/pdf';
-      
-    } else if (format.toLowerCase() === 'docx') {
-      // 🔧 NEW: LibreOffice conversion pipeline with robust fallback
-      console.log('🔄 Starting DOCX conversion pipeline...');
-      
-      // Step 1: Check LibreOffice service health
-      const serviceHealthy = await DocumentController.checkLibreOfficeService();
-      
-      if (!serviceHealthy) {
-        console.log('⚠️ LibreOffice service unavailable, using direct HTML-to-DOCX...');
-        const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
-        const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
-        convertedBuffer = docxResult.buffer;
-      } else {
-        // Try LibreOffice conversion with fallback
-        try {
-          console.log('📄 Converting HTML to PDF for LibreOffice...');
-          const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
-          
-          console.log('🔄 Attempting PDF to DOCX conversion via LibreOffice...');
-          const docxResult = await DocumentController.convertPDFToDocxViaLibreOffice(pdfResult.buffer);
-          convertedBuffer = docxResult.buffer;
-          
-          console.log('✅ LibreOffice conversion successful');
-          
-        } catch (libreOfficeError) {
-          console.error('❌ LibreOffice conversion failed:', libreOfficeError.message);
-          console.log('🔄 Falling back to direct HTML-to-DOCX conversion...');
-          
-          // Fallback to direct HTML-to-DOCX conversion
-          try {
-            const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
-            const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
-            convertedBuffer = docxResult.buffer;
-            console.log('✅ Fallback HTML-to-DOCX conversion successful');
-          } catch (fallbackError) {
-            console.error('❌ Fallback conversion also failed:', fallbackError.message);
-            throw new Error(`Both LibreOffice and fallback DOCX conversion failed: ${fallbackError.message}`);
-          }
-        }
-      }
-      
-      fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.docx`;
-      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    }
-
-    console.log(`✅ Report converted to ${format.toUpperCase()}, size: ${convertedBuffer.length} bytes`);
-
-    // Upload to Wasabi
-    const wasabiResult = await WasabiService.uploadDocument(
-      convertedBuffer,
-      fileName,
-      'clinical',
-      {
-        patientId: study.patientId,
-        studyId: study.studyInstanceUID,
-        uploadedBy: uploaderName,
-        doctorId: effectiveDoctorId,
-        reportStatus: reportStatus,
-        format: format.toUpperCase(),
-        convertedFromHTML: true,
-        conversionMethod: 'libreoffice-pipeline'
-      }
-    );
-
-    if (!wasabiResult.success) {
-      console.error('❌ Wasabi upload failed:', wasabiResult.error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to upload converted report to storage',
-        error: wasabiResult.error
-      });
-    }
-
-    console.log('✅ Converted report uploaded to Wasabi:', wasabiResult.key);
-
-    // Create Document record
-    const documentRecord = new Document({
-      fileName: fileName,
-      fileSize: convertedBuffer.length,
-      contentType: contentType,
-      documentType: 'clinical',
-      wasabiKey: wasabiResult.key,
-      wasabiBucket: wasabiResult.bucket,
-      patientId: study.patientId,
-      studyId: study._id,
-      uploadedBy: req.user.id
-    });
-
-    await documentRecord.save();
-
-    // Add to study's doctorReports
-    const doctorReportDocument = {
-      _id: documentRecord._id,
-      filename: fileName,
-      contentType: contentType,
-      size: convertedBuffer.length,
-      reportType: doctor ? 'doctor-report' : 'radiologist-report',
-      uploadedAt: new Date(),
-      uploadedBy: uploaderName,
-      reportStatus: reportStatus,
-      doctorId: effectiveDoctorId,
-      wasabiKey: wasabiResult.key,
-      wasabiBucket: wasabiResult.bucket,
-      storageType: 'wasabi',
-      // Add conversion metadata
-      convertedFromHTML: true,
-      originalFormat: 'html',
-      convertedFormat: format.toUpperCase(),
-      templateUsed: templateInfo?.templateName || 'Online Editor',
-      conversionMethod: 'libreoffice-pipeline'
-    };
-
-    if (!study.doctorReports) {
-      study.doctorReports = [];
-    }
-
-    study.doctorReports.push(doctorReportDocument);
-    study.ReportAvailable = true;
-
-    // Update report info
-    study.reportInfo = study.reportInfo || {};
-    study.reportInfo.finalizedAt = new Date();
-    study.reportInfo.reporterName = uploaderName;
-
-    // Update workflow status
-    try {
-      await updateWorkflowStatus({
-        studyId: studyId,
-        status: 'report_finalized',
-        doctorId: effectiveDoctorId,
-        note: `HTML report converted to ${format.toUpperCase()} via LibreOffice pipeline and uploaded by ${uploaderName}`,
-        user: req.user
-      });
-    } catch (workflowError) {
-      console.warn('Workflow status update failed:', workflowError.message);
-    }
-
-    await study.save();
-
-    // Generate download URL
-    const downloadUrl = `/api/documents/study/${studyId}/reports/${study.doctorReports.length - 1}/download`;
-
-    res.json({
-      success: true,
-      message: `Report successfully converted to ${format.toUpperCase()} via LibreOffice pipeline and uploaded`,
-      report: {
-        _id: documentRecord._id,
-        filename: fileName,
-        size: convertedBuffer.length,
-        format: format.toUpperCase(),
-        reportType: doctorReportDocument.reportType,
-        reportStatus: reportStatus,
-        uploadedBy: uploaderName,
-        uploadedAt: doctorReportDocument.uploadedAt,
-        wasabiKey: wasabiResult.key,
-        storageType: 'wasabi',
-        convertedFromHTML: true,
-        conversionMethod: 'libreoffice-pipeline'
-      },
-      downloadUrl: downloadUrl,
-      workflowStatus: 'report_finalized',
-      study: {
-        _id: study._id,
-        patientName: reportData?.patientName || 'Unknown Patient'
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Error in LibreOffice conversion and upload:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error converting and uploading report via LibreOffice pipeline',
-      error: error.message
-    });
-  }
-}
-
-// 🔧 LibreOffice service health check method
-static async checkLibreOfficeService() {
-  try {
-    console.log('🔍 Checking LibreOffice service health...');
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    try {
-      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/health`, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        try {
-          const result = await response.json();
-          console.log('✅ LibreOffice service is healthy:', result);
-          return true;
-        } catch (jsonError) {
-          console.log('✅ LibreOffice service responded (non-JSON response)');
-          return true;
-        }
-      } else {
-        console.warn('⚠️ LibreOffice service unhealthy:', response.status, response.statusText);
-        return false;
-      }
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      
-      if (fetchError.name === 'AbortError') {
-        console.warn('⚠️ LibreOffice service health check timeout');
-      } else {
-        console.warn('⚠️ LibreOffice service health check failed:', fetchError.message);
-      }
-      return false;
-    }
-  } catch (error) {
-    console.error('❌ LibreOffice service health check error:', error.message);
-    return false;
-  }
-}
 
 static prepareDocxCompatibleHTML(htmlContent) {
     console.log('✨ Applying final styles and layout container for DOCX...');
@@ -2551,203 +2260,346 @@ static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
     console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
     console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
     
-    // 🔧 VALIDATION: Check PDF buffer
-    if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
-      throw new Error('Invalid PDF buffer provided');
-    }
+    const tempFilename = `temp_${Date.now()}.pdf`;
     
-    const tempFilename = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.pdf`;
-    
-    // 🔧 ENHANCED: Use form-data with better stream handling
+    // 🔧 SIMPLE FIX: Create FormData and append buffer directly
     const formData = new FormData();
     
-    // Create a proper readable stream
-    const stream = new PassThrough();
-    stream.end(pdfBuffer);
+    // Convert buffer to stream properly
+    const bufferStream = new Readable({
+      read() {
+        this.push(pdfBuffer);
+        this.push(null); // End stream
+      }
+    });
     
-    formData.append('file', stream, {
+    formData.append('file', bufferStream, {
       filename: tempFilename,
-      contentType: 'application/pdf',
-      knownLength: pdfBuffer.length
+      contentType: 'application/pdf'
     });
 
     console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
-    console.log('📋 Form data prepared with filename:', tempFilename);
     
-    // 🔧 ENHANCED: Make request with better timeout and error handling
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
-    
-    try {
-      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          ...formData.getHeaders()
-        },
-        signal: controller.signal
-      });
+    // Make request
+    const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
+      method: 'POST',
+      body: formData,
+      headers: formData.getHeaders()
+    });
 
-      clearTimeout(timeoutId);
-
-      console.log('📥 LibreOffice service response status:', response.status);
-      console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
-
-      if (!response.ok) {
-        let errorText = 'Unknown error';
-        const contentType = response.headers.get('content-type');
-        
-        try {
-          if (contentType && contentType.includes('application/json')) {
-            const errorData = await response.json();
-            errorText = errorData.message || errorData.error || JSON.stringify(errorData);
-          } else {
-            errorText = await response.text();
-          }
-        } catch (parseError) {
-          console.warn('❌ Could not parse error response:', parseError.message);
-          errorText = `HTTP ${response.status} - ${response.statusText}`;
-        }
-        
-        console.error('❌ LibreOffice service detailed error:', {
-          status: response.status,
-          statusText: response.statusText,
-          contentType: contentType,
-          error: errorText.substring(0, 500) // Truncate long HTML errors
-        });
-        
-        throw new Error(`LibreOffice service error ${response.status}: ${errorText.substring(0, 200)}`);
-      }
-
-      // Check if response is actually a DOCX file
-      const responseContentType = response.headers.get('content-type');
-      console.log('📥 Response content type:', responseContentType);
-      
-      if (!responseContentType || !responseContentType.includes('application/vnd.openxml')) {
-        console.warn('⚠️ Unexpected response content type:', responseContentType);
-        // Continue anyway, might still be valid
-      }
-
-      // Get the DOCX buffer
-      const docxArrayBuffer = await response.arrayBuffer();
-      const docxBuffer = Buffer.from(docxArrayBuffer);
-      
-      // 🔧 VALIDATION: Check if we got a valid DOCX file
-      if (docxBuffer.length === 0) {
-        throw new Error('LibreOffice service returned empty response');
-      }
-      
-      // Basic DOCX validation (DOCX files start with PK)
-      if (docxBuffer.length < 4 || !docxBuffer.subarray(0, 2).equals(Buffer.from('PK'))) {
-        console.warn('⚠️ Response might not be a valid DOCX file');
-        console.log('📋 First 50 bytes:', docxBuffer.subarray(0, 50).toString('hex'));
-      }
-      
-      console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
-      
-      return {
-        buffer: docxBuffer,
-        success: true
-      };
-
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      
-      if (fetchError.name === 'AbortError') {
-        throw new Error('LibreOffice service timeout - conversion took too long');
-      }
-      
-      throw fetchError;
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Service error');
+      throw new Error(`LibreOffice service error: ${response.status} - ${errorText}`);
     }
 
+    const docxArrayBuffer = await response.arrayBuffer();
+    const docxBuffer = Buffer.from(docxArrayBuffer);
+    
+    console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
+    
+    return {
+      buffer: docxBuffer,
+      success: true
+    };
+
   } catch (error) {
-    console.error('❌ LibreOffice conversion error:', error.message);
-    console.error('❌ Full error:', error);
+    console.error('❌ LibreOffice conversion error:', error);
     throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
   }
 }
 
-// 🔧 NEW: Debug method to test LibreOffice service
-static async testLibreOfficeService(req, res) {
-  try {
-    console.log('🧪 Testing LibreOffice service...');
-    
-    // Test 1: Health check
-    const healthCheck = await DocumentController.checkLibreOfficeService();
-    console.log('🏥 Health check result:', healthCheck);
-    
-    // Test 2: Service info
-    let serviceInfo = null;
+  // 🔧 NEW: Check LibreOffice service health
+  static async checkLibreOfficeService() {
     try {
-      const infoResponse = await fetch(`${LIBREOFFICE_SERVICE_URL}/`, {
+      console.log('🔍 Checking LibreOffice service health...');
+      
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/`, {
+        method: 'GET',
         timeout: 5000
       });
-      
-      if (infoResponse.ok) {
-        const contentType = infoResponse.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          serviceInfo = await infoResponse.json();
-        } else {
-          serviceInfo = await infoResponse.text();
-        }
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ LibreOffice service is healthy:', result);
+        return true;
+      } else {
+        console.warn('⚠️ LibreOffice service unhealthy:', response.status);
+        return false;
       }
-    } catch (infoError) {
-      serviceInfo = `Error: ${infoError.message}`;
+    } catch (error) {
+      console.error('❌ LibreOffice service unreachable:', error.message);
+      return false;
     }
-    
-    // Test 3: Create a simple test PDF
-    let conversionTest = null;
-    try {
-      const testHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head><title>Test</title></head>
-        <body>
-          <h1>LibreOffice Conversion Test</h1>
-          <p>This is a test document created at ${new Date().toISOString()}</p>
-        </body>
-        </html>
-      `;
-      
-      const testPdf = await DocumentController.convertHTMLToPDF(testHtml, {});
-      console.log('📄 Test PDF created, size:', testPdf.buffer.length);
-      
-      const testDocx = await DocumentController.convertPDFToDocxViaLibreOffice(testPdf.buffer);
-      conversionTest = {
-        success: true,
-        pdfSize: testPdf.buffer.length,
-        docxSize: testDocx.buffer.length
-      };
-      console.log('✅ Test conversion successful');
-      
-    } catch (testError) {
-      conversionTest = {
-        success: false,
-        error: testError.message
-      };
-      console.log('❌ Test conversion failed:', testError.message);
-    }
-    
-    res.json({
-      success: true,
-      libreOfficeService: {
-        url: LIBREOFFICE_SERVICE_URL,
-        healthCheck: healthCheck,
-        serviceInfo: serviceInfo,
-        conversionTest: conversionTest
-      },
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('❌ LibreOffice service test error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'LibreOffice service test failed',
-      error: error.message
-    });
   }
-}
+
+  // 🔧 ENHANCED: Convert and upload report with LibreOffice integration
+  static async convertAndUploadReportWithLibreOffice(req, res) {
+    console.log('🔄 Converting HTML report to DOCX via LibreOffice and uploading...');
+    
+    try {
+      const { studyId } = req.params;
+      const { 
+        htmlContent, 
+        format, 
+        reportData, 
+        templateInfo, 
+        reportStatus = 'finalized'
+      } = req.body;
+
+      // Validate inputs
+      if (!htmlContent || !htmlContent.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'HTML content is required'
+        });
+      }
+
+      if (!format || !['pdf', 'docx'].includes(format.toLowerCase())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format must be either "pdf" or "docx"'
+        });
+      }
+
+      // Get study data
+      const study = await DicomStudy.findById(studyId)
+        .populate('patient', 'patientID firstName lastName')
+        .populate('assignment.assignedTo');
+
+      if (!study) {
+        return res.status(404).json({
+          success: false,
+          message: 'Study not found'
+        });
+      }
+
+      // Get doctor info
+      let doctor = null;
+      let effectiveDoctorId = null;
+      
+      if (study.assignment?.assignedTo) {
+        effectiveDoctorId = study.assignment.assignedTo;
+        doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+      }
+
+      const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Online System';
+
+      // 🔧 CRITICAL FIX: Determine valid reportType based on DicomStudy enum values
+      const getValidReportType = (userRole) => {
+        switch(userRole) {
+          case 'doctor_account':
+            return 'doctor-report';
+          case 'radiologist':
+            return 'radiologist-report';
+          case 'admin':
+          case 'lab_staff':
+          default:
+            return 'doctor-report';
+        }
+      };
+
+      const validReportType = getValidReportType(req.user?.role);
+      console.log(`📋 Using valid reportType: ${validReportType} for user role: ${req.user?.role}`);
+
+      // Prepare enhanced HTML with proper styling
+      const styledHtml = DocumentController.prepareStyledHTML(htmlContent, reportData);
+      
+      let convertedBuffer;
+      let fileName;
+      let contentType;
+
+      if (format.toLowerCase() === 'pdf') {
+        // Direct PDF conversion
+        const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
+        convertedBuffer = pdfResult.buffer;
+        fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.pdf`;
+        contentType = 'application/pdf';
+        
+      } else if (format.toLowerCase() === 'docx') {
+        // 🔧 NEW: LibreOffice conversion pipeline
+        console.log('🔄 Starting LibreOffice conversion pipeline...');
+        
+        // Step 1: Check LibreOffice service health
+        const serviceHealthy = await DocumentController.checkLibreOfficeService();
+        
+        if (!serviceHealthy) {
+          // Fallback to html-to-docx if LibreOffice is unavailable
+          console.log('⚠️ LibreOffice service unavailable, using fallback method...');
+          const docxResult = await DocumentController.convertHTMLToDOCX(styledHtml, reportData);
+          convertedBuffer = docxResult.buffer;
+        } else {
+          // Step 2: Convert HTML to PDF first
+          console.log('📄 Converting HTML to PDF for LibreOffice...');
+          const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
+          
+          // Step 3: Send PDF to LibreOffice service for DOCX conversion
+          console.log('🔄 Converting PDF to DOCX via LibreOffice...');
+          const docxResult = await DocumentController.convertPDFToDocxViaLibreOffice(pdfResult.buffer);
+          convertedBuffer = docxResult.buffer;
+        }
+        
+        fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.docx`;
+        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      }
+
+      console.log(`✅ Report converted to ${format.toUpperCase()}, size: ${convertedBuffer.length} bytes`);
+
+      // Upload to Wasabi
+      const wasabiResult = await WasabiService.uploadDocument(
+        convertedBuffer,
+        fileName,
+        'clinical',
+        {
+          studyId,
+          patientId: study.patient?.patientID || 'Unknown',
+          patientName: reportData?.patientName || 'Unknown Patient',
+          reportType: validReportType,
+          reportStatus: reportStatus,
+          format: format.toUpperCase(),
+          templateId: templateInfo?.templateId,
+          templateName: templateInfo?.templateName,
+          uploadedBy: req.user?.fullName || 'System',
+          uploadedAt: new Date().toISOString(),
+          convertedFrom: 'html',
+          conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer',
+          originalSize: convertedBuffer.length,
+          studyInstanceUID: study.studyInstanceUID
+        }
+      );
+
+      if (!wasabiResult.success) {
+        throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+      }
+
+      console.log(`✅ Converted report uploaded to Wasabi: ${wasabiResult.key}`);
+
+      // Create Document record with correct field names
+      const documentRecord = new Document({
+        studyId: study._id,
+        patientId: study.patient?._id,
+        fileName: fileName,              
+        fileSize: convertedBuffer.length,  
+        contentType: contentType,        
+        wasabiKey: wasabiResult.key,     
+        wasabiBucket: wasabiResult.bucket, 
+        documentType: 'clinical',
+        uploadedBy: req.user._id,
+        uploadedAt: new Date(),
+        
+        metadata: {
+          reportType: validReportType,
+          reportStatus: reportStatus,
+          format: format.toUpperCase(),
+          templateInfo: templateInfo,
+          convertedFrom: 'html',
+          conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer',
+          originalSize: convertedBuffer.length,
+          studyInstanceUID: study.studyInstanceUID
+        }
+      });
+
+      console.log('📋 Document record data before save:', {
+        fileName: documentRecord.fileName,
+        fileSize: documentRecord.fileSize,
+        contentType: documentRecord.contentType,
+        wasabiKey: documentRecord.wasabiKey,
+        wasabiBucket: documentRecord.wasabiBucket,
+        documentType: documentRecord.documentType
+      });
+
+      await documentRecord.save();
+      console.log('✅ Document record saved successfully:', documentRecord._id);
+
+      // Update study's doctorReports array with VALID enum values
+      const doctorReportEntry = {
+        _id: documentRecord._id,
+        filename: fileName,
+        contentType: contentType,
+        size: convertedBuffer.length,
+        reportType: validReportType,     // ✅ Valid enum value
+        reportStatus: reportStatus,      // ✅ Valid values: 'draft' or 'finalized'
+        uploadedAt: new Date(),
+        uploadedBy: uploaderName,
+        doctorId: effectiveDoctorId,
+        format: format.toUpperCase(),
+        storageType: 'wasabi',
+        wasabiKey: wasabiResult.key,
+        wasabiBucket: wasabiResult.bucket,
+        // Additional metadata
+        conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer'
+      };
+
+      if (!study.doctorReports) {
+        study.doctorReports = [];
+      }
+
+      console.log('📋 Adding doctor report entry with valid enum values:', {
+        reportType: doctorReportEntry.reportType,
+        reportStatus: doctorReportEntry.reportStatus,
+        filename: doctorReportEntry.filename,
+        conversionMethod: doctorReportEntry.conversionMethod
+      });
+
+      study.doctorReports.push(doctorReportEntry);
+      study.ReportAvailable = true;
+
+      // Update workflow status based on report status
+      if (reportStatus === 'finalized') {
+        study.workflowStatus = 'report_finalized';
+        study.reportInfo = {
+          ...study.reportInfo,
+          finalizedAt: new Date(),
+          finalizedBy: effectiveDoctorId
+        };
+      } else if (reportStatus === 'draft') {
+        study.workflowStatus = 'report_drafted';
+        study.reportInfo = {
+          ...study.reportInfo,
+          draftedAt: new Date(),
+          draftedBy: effectiveDoctorId
+        };
+      }
+
+      await study.save();
+      console.log('✅ Study updated with doctor report entry');
+
+      // Calculate TAT
+      try {
+        const freshTAT = calculateSimpleTAT(study.toObject());
+        console.log(`✅ TAT recalculated - Assignment to Report: ${freshTAT.assignmentToReportTATFormatted}`);
+      } catch (tatError) {
+        console.warn('⚠️ TAT calculation failed:', tatError.message);
+      }
+
+      res.status(201).json({
+        success: true,
+        message: `${format.toUpperCase()} report converted ${format.toLowerCase() === 'docx' ? 'via LibreOffice' : 'directly'} and uploaded successfully`,
+        data: {
+          documentId: documentRecord._id,
+          filename: fileName,
+          format: format.toUpperCase(),
+          size: convertedBuffer.length,
+          uploadedAt: documentRecord.uploadedAt,
+          wasabiKey: wasabiResult.key,
+          wasabiBucket: wasabiResult.bucket,
+          reportStatus: reportStatus,
+          reportType: validReportType,
+          conversionMethod: format.toLowerCase() === 'docx' ? 'libreoffice' : 'puppeteer',
+          studyUpdated: true
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error in LibreOffice conversion and upload:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to convert and upload report via LibreOffice',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
+  }
+
+ 
 }
 
 export default DocumentController;
