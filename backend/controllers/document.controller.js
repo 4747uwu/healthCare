@@ -2254,23 +2254,31 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-// Replace your current convertPDFToDocxViaLibreOffice method with this:
 static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
+  // const FormData = require('form-data');
+  
   try {
     console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
     console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
     
     const formData = new FormData();
-    const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
-    formData.append('file', blob, `temp_${Date.now()}.pdf`);
+    
+    // Pass buffer directly - form-data package handles it
+    formData.append('file', pdfBuffer, {
+      filename: `temp_${Date.now()}.pdf`,
+      contentType: 'application/pdf'
+    });
 
+    console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
+    
     const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      headers: formData.getHeaders()
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await response.text().catch(() => 'Service error');
       throw new Error(`LibreOffice service error: ${response.status} - ${errorText}`);
     }
 
