@@ -24,7 +24,7 @@ import * as cheerio from 'cheerio';
 
 import FormData from 'form-data';
 import fetch from 'node-fetch';
-import { Readable } from 'stream';
+import { Readable, PassThrough } from 'stream';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -2254,50 +2254,44 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-// 🔧 FIXED: LibreOffice conversion method with proper FormData handling
+// 🔧 SIMPLEST FIX: Use buffer directly with proper stream
 static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
   try {
     console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
     console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
     
-    // 🔧 FIX: Create form data properly for multipart upload
+    const tempFilename = `temp_${Date.now()}.pdf`;
+    
+    // 🔧 SIMPLE FIX: Create FormData and append buffer directly
     const formData = new FormData();
     
-    // 🔧 CRITICAL FIX: Create a proper blob-like object from the PDF buffer
-    const pdfBlob = {
-      valueOf: () => pdfBuffer,
-      [Symbol.toPrimitive]: () => pdfBuffer
-    };
+    // Convert buffer to stream properly
+    const bufferStream = new Readable({
+      read() {
+        this.push(pdfBuffer);
+        this.push(null); // End stream
+      }
+    });
     
-    // 🔧 FIXED: Append the PDF buffer directly with proper options
-    formData.append('file', pdfBuffer, {
-      filename: `temp_${Date.now()}.pdf`,
-      contentType: 'application/pdf',
-      knownLength: pdfBuffer.length
+    formData.append('file', bufferStream, {
+      filename: tempFilename,
+      contentType: 'application/pdf'
     });
 
     console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
     
-    // 🔧 ENHANCED: Make request to LibreOffice service with better error handling
+    // Make request
     const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
       method: 'POST',
       body: formData,
-      // 🔧 IMPORTANT: Don't set Content-Type header manually - let FormData set it
-      timeout: 60000 // Increase timeout for large files
+      headers: formData.getHeaders()
     });
 
     if (!response.ok) {
-      let errorText;
-      try {
-        errorText = await response.text();
-      } catch (e) {
-        errorText = 'Unable to read error response';
-      }
-      console.error('❌ LibreOffice service error:', response.status, errorText);
-      throw new Error(`LibreOffice conversion failed: ${response.status} - ${errorText}`);
+      const errorText = await response.text().catch(() => 'Service error');
+      throw new Error(`LibreOffice service error: ${response.status} - ${errorText}`);
     }
 
-    // Get the DOCX buffer
     const docxArrayBuffer = await response.arrayBuffer();
     const docxBuffer = Buffer.from(docxArrayBuffer);
     
