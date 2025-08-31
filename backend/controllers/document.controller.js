@@ -2254,53 +2254,30 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-// 🔧 SIMPLEST FIX: Use buffer directly with proper stream
+// Replace your current convertPDFToDocxViaLibreOffice method with this:
 static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
   try {
     console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
     console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
     
-    const tempFilename = `temp_${Date.now()}.pdf`;
-    
-    // 🔧 SIMPLE FIX: Create FormData and append buffer directly
     const formData = new FormData();
-    
-    // Convert buffer to stream properly
-    const bufferStream = new Readable({
-      read() {
-        this.push(pdfBuffer);
-        this.push(null); // End stream
-      }
-    });
-    
-    formData.append('file', bufferStream, {
-      filename: tempFilename,
-      contentType: 'application/pdf'
-    });
+    const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
+    formData.append('file', blob, `temp_${Date.now()}.pdf`);
 
-    console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
-    
-    // Make request
     const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
       method: 'POST',
-      body: formData,
-      headers: formData.getHeaders()
+      body: formData
     });
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Service error');
+      const errorText = await response.text();
       throw new Error(`LibreOffice service error: ${response.status} - ${errorText}`);
     }
 
-    const docxArrayBuffer = await response.arrayBuffer();
-    const docxBuffer = Buffer.from(docxArrayBuffer);
-    
+    const docxBuffer = Buffer.from(await response.arrayBuffer());
     console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
     
-    return {
-      buffer: docxBuffer,
-      success: true
-    };
+    return { buffer: docxBuffer, success: true };
 
   } catch (error) {
     console.error('❌ LibreOffice conversion error:', error);
