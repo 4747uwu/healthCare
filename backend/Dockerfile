@@ -26,6 +26,8 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     libasound2 \
     libxkbcommon0 \
+    libcairo2 \
+    libpango-1.0-0 \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
