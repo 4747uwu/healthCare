@@ -2254,7 +2254,7 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-static async convertPDFToDocxViaLibreOfficeFile(pdfBuffer) {
+static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
   // const fs = require('fs').promises;
   // const path = require('path');
   // const FormData = require('form-data');
