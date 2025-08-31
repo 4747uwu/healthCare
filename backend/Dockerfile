@@ -1,10 +1,20 @@
-# 🔧 PRODUCTION: backend/Dockerfile (Modern Puppeteer Setup)
+# 🔧 PRODUCTION: backend/Dockerfile (Modern Puppeteer with Manual Fixes)
 FROM node:22-bookworm-slim AS base
 
-# Install only essential tools. Puppeteer will handle the rest.
+# Install essential tools AND the missing libraries for Puppeteer/Chrome
 RUN apt-get update && apt-get install -y \
     dcmtk \
     git \
+    # ✅ FIX: Add the specific shared libraries Chrome is missing
+    libglib2.0-0 \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libgbm1 \
+    libasound2 \
+    libxshmfence1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -20,21 +30,17 @@ RUN groupadd --gid 1001 nodejs && \
 RUN mkdir -p /home/nodejs/.cache/puppeteer && \
     chown -R nodejs:nodejs /home/nodejs
 
-# Set Puppeteer environment variables.
-# We let Puppeteer download its own browser, so skip the npm one.
+# Set Puppeteer environment variables
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_CACHE_DIR=/home/nodejs/.cache/puppeteer
 
-# Install npm packages (this will be faster as it skips the download)
+# Install npm packages
 RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy the rest of your application code
 COPY . .
 
-# ----------------------------------------------------------------------------------
-# ✅ CRITICAL FIX: Install Chrome and its dependencies using the official command
-# This is run as the 'nodejs' user to ensure correct permissions and location.
-# ----------------------------------------------------------------------------------
+# Install Chrome and its dependencies using the official command
 RUN chown -R nodejs:nodejs /app
 USER nodejs
 RUN npx puppeteer browsers install chrome
