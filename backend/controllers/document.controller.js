@@ -2254,55 +2254,65 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-  // 🔧 NEW: LibreOffice conversion method
-  static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
-    try {
-      console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
-      console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
-      
-      // Create form data for multipart upload
-      const formData = new FormData();
-      
-      // Create a readable stream from the PDF buffer
-      const pdfStream = Readable.from(pdfBuffer);
-      
-      // Append the PDF file to form data
-      formData.append('file', pdfStream, {
-        filename: `temp_${Date.now()}.pdf`,
-        contentType: 'application/pdf'
-      });
+// 🔧 FIXED: LibreOffice conversion method with proper FormData handling
+static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
+  try {
+    console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
+    console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
+    
+    // 🔧 FIX: Create form data properly for multipart upload
+    const formData = new FormData();
+    
+    // 🔧 CRITICAL FIX: Create a proper blob-like object from the PDF buffer
+    const pdfBlob = {
+      valueOf: () => pdfBuffer,
+      [Symbol.toPrimitive]: () => pdfBuffer
+    };
+    
+    // 🔧 FIXED: Append the PDF buffer directly with proper options
+    formData.append('file', pdfBuffer, {
+      filename: `temp_${Date.now()}.pdf`,
+      contentType: 'application/pdf',
+      knownLength: pdfBuffer.length
+    });
 
-      console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
-      
-      // Make request to LibreOffice service
-      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
-        method: 'POST',
-        body: formData,
-        headers: formData.getHeaders(),
-        timeout: 30000 // 30 seconds timeout
-      });
+    console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
+    
+    // 🔧 ENHANCED: Make request to LibreOffice service with better error handling
+    const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
+      method: 'POST',
+      body: formData,
+      // 🔧 IMPORTANT: Don't set Content-Type header manually - let FormData set it
+      timeout: 60000 // Increase timeout for large files
+    });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ LibreOffice service error:', response.status, errorText);
-        throw new Error(`LibreOffice conversion failed: ${response.status} - ${errorText}`);
+    if (!response.ok) {
+      let errorText;
+      try {
+        errorText = await response.text();
+      } catch (e) {
+        errorText = 'Unable to read error response';
       }
-
-      // Get the DOCX buffer
-      const docxBuffer = await response.buffer();
-      
-      console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
-      
-      return {
-        buffer: docxBuffer,
-        success: true
-      };
-
-    } catch (error) {
-      console.error('❌ LibreOffice conversion error:', error);
-      throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
+      console.error('❌ LibreOffice service error:', response.status, errorText);
+      throw new Error(`LibreOffice conversion failed: ${response.status} - ${errorText}`);
     }
+
+    // Get the DOCX buffer
+    const docxArrayBuffer = await response.arrayBuffer();
+    const docxBuffer = Buffer.from(docxArrayBuffer);
+    
+    console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
+    
+    return {
+      buffer: docxBuffer,
+      success: true
+    };
+
+  } catch (error) {
+    console.error('❌ LibreOffice conversion error:', error);
+    throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
   }
+}
 
   // 🔧 NEW: Check LibreOffice service health
   static async checkLibreOfficeService() {
