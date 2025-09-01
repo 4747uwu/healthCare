@@ -2255,7 +2255,7 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
 }
 
 static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
-  const FormData = require('form-data');
+  // const FormData = require('form-data');
   
   try {
     console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
