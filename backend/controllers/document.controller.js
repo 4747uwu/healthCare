@@ -2278,6 +2278,54 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
+// 🔧 ENHANCED: Better LibreOffice service health check
+static async checkLibreOfficeService() {
+  try {
+    console.log('🔍 Checking LibreOffice service health...');
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    try {
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/health`, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        try {
+          const result = await response.json();
+          console.log('✅ LibreOffice service is healthy:', result);
+          return true;
+        } catch (jsonError) {
+          console.log('✅ LibreOffice service responded (non-JSON response)');
+          return true;
+        }
+      } else {
+        console.warn('⚠️ LibreOffice service unhealthy:', response.status, response.statusText);
+        return false;
+      }
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        console.warn('⚠️ LibreOffice service health check timeout');
+      } else {
+        console.warn('⚠️ LibreOffice service health check failed:', fetchError.message);
+      }
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ LibreOffice service health check error:', error.message);
+    return false;
+  }
+}
+
 static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
   // const FormData = require('form-data');
   
