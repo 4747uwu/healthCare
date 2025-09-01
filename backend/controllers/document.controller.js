@@ -2255,31 +2255,17 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
 }
 
 static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
-  // const fs = require('fs').promises;
-  // const path = require('path');
-  // const FormData = require('form-data');
-  
-  let tempFilePath = null;
+  const FormData = require('form-data');
   
   try {
-    console.log('🔄 Converting PDF to DOCX using LibreOffice service (File method)...');
+    console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
     console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
     
-    // Create temp directory if it doesn't exist
-    const tempDir = '/tmp';
-    const tempFileName = `temp_${Date.now()}_${Math.random().toString(36).substring(7)}.pdf`;
-    tempFilePath = path.join(tempDir, tempFileName);
-    
-    // Write buffer to temp file
-    await fs.writeFile(tempFilePath, pdfBuffer);
-    console.log('📝 Saved PDF to temp file:', tempFilePath);
-    
-    // Create form with file stream
     const formData = new FormData();
-    const fileStream = require('fs').createReadStream(tempFilePath);
     
-    formData.append('file', fileStream, {
-      filename: tempFileName,
+    // The key is to pass buffer directly without streams
+    formData.append('file', pdfBuffer, {
+      filename: `temp_${Date.now()}.pdf`,
       contentType: 'application/pdf'
     });
 
@@ -2296,26 +2282,14 @@ static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
       throw new Error(`LibreOffice service error: ${response.status} - ${errorText}`);
     }
 
-    const docxArrayBuffer = await response.arrayBuffer();
-    const docxBuffer = Buffer.from(docxArrayBuffer);
-    
+    const docxBuffer = Buffer.from(await response.arrayBuffer());
     console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
     
-    return {
-      buffer: docxBuffer,
-      success: true
-    };
+    return { buffer: docxBuffer, success: true };
 
   } catch (error) {
     console.error('❌ LibreOffice conversion error:', error);
     throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
-  } finally {
-    // Clean up temp file
-    if (tempFilePath) {
-      await fs.unlink(tempFilePath).catch(err => 
-        console.warn('⚠️ Could not delete temp file:', err.message)
-      );
-    }
   }
 }
 
