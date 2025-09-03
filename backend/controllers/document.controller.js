@@ -13,7 +13,7 @@ import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
 import WasabiService from '../services/wasabi.service.js';
 
 import Document from '../models/documentModal.js';
-import { calculateStudyTAT, getLegacyTATFields, updateStudyTAT } from '../utils/TATutility.js';
+import { calculateSimpleTAT } from '../utils/TATutility.js';
 import puppeteer from 'puppeteer';
 import { createWriteStream, writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -24,7 +24,7 @@ import * as cheerio from 'cheerio';
 
 import FormData from 'form-data';
 import fetch from 'node-fetch';
-import { Readable, PassThrough } from 'stream';
+import { Readable } from 'stream';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -34,10 +34,9 @@ const __dirname = path.dirname(__filename);
 const TEMPLATES_DIR = path.join(__dirname, '../templates');
 
 // Add LibreOffice configuration
-const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://libreoffice-service:8000';
-const ONLYOFFICE_SERVICE_URL = process.env.ONLYOFFICE_SERVICE_URL || 'http://localhost:9000';
-const TEMP_FILE_HOST = process.env.TEMP_FILE_HOST || 'http://172.17.0.1:8011'; // Your host IP for OnlyOffice to access files
-
+const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://localhost:8000';
+// At the top of document.controller.js
+const PANDOC_SERVICE_URL = process.env.PANDOC_SERVICE_URL || 'http://157.245.86.199:8080';
 
 class DocumentController {
   // Generate and download patient report (NO STORAGE)
@@ -339,6 +338,9 @@ class DocumentController {
     }
 }
 
+// Add this new method to your DocumentController class
+
+// In your controller file (e.g., documentController.js)
 
 static async getInitialReportData(req, res) {
   console.log("getInitialReportData hit by user:", req.user.id);
@@ -361,7 +363,7 @@ static async getInitialReportData(req, res) {
 
       // 🔧 ENHANCED: Get more study data including fields needed for the Word document
       const study = await DicomStudy.findById(studyId)
-          .select('patientInfo patient studyDate studyTime accessionNumber examDescription studyDescription modality referringPhysicianName institutionName age gender')
+          .select('patientInfo patient studyDate studyTime accessionNumber examDescription studyDescription modality referringPhysicianName institutionName')
           .populate('patient', 'firstName lastName patientNameRaw patientID computed ageString gender dateOfBirth');
 
       if (!study) {
@@ -537,8 +539,8 @@ static async getInitialReportData(req, res) {
       const initialData = {
           studyId: study._id.toString(),
           patientName: patientName,
-          age: study.age,
-          sex: study.gender,
+          age: patientAge,
+          sex: patientGender,
           patientID: patientID,
           
           // 🔧 NEW: Additional required fields for C# application
@@ -556,8 +558,7 @@ static async getInitialReportData(req, res) {
           doctorSignatureMimeType: requestingDoctor.signatureMetadata?.mimeType || 'image/jpeg',
           
           // 🔧 OPTIONAL: Add disclaimer if needed
-          // disclaimer: 'This is a computer-generated report. Please verify all information before use.'
-          disclaimer: " an online interpretation of medical imaging based on clinical data. All modern machines/procedures have their own limitation. If there is any clinical discrepancy, this investigation may be repeated or reassessed by other tests. Patients identification in online reporting is not established, so in no way can this report be utilized for any medico legal purpose. In case of any discrepancy due to typing error or machinery error please get it rectified immediately",
+          disclaimer: 'This is a computer-generated report. Please verify all information before use.'
       };
 
       console.log("✅ Sending complete initial data (signature redacted):", { 
@@ -577,7 +578,6 @@ static async getInitialReportData(req, res) {
       });
   }
 }
-
 
   // Generic document generator function (unchanged)
   static async generateDocument(templateName, data) {
@@ -620,7 +620,9 @@ static async getInitialReportData(req, res) {
     }
   }
 
- 
+  // REMOVE saveDocumentToStudy method since we're not storing generated reports
+
+  // Get report from study (only uploaded reports)
 static async getStudyReport(req, res) {
   console.log('🔧 Retrieving study report with Wasabi integration...');
   try {
@@ -1020,8 +1022,8 @@ static async uploadStudyReport(req, res) {
       }
       
       await study.save();
-      const freshTAT = calculateStudyTAT(study.toObject());
-        await updateStudyTAT(studyId, freshTAT);
+      const freshTAT = calculateSimpleTAT(study.toObject());
+        // await updateStudyTAT(studyId, freshTAT);
 
         console.log(`✅ TAT recalculated after report upload - Assignment to Report: ${freshTAT.assignmentToReportTATFormatted}`);
       
@@ -1685,6 +1687,7 @@ static async generateDocumentWithSignature(templateName, templateData, signature
 
 
 
+
 // Add this new method to DocumentController class
 static async convertAndUploadReport(req, res) {
   console.log('🔄 Converting HTML report and uploading...');
@@ -1819,6 +1822,9 @@ static async convertAndUploadReport(req, res) {
       uploadedBy: uploaderName,
       reportStatus: reportStatus,
       doctorId: effectiveDoctorId,
+      wasabiKey: wasabiResult.key,
+      wasabiBucket: wasabiResult.bucket,
+      storageType: 'wasabi',
       // Add conversion metadata
       convertedFromHTML: true,
       originalFormat: 'html',
@@ -2094,61 +2100,172 @@ static async convertHTMLToPDF(htmlContent, reportData) {
 }
 
 
-static prepareDocxCompatibleHTML(htmlContent) {
-    console.log('✨ Applying final styles and layout container for DOCX...');
+// static prepareDocxCompatibleHTML(htmlContent) {
+//     console.log('✨ Preparing DOCX-compatible HTML with refined inline styles...');
     
-   
+//     const $ = cheerio.load(htmlContent);
+
+//     // --- 1. Style the Patient Info Table ---
+//     const patientTable = $('table').first();
+//     patientTable.css({
+//         'width': '100%',
+//         'border-collapse': 'collapse',
+//         'font-family': 'Arial, sans-serif',
+//         'font-size': '11pt',
+//         'margin-bottom': '20px'
+//     });
+
+
+
+//     // --- FIX: Make borders thinner (using 'pt' is often better for Word) ---
+//     patientTable.find('td').css({
+//         'border': '0.5pt solid black', 
+//         'padding': '5px',
+//         'vertical-align': 'top'
+//     });
+
+//     // --- FIX: Ensure background color is applied to header cells ---
+//     patientTable.find('tr').each((i, row) => {
+//         $(row).find('td:nth-child(1)').css({
+//             'background-color': '#f0f0f0',
+//             'font-weight': 'bold'
+//         });
+//         $(row).find('td:nth-child(3)').css({
+//             'background-color': '#f0f0f0',
+//             'font-weight': 'bold'
+//         });
+//     });
+
+//     // Style all standard paragraphs and list items
+//     $('p, li').css({
+//         'font-family': 'Arial, sans-serif',
+//         'font-size': '11pt',
+//         'margin': '8px 0'
+//     });
+
+//     // --- FIX: Make headings larger and bolder using a more robust selector ---
+//     // This finds paragraphs that contain both <strong> and <u> tags
+//     $('p:has(strong):has(u)').css({
+//         'font-size': '12pt', // Increased from 11pt
+//         'font-weight': 'bold'
+//     });
+    
+//     // --- FIX: Resize signature image to be smaller ---
+//     // This targets all images. If you have multiple, you might need a more specific selector.
+//     $('img').css({
+//         'width': '100px', // Set a fixed width
+//         'height': 'auto'  // Adjust height automatically
+//     });
+
+//     // Style the disclaimer text
+//     $('p:contains("Disclaimer")').css({
+//         'font-size': '9pt',
+//         'font-style': 'italic'
+//     });
+
+//     return $.html();
+// }
+
+
+
+// In DocumentController class
+// Don't forget: import * as cheerio from 'cheerio';
+
+
+
+// In your DocumentController class
+
+static prepareDocxCompatibleHTML(htmlContent) {
+    console.log('✨ Applying a robust, table-based layout for DOCX compatibility...');
     
     const $ = cheerio.load(htmlContent);
 
-    // --- Apply all the specific styles from before ---
-    
-    // Style the Patient Info Table
-    const patientTable = $('table').first();
+    // --- Core Strategy: Wrap everything in a master layout table ---
+    // This is the most reliable way to control the overall width in Word.
+    const originalBodyContent = $('body').html();
+    $('body').html(`
+        <table style="width: 100%; max-width: 680px; margin: 0 auto; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 0;">
+                    ${originalBodyContent}
+                </td>
+            </tr>
+        </table>
+    `);
+
+    // --- 1. Style the Patient Info Table ---
+    const patientTable = $('table').first(); // This now selects the patient info table inside our master table
     patientTable.css({
-        'width': '100%', // The table should be 100% of its NEW container
+        'width': '100%',
         'border-collapse': 'collapse',
         'font-family': 'Arial, sans-serif',
-        'font-size': '10pt'
+        'font-size': '10pt', // Use points (pt) for Word
+        'margin-bottom': '20px'
     });
+
     patientTable.find('td').css({
-        'border': '0.5pt solid #a0a0a0',
-        'padding': '4px 8px',
+        'border': '1pt solid #cccccc', // Use a slightly thicker, gray border
+        'padding': '5pt',
         'vertical-align': 'top'
     });
+
+    // Apply specific styles to header/value cells
     patientTable.find('tr').each((i, row) => {
         $(row).find('td:nth-child(1), td:nth-child(3)').css({
-            'background-color': '#e7f5fe', 
+            'background-color': '#F2F2F2', // A light gray is safer across Word versions
             'font-weight': 'bold',
+            'width': '20%' // Set explicit widths
+        });
+        $(row).find('td:nth-child(2), td:nth-child(4)').css({
+            'width': '30%'
         });
     });
 
-    // Style Headings
-    $('h2').css({ 'text-align': 'center', 'font-size': '14pt', 'font-weight': 'bold', 'text-decoration': 'underline' });
-    $('p:has(strong):has(u)').css({ 'font-size': '11pt', 'font-weight': 'bold', 'text-decoration': 'underline' });
-
-    // Style Paragraphs and Lists
-    $('p, li').css({ 'font-family': 'Arial, sans-serif', 'font-size': '11pt', 'margin': '5px 0' });
-
-    // Style Signature Block
-    const signatureBlock = $('p:contains("Dr.")').nextAll().addBack();
-    signatureBlock.each((i, el) => {
-        const element = $(el);
-        if (element.is('p')) {
-            element.css({ 'margin': '1px 0', 'line-height': '1.1', 'font-size': '10pt' });
-        }
-        if (element.is('img')) {
-            element.css({ 'width': '80px', 'height': 'auto', 'margin': '5px 0' });
-        }
+    // --- 2. Style Headings and Paragraphs ---
+    // Make headings bold and underlined
+    $('h2, p:has(strong):has(u)').css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '12pt',
+        'font-weight': 'bold',
+        'text-decoration': 'underline',
+        'margin-top': '15px',
+        'margin-bottom': '10px'
+    });
+    
+    // Style all other paragraphs and list items for consistency
+    $('p:not(:has(strong):has(u)), li').css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '11pt',
+        'line-height': '1.4',
+        'margin': '5px 0'
     });
 
-    // --- FIX: Wrap ALL content in a master container div to control width ---
-    // This is the most important change to fix the layout.
-    const originalBodyContent = $('body').html();
-    $('body').html(
-        `<div style="max-width: 680px; margin: 0 auto;">${originalBodyContent}</div>`
-    );
+    // --- 3. Style the Signature Block ---
+    // Find the signature image and apply styles to it and its surrounding text
+    $('img').css({
+        'width': '120px', // A reasonable fixed width for a signature
+        'height': 'auto'
+    });
+    
+    // Style the text lines in the signature block
+    const signatureParagraphs = $('img').parent().children('p, div');
+    signatureParagraphs.css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '11pt',
+        'margin': '2px 0', // Tighter spacing for the signature block
+        'line-height': '1.2'
+    });
 
+    // --- 4. Style the Disclaimer ---
+    $('p:contains("Disclaimer:")').css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '9pt',
+        'font-style': 'italic',
+        'color': '#595959',
+        'margin-top': '25px'
+    });
+
+    // Return the full HTML document string
     return $.html();
 }
 
@@ -2156,6 +2273,7 @@ static prepareDocxCompatibleHTML(htmlContent) {
 static async convertHTMLToDOCX(htmlContent, reportData) {
   try {
     console.log('🔄 Converting HTML to DOCX...');
+    console.log(htmlContent);
     
     // For DOCX conversion, you'll need a library like 'html-docx-js' or 'html-to-docx'
     // Install: npm install html-to-docx
@@ -2182,454 +2300,189 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-// 🔧 SIMPLEST FIX: Use buffer directly with proper stream
-static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
-  try {
-    console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
-    console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
-    
-    const tempFilename = `temp_${Date.now()}.pdf`;
-    
-    // 🔧 SIMPLE FIX: Create FormData and append buffer directly
-    const formData = new FormData();
-    
-    // Convert buffer to stream properly
-    const bufferStream = new Readable({
-      read() {
-        this.push(pdfBuffer);
-        this.push(null); // End stream
-      }
-    });
-    
-    formData.append('file', bufferStream, {
-      filename: tempFilename,
-      contentType: 'application/pdf'
-    });
-
-    console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
-    
-    // Make request
-    const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
-      method: 'POST',
-      body: formData,
-      headers: formData.getHeaders()
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Service error');
-      throw new Error(`LibreOffice service error: ${response.status} - ${errorText}`);
-    }
-
-    const docxArrayBuffer = await response.arrayBuffer();
-    const docxBuffer = Buffer.from(docxArrayBuffer);
-    
-    console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
-    
-    return {
-      buffer: docxBuffer,
-      success: true
-    };
-
-  } catch (error) {
-    console.error('❌ LibreOffice conversion error:', error);
-    throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
-  }
-}
-
-// 🔧 NEW: OnlyOffice PDF to DOCX conversion
-  static async convertPDFToDocxViaOnlyOffice(pdfBuffer) {
+  // 🔧 NEW: LibreOffice conversion method
+  static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
     try {
-      console.log('🔄 Converting PDF to DOCX using OnlyOffice Document Server...');
+      console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
       console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
       
-      // Generate unique key for this conversion
-      const conversionKey = `pdf-conversion-${uuidv4()}`;
+      // Create form data for multipart upload
+      const formData = new FormData();
       
-      // Step 1: Serve the PDF file temporarily
-      const tempFileUrl = await DocumentController.serveTempFile(pdfBuffer, 'application/pdf', 'temp.pdf');
-      console.log('📄 Temporary PDF URL:', tempFileUrl);
+      // Create a readable stream from the PDF buffer
+      const pdfStream = Readable.from(pdfBuffer);
       
-      // Step 2: Call OnlyOffice conversion API
-      const conversionRequest = {
-        async: false,
-        filetype: 'pdf',
-        key: conversionKey,
-        outputtype: 'docx',
-        url: tempFileUrl
-      };
-      
-      console.log('📤 Sending conversion request to OnlyOffice:', conversionRequest);
-      
-      const response = await fetch(`${ONLYOFFICE_SERVICE_URL}/ConvertService.ashx`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(conversionRequest),
-        timeout: 60000 // 60 seconds timeout
+      // Append the PDF file to form data
+      formData.append('file', pdfStream, {
+        filename: `temp_${Date.now()}.pdf`,
+        contentType: 'application/pdf'
       });
+
+      console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
       
+      // Make request to LibreOffice service
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
+        method: 'POST',
+        body: formData,
+        headers: formData.getHeaders(),
+        timeout: 30000 // 30 seconds timeout
+      });
+
       if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error');
-        throw new Error(`OnlyOffice service error: ${response.status} - ${errorText}`);
+        const errorText = await response.text();
+        console.error('❌ LibreOffice service error:', response.status, errorText);
+        throw new Error(`LibreOffice conversion failed: ${response.status} - ${errorText}`);
       }
+
+      // Get the DOCX buffer
+      const docxBuffer = await response.buffer();
       
-      const conversionResult = await response.json();
-      console.log('📋 OnlyOffice conversion result:', conversionResult);
-      
-      if (!conversionResult.endConvert || conversionResult.percent !== 100) {
-        throw new Error(`Conversion failed: ${JSON.stringify(conversionResult)}`);
-      }
-      
-      // Step 3: Download the converted DOCX file
-      console.log('📥 Downloading converted DOCX from:', conversionResult.fileUrl);
-      
-      const docxResponse = await fetch(conversionResult.fileUrl);
-      
-      if (!docxResponse.ok) {
-        throw new Error(`Failed to download converted file: ${docxResponse.status}`);
-      }
-      
-      const docxArrayBuffer = await docxResponse.arrayBuffer();
-      const docxBuffer = Buffer.from(docxArrayBuffer);
-      
-      console.log('✅ OnlyOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
+      console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
       
       return {
         buffer: docxBuffer,
-        success: true,
-        conversionKey: conversionKey
+        success: true
       };
-      
+
     } catch (error) {
-      console.error('❌ OnlyOffice conversion error:', error);
-      throw new Error(`OnlyOffice PDF to DOCX conversion failed: ${error.message}`);
+      console.error('❌ LibreOffice conversion error:', error);
+      throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
     }
   }
 
-  // 🔧 NEW: Temporary file server for OnlyOffice
-  static tempFileStore = new Map();
-  
-  static async serveTempFile(fileBuffer, contentType, filename) {
-    const fileId = uuidv4();
-    const tempUrl = `${TEMP_FILE_HOST}/temp-files/${fileId}/${filename}`;
-    
-    // Store the file data temporarily
-    DocumentController.tempFileStore.set(fileId, {
-      buffer: fileBuffer,
-      contentType: contentType,
-      filename: filename,
-      createdAt: Date.now()
-    });
-    
-    // Clean up old temp files (older than 10 minutes)
-    DocumentController.cleanupTempFiles();
-    
-    console.log('📁 Temporary file stored:', tempUrl);
-    return tempUrl;
-  }
-  
-  static cleanupTempFiles() {
-    const now = Date.now();
-    const maxAge = 10 * 60 * 1000; // 10 minutes
-    
-    for (const [fileId, fileData] of DocumentController.tempFileStore.entries()) {
-      if (now - fileData.createdAt > maxAge) {
-        DocumentController.tempFileStore.delete(fileId);
-        console.log('🗑️ Cleaned up expired temp file:', fileId);
-      }
-    }
-  }
-
-  // 🔧 ENHANCED: Check OnlyOffice service health
-  static async checkOnlyOfficeService() {
+  // 🔧 NEW: Check LibreOffice service health
+  static async checkLibreOfficeService() {
     try {
-      console.log('🔍 Checking OnlyOffice service health...');
+      console.log('🔍 Checking LibreOffice service health...');
       
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      try {
-        const response = await fetch(`${ONLYOFFICE_SERVICE_URL}/healthcheck`, {
-          method: 'GET',
-          signal: controller.signal,
-          headers: {
-            'Accept': 'application/json'
-          }
-        });
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/`, {
+        method: 'GET',
+        timeout: 5000
+      });
 
-        clearTimeout(timeoutId);
-
-        if (response.ok || response.status === 404) { // OnlyOffice might not have /healthcheck
-          console.log('✅ OnlyOffice service is accessible');
-          return true;
-        } else {
-          console.warn('⚠️ OnlyOffice service unhealthy:', response.status, response.statusText);
-          return false;
-        }
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        if (fetchError.name === 'AbortError') {
-          console.warn('⚠️ OnlyOffice service health check timeout');
-        } else {
-          console.warn('⚠️ OnlyOffice service health check failed:', fetchError.message);
-        }
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ LibreOffice service is healthy:', result);
+        return true;
+      } else {
+        console.warn('⚠️ LibreOffice service unhealthy:', response.status);
         return false;
       }
     } catch (error) {
-      console.error('❌ OnlyOffice service health check error:', error.message);
+      console.error('❌ LibreOffice service unreachable:', error.message);
       return false;
     }
   }
 
-  // 🔧 UPDATED: Convert and upload report with OnlyOffice integration
-  static async convertAndUploadReportWithOnlyOffice(req, res) {
-    console.log('🔄 Starting OnlyOffice conversion pipeline...');
-    console.log('Request body:', req.body);
-    
+ 
+static async convertAndUploadReportViaPandocService(req, res) {
+    console.log('🔄 Calling Pandoc microservice for conversion...');
+
     try {
-      const { studyId } = req.params;
-      const { 
-        htmlContent, 
-        format, 
-        reportData, 
-        templateInfo, 
-        reportStatus = 'finalized',
-        reportType = 'final-medical-report' 
-      } = req.body;
+        const { studyId } = req.params;
+        const { htmlContent, reportData, reportStatus = 'finalized' } = req.body;
 
-      // Validate inputs
-      if (!htmlContent || !htmlContent.trim()) {
-        return res.status(400).json({
-          success: false,
-          message: 'HTML content is required'
+        if (!htmlContent) {
+            return res.status(400).json({ success: false, message: 'HTML content is required' });
+        }
+
+        const study = await DicomStudy.findById(studyId).populate('patient');
+        if (!study) {
+            return res.status(404).json({ success: false, message: 'Study not found' });
+        }
+
+        // --- 1. Prepare the request to the Pandoc Service ---
+        const formData = new FormData();
+        // Convert the HTML string into a buffer to send as a file
+        const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
+        formData.append('file', htmlBuffer, { filename: 'report.html' });
+
+        // --- 2. Call the Pandoc Microservice ---
+        console.log(`📤 Sending HTML to Pandoc service at ${PANDOC_SERVICE_URL}/convert`);
+        const pandocResponse = await fetch(`${PANDOC_SERVICE_URL}/convert`, {
+            method: 'POST',
+            body: formData,
+            headers: formData.getHeaders(),
         });
-      }
 
-      if (!format || !['pdf', 'docx'].includes(format.toLowerCase())) {
-        return res.status(400).json({
-          success: false,
-          message: 'Format must be either "pdf" or "docx"'
+        if (!pandocResponse.ok) {
+            const errorText = await pandocResponse.text();
+            throw new Error(`Pandoc service failed: ${errorText}`);
+        }
+
+        // --- 3. Get the converted DOCX file back as a buffer ---
+        const docxBuffer = await pandocResponse.buffer();
+        console.log(`✅ Received converted DOCX from Pandoc service, size: ${docxBuffer.length} bytes`);
+
+        // --- 4. Continue with your existing logic using the new buffer ---
+        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const uploaderName = req.user?.fullName || 'Online System';
+        
+        // Upload the DOCX buffer received from Pandoc to Wasabi
+        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'clinical', { studyId });
+        
+        if (!wasabiResult.success) {
+            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+        }
+        
+        // Create the Document record
+        const documentRecord = new Document({
+            studyId: study._id,
+            patientId: study.patient?._id,
+            fileName: fileName,
+            fileSize: docxBuffer.length,
+            contentType: contentType,
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            documentType: 'clinical',
+            uploadedBy: req.user._id
         });
-      }
+        await documentRecord.save();
 
-      // Get study data
-      const study = await DicomStudy.findById(studyId)
-        .populate('patient', 'patientID firstName lastName')
-        .populate('assignment.assignedTo');
+        // Update the study's report array
+        const doctorReportEntry = {
+            _id: documentRecord._id,
+            filename: fileName,
+            contentType: contentType,
+            size: docxBuffer.length,
+            reportType: 'doctor-report',
+            reportStatus: reportStatus,
+            uploadedAt: new Date(),
+            uploadedBy: uploaderName,
+            storageType: 'wasabi'
+        };
 
-      if (!study) {
-        return res.status(404).json({
-          success: false,
-          message: 'Study not found'
-        });
-      }
-
-      // Get doctor info
-      let doctor = null;
-      let effectiveDoctorId = null;
-      
-      if (study.assignment?.assignedTo) {
-        effectiveDoctorId = study.assignment.assignedTo;
-        doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
-      }
-
-      const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Online System';
-
-      // Prepare enhanced HTML with proper styling
-      const styledHtml = DocumentController.prepareStyledHTML(htmlContent, reportData);
-      
-      let convertedBuffer;
-      let fileName;
-      let contentType;
-
-      if (format.toLowerCase() === 'pdf') {
-        // Convert to PDF
-        const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
-        convertedBuffer = pdfResult.buffer;
-        fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.pdf`;
-        contentType = 'application/pdf';
+        if (!study.doctorReports) {
+            study.doctorReports = [];
+        }
+        study.doctorReports.push(doctorReportEntry);
+        study.ReportAvailable = true;
+        study.workflowStatus = 'report_finalized';
+        await study.save();
         
-      } else if (format.toLowerCase() === 'docx') {
-        // 🔧 NEW: OnlyOffice conversion pipeline with robust fallback
-        console.log('🔄 Starting DOCX conversion pipeline...');
-        
-        // Step 1: Check OnlyOffice service health
-        const serviceHealthy = await DocumentController.checkOnlyOfficeService();
-        
-        if (!serviceHealthy) {
-          console.log('⚠️ OnlyOffice service unavailable, using direct HTML-to-DOCX...');
-          const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
-          const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
-          convertedBuffer = docxResult.buffer;
-        } else {
-          // Try OnlyOffice conversion with fallback
-          try {
-            console.log('📄 Converting HTML to PDF for OnlyOffice...');
-            const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
-            
-            console.log('🔄 Attempting PDF to DOCX conversion via OnlyOffice...');
-            const docxResult = await DocumentController.convertPDFToDocxViaOnlyOffice(pdfResult.buffer);
-            convertedBuffer = docxResult.buffer;
-            
-            console.log('✅ OnlyOffice conversion successful');
-            
-          } catch (onlyOfficeError) {
-            console.error('❌ OnlyOffice conversion failed:', onlyOfficeError.message);
-            console.log('🔄 Falling back to direct HTML-to-DOCX conversion...');
-            
-            // Fallback to direct HTML-to-DOCX conversion
-            try {
-              const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
-              const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
-              convertedBuffer = docxResult.buffer;
-              console.log('✅ Fallback HTML-to-DOCX conversion successful');
-            } catch (fallbackError) {
-              console.error('❌ Fallback conversion also failed:', fallbackError.message);
-              throw new Error(`Both OnlyOffice and fallback DOCX conversion failed: ${fallbackError.message}`);
+        console.log('✅ Report uploaded to Wasabi successfully.');
+        res.status(201).json({
+            success: true,
+            message: 'Report converted via Pandoc service and uploaded successfully',
+            data: {
+                documentId: documentRecord._id,
+                filename: fileName,
+                wasabiKey: wasabiResult.key,
             }
-          }
-        }
-        
-        fileName = `${Date.now()}_${reportStatus}_report_${reportData?.patientName?.replace(/\s+/g, '_') || 'Patient'}_${new Date().toISOString().split('T')[0]}.docx`;
-        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      }
-
-      console.log(`✅ Report converted to ${format.toUpperCase()}, size: ${convertedBuffer.length} bytes`);
-
-      // Upload to Wasabi
-      const wasabiResult = await WasabiService.uploadDocument(
-        convertedBuffer,
-        fileName,
-        'clinical',
-        {
-          patientId: study.patientId,
-          studyId: study.studyInstanceUID,
-          uploadedBy: uploaderName,
-          doctorId: effectiveDoctorId,
-          reportStatus: reportStatus,
-          format: format.toUpperCase(),
-          convertedFromHTML: true,
-          conversionMethod: 'onlyoffice-pipeline'
-        }
-      );
-
-      if (!wasabiResult.success) {
-        console.error('❌ Wasabi upload failed:', wasabiResult.error);
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to upload converted report to storage',
-          error: wasabiResult.error
         });
-      }
-
-      console.log('✅ Converted report uploaded to Wasabi:', wasabiResult.key);
-
-      // Create Document record
-      const documentRecord = new Document({
-        fileName: fileName,
-        fileSize: convertedBuffer.length,
-        contentType: contentType,
-        documentType: 'clinical',
-        wasabiKey: wasabiResult.key,
-        wasabiBucket: wasabiResult.bucket,
-        patientId: study.patientId,
-        studyId: study._id,
-        uploadedBy: req.user.id
-      });
-
-      await documentRecord.save();
-
-      // Add to study's doctorReports
-      const doctorReportDocument = {
-        _id: documentRecord._id,
-        filename: fileName,
-        contentType: contentType,
-        size: convertedBuffer.length,
-        reportType: doctor ? 'doctor-report' : 'radiologist-report',
-        uploadedAt: new Date(),
-        uploadedBy: uploaderName,
-        reportStatus: reportStatus,
-        doctorId: effectiveDoctorId,
-        wasabiKey: wasabiResult.key,
-        wasabiBucket: wasabiResult.bucket,
-        storageType: 'wasabi',
-        // Add conversion metadata
-        convertedFromHTML: true,
-        originalFormat: 'html',
-        convertedFormat: format.toUpperCase(),
-        templateUsed: templateInfo?.templateName || 'Online Editor',
-        conversionMethod: 'onlyoffice-pipeline'
-      };
-
-      if (!study.doctorReports) {
-        study.doctorReports = [];
-      }
-
-      study.doctorReports.push(doctorReportDocument);
-      study.ReportAvailable = true;
-
-      // Update report info
-      study.reportInfo = study.reportInfo || {};
-      study.reportInfo.finalizedAt = new Date();
-      study.reportInfo.reporterName = uploaderName;
-
-      // Update workflow status
-      try {
-        await updateWorkflowStatus({
-          studyId: studyId,
-          status: 'report_finalized',
-          doctorId: effectiveDoctorId,
-          note: `HTML report converted to ${format.toUpperCase()} via OnlyOffice pipeline and uploaded by ${uploaderName}`,
-          user: req.user
-        });
-      } catch (workflowError) {
-        console.warn('Workflow status update failed:', workflowError.message);
-      }
-
-      await study.save();
-
-      // Generate download URL
-      const downloadUrl = `/api/documents/study/${studyId}/reports/${study.doctorReports.length - 1}/download`;
-
-      res.json({
-        success: true,
-        message: `Report successfully converted to ${format.toUpperCase()} via OnlyOffice pipeline and uploaded`,
-        report: {
-          _id: documentRecord._id,
-          filename: fileName,
-          size: convertedBuffer.length,
-          format: format.toUpperCase(),
-          reportType: doctorReportDocument.reportType,
-          reportStatus: reportStatus,
-          uploadedBy: uploaderName,
-          uploadedAt: doctorReportDocument.uploadedAt,
-          wasabiKey: wasabiResult.key,
-          storageType: 'wasabi',
-          convertedFromHTML: true,
-          conversionMethod: 'onlyoffice-pipeline'
-        },
-        downloadUrl: downloadUrl,
-        workflowStatus: 'report_finalized',
-        study: {
-          _id: study._id,
-          patientName: reportData?.patientName || 'Unknown Patient'
-        }
-      });
 
     } catch (error) {
-      console.error('❌ Error in OnlyOffice conversion and upload:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error converting and uploading report via OnlyOffice pipeline',
-        error: error.message
-      });
+        console.error('❌ Error in Pandoc service workflow:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to convert and upload report via Pandoc service',
+            error: error.message
+        });
     }
-  }
+}
 
- 
+
 }
 
 export default DocumentController;

@@ -48,7 +48,7 @@ router.get('/study/:studyId/generate-patient-report',
 
 router.post('/study/:studyId/convert-and-upload-libreoffice', 
    
-  DocumentController.convertAndUploadReportWithOnlyOffice
+  DocumentController.convertAndUploadReportViaPandocService
 );
 
 // Get all reports for a study (metadata only)
