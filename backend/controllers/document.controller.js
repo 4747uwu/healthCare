@@ -26,6 +26,7 @@ import FormData from 'form-data';
 import fetch from 'node-fetch';
 import { Readable, PassThrough } from 'stream';
 
+
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,7 @@ const TEMPLATES_DIR = path.join(__dirname, '../templates');
 const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://libreoffice-service:8000';
 const ONLYOFFICE_SERVICE_URL = process.env.ONLYOFFICE_SERVICE_URL || 'http://localhost:9000';
 const TEMP_FILE_HOST = process.env.TEMP_FILE_HOST || 'http://172.17.0.1:8011'; // Your host IP for OnlyOffice to access files
+const PANDOC_SERVICE_URL = process.env.PANDOC_SERVICE_URL || 'http://157.245.86.199:8080';
 
 
 class DocumentController {
