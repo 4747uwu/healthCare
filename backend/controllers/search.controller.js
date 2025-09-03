@@ -36,7 +36,6 @@ const safeString = (value) => {
     return String(value);
 };
 
-// 🔥 ENHANCED SEARCH: Complete match with getAllStudiesForAdmin data structure
 export const searchStudies = async (req, res) => {
     try {
         const startTime = Date.now();
