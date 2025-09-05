@@ -63,7 +63,8 @@ const generateDefaultReport = ({ patientData, studyData, doctorDetails, currentU
       <!-- Page 1 -->
       <div class="report-page" data-page="1">
         <!-- Patient Information Table - Always present on every page -->
-        <table class="patient-info-table page-header-table">
+        // <table class="patient-info-table page-header-table">
+        <table>
           <tr>
             <td><strong>Name:</strong></td>
             <td>${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
