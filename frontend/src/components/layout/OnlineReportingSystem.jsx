@@ -433,7 +433,7 @@ const handleTemplateSelect = async (templateId) => {
       
       // Use OnlyOffice-powered endpoint
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`  // OnlyOffice for DOCX
+        ? `/documents/study/${studyId}/convert-upload-onlyoffice`  // OnlyOffice for DOCX
         : `/documents/study/${studyId}/convert-and-upload`;        // Direct for PDF
     
       const response = await api.post(endpoint, {
