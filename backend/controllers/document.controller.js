@@ -2189,18 +2189,17 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
 
 
 static async convertAndUploadReportViaPandocService(req, res) {
-        console.log('🔄 Calling Pandoc microservice for conversion...');
+        console.log('🔄 Calling Pandoc microservice for conversion (Table Test)...');
 
         try {
             const { studyId } = req.params;
-            let { htmlContent } = req.body; // We only need the HTML content from the request
-            console.log('Request body:', htmlContent); // Debug: Log the entire request body
+            const { htmlContent } = req.body;
 
             if (!htmlContent) {
                 return res.status(400).json({ success: false, message: 'HTML content is required' });
             }
 
-            const study = await DicomStudy.findById(studyId).populate('assignment.assignedTo');
+            const study = await DicomStudy.findById(studyId).populate('patient');
             if (!study) {
                 return res.status(404).json({ success: false, message: 'Study not found' });
             }
@@ -2225,7 +2224,9 @@ static async convertAndUploadReportViaPandocService(req, res) {
                 console.warn('⚠️ No signature found for the assigned doctor.');
             }
 
-            // --- Step 2: Prepare and send the clean HTML to the Pandoc Service ---
+            // --- Signature-embedding logic is temporarily removed to focus on table styling ---
+
+            // --- Prepare and send the HTML directly to the Pandoc Service ---
             const formData = new FormData();
             const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
             formData.append('file', htmlBuffer, { filename: 'report.html' });
@@ -2241,15 +2242,13 @@ static async convertAndUploadReportViaPandocService(req, res) {
                 throw new Error(`Pandoc service failed: ${errorText}`);
             }
 
-            // --- Step 3: Get the converted DOCX buffer back ---
-            const docxBuffer = await pandocResponse.buffer();
+            // --- Get the converted DOCX buffer back ---
+            const docxArrayBuffer = await pandocResponse.arrayBuffer();
+            const docxBuffer = Buffer.from(docxArrayBuffer);
             console.log(`✅ Received converted DOCX from Pandoc, size: ${docxBuffer.length} bytes`);
 
-            // --- Step 4: Upload to Wasabi and save to database ---
+            // --- Upload to Wasabi and save to database ---
             const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
-            const contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-            const uploaderName = req.user?.fullName || 'Online System';
-            
             const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'clinical', { studyId });
             
             if (!wasabiResult.success) {
@@ -2261,7 +2260,7 @@ static async convertAndUploadReportViaPandocService(req, res) {
                 patientId: study.patient?._id,
                 fileName: fileName,
                 fileSize: docxBuffer.length,
-                contentType: contentType,
+                contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 wasabiKey: wasabiResult.key,
                 wasabiBucket: wasabiResult.bucket,
                 documentType: 'clinical',
@@ -2272,12 +2271,12 @@ static async convertAndUploadReportViaPandocService(req, res) {
             const doctorReportEntry = {
                 _id: documentRecord._id,
                 filename: fileName,
-                contentType: contentType,
+                contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 size: docxBuffer.length,
                 reportType: 'doctor-report',
-                reportStatus: 'finalized', // Or pass this from the request body
+                reportStatus: 'finalized',
                 uploadedAt: new Date(),
-                uploadedBy: uploaderName,
+                uploadedBy: req.user?.fullName || 'Online System',
                 storageType: 'wasabi'
             };
 
@@ -2292,7 +2291,7 @@ static async convertAndUploadReportViaPandocService(req, res) {
             console.log('✅ Report uploaded to Wasabi successfully.');
             res.status(201).json({
                 success: true,
-                message: 'Report converted via Pandoc service and uploaded successfully',
+                message: 'Report converted and uploaded successfully',
                 data: {
                     documentId: documentRecord._id,
                     filename: fileName,
