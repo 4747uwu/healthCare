@@ -2184,315 +2184,129 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-// 🔧 SIMPLEST FIX: Use buffer directly with proper stream
-static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
-  try {
-    console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
-    console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
-    
-    const tempFilename = `temp_${Date.now()}.pdf`;
-    
-    // 🔧 SIMPLE FIX: Create FormData and append buffer directly
-    const formData = new FormData();
-    
-    // Convert buffer to stream properly
-    const bufferStream = new Readable({
-      read() {
-        this.push(pdfBuffer);
-        this.push(null); // End stream
-      }
-    });
-    
-    formData.append('file', bufferStream, {
-      filename: tempFilename,
-      contentType: 'application/pdf'
-    });
 
-    console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
-    
-    // Make request
-    const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
-      method: 'POST',
-      body: formData,
-      headers: formData.getHeaders()
-    });
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Service error');
-      throw new Error(`LibreOffice service error: ${response.status} - ${errorText}`);
-    }
 
-    const docxArrayBuffer = await response.arrayBuffer();
-    const docxBuffer = Buffer.from(docxArrayBuffer);
-    
-    console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
-    
-    return {
-      buffer: docxBuffer,
-      success: true
-    };
-
-  } catch (error) {
-    console.error('❌ LibreOffice conversion error:', error);
-    throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
-  }
-}
-
-// 🔧 NEW: OnlyOffice PDF to DOCX conversion
-  static async convertPDFToDocxViaOnlyOffice(pdfBuffer) {
-    try {
-      console.log('🔄 Converting PDF to DOCX using OnlyOffice Document Server...');
-      console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
-      
-      // Generate unique key for this conversion
-      const conversionKey = `pdf-conversion-${uuidv4()}`;
-      
-      // Step 1: Serve the PDF file temporarily
-      const tempFileUrl = await DocumentController.serveTempFile(pdfBuffer, 'application/pdf', 'temp.pdf');
-      console.log('📄 Temporary PDF URL:', tempFileUrl);
-      
-      // Step 2: Call OnlyOffice conversion API
-      const conversionRequest = {
-        async: false,
-        filetype: 'pdf',
-        key: conversionKey,
-        outputtype: 'docx',
-        url: tempFileUrl
-      };
-      
-      console.log('📤 Sending conversion request to OnlyOffice:', conversionRequest);
-      
-      const response = await fetch(`${ONLYOFFICE_SERVICE_URL}/ConvertService.ashx`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(conversionRequest),
-        timeout: 60000 // 60 seconds timeout
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error');
-        throw new Error(`OnlyOffice service error: ${response.status} - ${errorText}`);
-      }
-      
-      const conversionResult = await response.json();
-      console.log('📋 OnlyOffice conversion result:', conversionResult);
-      
-      if (!conversionResult.endConvert || conversionResult.percent !== 100) {
-        throw new Error(`Conversion failed: ${JSON.stringify(conversionResult)}`);
-      }
-      
-      // Step 3: Download the converted DOCX file
-      console.log('📥 Downloading converted DOCX from:', conversionResult.fileUrl);
-      
-      const docxResponse = await fetch(conversionResult.fileUrl);
-      
-      if (!docxResponse.ok) {
-        throw new Error(`Failed to download converted file: ${docxResponse.status}`);
-      }
-      
-      const docxArrayBuffer = await docxResponse.arrayBuffer();
-      const docxBuffer = Buffer.from(docxArrayBuffer);
-      
-      console.log('✅ OnlyOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
-      
-      return {
-        buffer: docxBuffer,
-        success: true,
-        conversionKey: conversionKey
-      };
-      
-    } catch (error) {
-      console.error('❌ OnlyOffice conversion error:', error);
-      throw new Error(`OnlyOffice PDF to DOCX conversion failed: ${error.message}`);
-    }
-  }
-
-  // 🔧 NEW: Temporary file server for OnlyOffice
-  static tempFileStore = new Map();
-  
-  static async serveTempFile(fileBuffer, contentType, filename) {
-    const fileId = uuidv4();
-    const tempUrl = `${TEMP_FILE_HOST}/temp-files/${fileId}/${filename}`;
-    
-    // Store the file data temporarily
-    DocumentController.tempFileStore.set(fileId, {
-      buffer: fileBuffer,
-      contentType: contentType,
-      filename: filename,
-      createdAt: Date.now()
-    });
-    
-    // Clean up old temp files (older than 10 minutes)
-    DocumentController.cleanupTempFiles();
-    
-    console.log('📁 Temporary file stored:', tempUrl);
-    return tempUrl;
-  }
-  
-  static cleanupTempFiles() {
-    const now = Date.now();
-    const maxAge = 10 * 60 * 1000; // 10 minutes
-    
-    for (const [fileId, fileData] of DocumentController.tempFileStore.entries()) {
-      if (now - fileData.createdAt > maxAge) {
-        DocumentController.tempFileStore.delete(fileId);
-        console.log('🗑️ Cleaned up expired temp file:', fileId);
-      }
-    }
-  }
-
-  // 🔧 ENHANCED: Check OnlyOffice service health
-  static async checkOnlyOfficeService() {
-    try {
-      console.log('🔍 Checking OnlyOffice service health...');
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      try {
-        const response = await fetch(`${ONLYOFFICE_SERVICE_URL}/healthcheck`, {
-          method: 'GET',
-          signal: controller.signal,
-          headers: {
-            'Accept': 'application/json'
-          }
-        });
-
-        clearTimeout(timeoutId);
-
-        if (response.ok || response.status === 404) { // OnlyOffice might not have /healthcheck
-          console.log('✅ OnlyOffice service is accessible');
-          return true;
-        } else {
-          console.warn('⚠️ OnlyOffice service unhealthy:', response.status, response.statusText);
-          return false;
-        }
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        if (fetchError.name === 'AbortError') {
-          console.warn('⚠️ OnlyOffice service health check timeout');
-        } else {
-          console.warn('⚠️ OnlyOffice service health check failed:', fetchError.message);
-        }
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ OnlyOffice service health check error:', error.message);
-      return false;
-    }
-  }
-
-  // 🔧 UPDATED: Convert and upload report with OnlyOffice integration
 static async convertAndUploadReportViaPandocService(req, res) {
-    console.log('🔄 Calling Pandoc microservice for conversion...');
+        console.log('🔄 Calling Pandoc microservice for conversion...');
 
-    try {
-        const { studyId } = req.params;
-        const { htmlContent, reportData, reportStatus = 'finalized' } = req.body;
+        try {
+            const { studyId } = req.params;
+            let { htmlContent } = req.body; // We only need the HTML content from the request
 
-        if (!htmlContent) {
-            return res.status(400).json({ success: false, message: 'HTML content is required' });
-        }
-
-        const study = await DicomStudy.findById(studyId).populate('patient');
-        if (!study) {
-            return res.status(404).json({ success: false, message: 'Study not found' });
-        }
-
-        // --- 1. Prepare the request to the Pandoc Service ---
-        const formData = new FormData();
-        // Convert the HTML string into a buffer to send as a file
-        const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
-        formData.append('file', htmlBuffer, { filename: 'report.html' });
-
-        // --- 2. Call the Pandoc Microservice ---
-        console.log(`📤 Sending HTML to Pandoc service at ${PANDOC_SERVICE_URL}/convert`);
-        const pandocResponse = await fetch(`${PANDOC_SERVICE_URL}/convert`, {
-            method: 'POST',
-            body: formData,
-            headers: formData.getHeaders(),
-        });
-
-        if (!pandocResponse.ok) {
-            const errorText = await pandocResponse.text();
-            throw new Error(`Pandoc service failed: ${errorText}`);
-        }
-
-        // --- 3. Get the converted DOCX file back as a buffer ---
-        const docxBuffer = await pandocResponse.buffer();
-        console.log(`✅ Received converted DOCX from Pandoc service, size: ${docxBuffer.length} bytes`);
-
-        // --- 4. Continue with your existing logic using the new buffer ---
-        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
-        const contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        const uploaderName = req.user?.fullName || 'Online System';
-        
-        // Upload the DOCX buffer received from Pandoc to Wasabi
-        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'clinical', { studyId });
-        
-        if (!wasabiResult.success) {
-            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
-        }
-        
-        // Create the Document record
-        const documentRecord = new Document({
-            studyId: study._id,
-            patientId: study.patient?._id,
-            fileName: fileName,
-            fileSize: docxBuffer.length,
-            contentType: contentType,
-            wasabiKey: wasabiResult.key,
-            wasabiBucket: wasabiResult.bucket,
-            documentType: 'clinical',
-            uploadedBy: req.user._id
-        });
-        await documentRecord.save();
-
-        // Update the study's report array
-        const doctorReportEntry = {
-            _id: documentRecord._id,
-            filename: fileName,
-            contentType: contentType,
-            size: docxBuffer.length,
-            reportType: 'doctor-report',
-            reportStatus: reportStatus,
-            uploadedAt: new Date(),
-            uploadedBy: uploaderName,
-            storageType: 'wasabi'
-        };
-
-        if (!study.doctorReports) {
-            study.doctorReports = [];
-        }
-        study.doctorReports.push(doctorReportEntry);
-        study.ReportAvailable = true;
-        study.workflowStatus = 'report_finalized';
-        await study.save();
-        
-        console.log('✅ Report uploaded to Wasabi successfully.');
-        res.status(201).json({
-            success: true,
-            message: 'Report converted via Pandoc service and uploaded successfully',
-            data: {
-                documentId: documentRecord._id,
-                filename: fileName,
-                wasabiKey: wasabiResult.key,
+            if (!htmlContent) {
+                return res.status(400).json({ success: false, message: 'HTML content is required' });
             }
-        });
 
-    } catch (error) {
-        console.error('❌ Error in Pandoc service workflow:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to convert and upload report via Pandoc service',
-            error: error.message
-        });
+            const study = await DicomStudy.findById(studyId).populate('assignment.assignedTo');
+            if (!study) {
+                return res.status(404).json({ success: false, message: 'Study not found' });
+            }
+
+            // --- Step 1: Enhance HTML with Content (the signature) ---
+            let assignedDoctor = null;
+            if (study.assignment?.assignedTo) {
+                // This assumes assignment.assignedTo holds the Doctor's ObjectId
+                assignedDoctor = await Doctor.findById(study.assignment.assignedTo);
+            }
+
+            if (assignedDoctor && assignedDoctor.signature) {
+                console.log('🖋️ Embedding doctor signature into HTML as Base64...');
+                const $ = cheerio.load(htmlContent);
+                const signatureBase64 = assignedDoctor.signature; // Your Base64 string from the DB
+                
+                // Find the first image tag and set its src to the Base64 Data URI
+                $('img').first().attr('src', `data:image/png;base64,${signatureBase64}`);
+                
+                htmlContent = $.html(); // Update htmlContent with the embedded image
+            } else {
+                console.warn('⚠️ No signature found for the assigned doctor.');
+            }
+
+            // --- Step 2: Prepare and send the clean HTML to the Pandoc Service ---
+            const formData = new FormData();
+            const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
+            formData.append('file', htmlBuffer, { filename: 'report.html' });
+
+            const pandocResponse = await fetch(`${PANDOC_SERVICE_URL}/convert`, {
+                method: 'POST',
+                body: formData,
+                headers: formData.getHeaders(),
+            });
+
+            if (!pandocResponse.ok) {
+                const errorText = await pandocResponse.text();
+                throw new Error(`Pandoc service failed: ${errorText}`);
+            }
+
+            // --- Step 3: Get the converted DOCX buffer back ---
+            const docxBuffer = await pandocResponse.buffer();
+            console.log(`✅ Received converted DOCX from Pandoc, size: ${docxBuffer.length} bytes`);
+
+            // --- Step 4: Upload to Wasabi and save to database ---
+            const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+            const contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            const uploaderName = req.user?.fullName || 'Online System';
+            
+            const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'clinical', { studyId });
+            
+            if (!wasabiResult.success) {
+                throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+            }
+            
+            const documentRecord = new Document({
+                studyId: study._id,
+                patientId: study.patient?._id,
+                fileName: fileName,
+                fileSize: docxBuffer.length,
+                contentType: contentType,
+                wasabiKey: wasabiResult.key,
+                wasabiBucket: wasabiResult.bucket,
+                documentType: 'clinical',
+                uploadedBy: req.user._id
+            });
+            await documentRecord.save();
+
+            const doctorReportEntry = {
+                _id: documentRecord._id,
+                filename: fileName,
+                contentType: contentType,
+                size: docxBuffer.length,
+                reportType: 'doctor-report',
+                reportStatus: 'finalized', // Or pass this from the request body
+                uploadedAt: new Date(),
+                uploadedBy: uploaderName,
+                storageType: 'wasabi'
+            };
+
+            if (!study.doctorReports) {
+                study.doctorReports = [];
+            }
+            study.doctorReports.push(doctorReportEntry);
+            study.ReportAvailable = true;
+            study.workflowStatus = 'report_finalized';
+            await study.save();
+
+            console.log('✅ Report uploaded to Wasabi successfully.');
+            res.status(201).json({
+                success: true,
+                message: 'Report converted via Pandoc service and uploaded successfully',
+                data: {
+                    documentId: documentRecord._id,
+                    filename: fileName,
+                    wasabiKey: wasabiResult.key,
+                }
+            });
+
+        } catch (error) {
+            console.error('❌ Error in Pandoc service workflow:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to convert report',
+                error: error.message
+            });
+        }
     }
-}
 
  
 }
