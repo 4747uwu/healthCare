@@ -493,7 +493,8 @@ const handleTemplateSelect = async (templateId) => {
 const processMultiPageContent = (htmlContent, patientData, studyData) => {
   // Create patient table template for headers
   const patientTableTemplate = `
-    <table class="patient-info-table page-header-table">
+    // <table class="patient-info-table page-header">
+    <table>
       <tr>
         <td><strong>Name:</strong></td>
         <td>${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
