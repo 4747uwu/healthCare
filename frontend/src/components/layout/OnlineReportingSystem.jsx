@@ -63,7 +63,6 @@ const generateDefaultReport = ({ patientData, studyData, doctorDetails, currentU
       <!-- Page 1 -->
       <div class="report-page" data-page="1">
         <!-- Patient Information Table - Always present on every page -->
-        // <table class="patient-info-table page-header-table">
         <table>
           <tr>
             <td><strong>Name:</strong></td>
@@ -494,7 +493,6 @@ const handleTemplateSelect = async (templateId) => {
 const processMultiPageContent = (htmlContent, patientData, studyData) => {
   // Create patient table template for headers
   const patientTableTemplate = `
-    // <table class="patient-info-table page-header">
     <table>
       <tr>
         <td><strong>Name:</strong></td>
