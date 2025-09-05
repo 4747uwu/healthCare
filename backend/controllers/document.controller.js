@@ -2194,6 +2194,7 @@ static async convertAndUploadReportViaPandocService(req, res) {
         try {
             const { studyId } = req.params;
             const { htmlContent } = req.body;
+            console.log('Request body:', htmlContent); // Debug: Log the entire request body
 
             if (!htmlContent) {
                 return res.status(400).json({ success: false, message: 'HTML content is required' });
