@@ -337,15 +337,18 @@ const handleTemplateSelect = async (templateId) => {
     setShowDraftModal(false);
 
     try {
-      console.log(`🔄 Converting draft report to ${format} using LibreOffice pipeline...`);
+      console.log(`🔄 Converting draft report to ${format} using OnlyOffice pipeline...`);
       
-      // 🔧 NEW: Use LibreOffice-powered endpoint for DOCX drafts
+      // 🔧 CLEAN HTML before sending
+      const cleanedHTML = cleanHTMLForPandoc(reportContent);
+      
+      // Use OnlyOffice-powered endpoint for DOCX
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`
+        ? `/documents/study/${studyId}/convert-upload-onlyoffice`
         : `/documents/study/${studyId}/convert-and-upload`;
       
       const response = await api.post(endpoint, {
-        htmlContent: reportContent,
+        htmlContent: cleanedHTML, // 🔧 Use cleaned HTML
         format: format,
         reportData: reportData,
         templateInfo: selectedTemplate ? {
@@ -423,15 +426,18 @@ const handleTemplateSelect = async (templateId) => {
     setShowConversionModal(false);
 
     try {
-      console.log(`🔄 Converting report to ${format} using LibreOffice pipeline...`);
+      console.log(`🔄 Converting report to ${format} using OnlyOffice pipeline...`);
       
-      // 🔧 NEW: Use LibreOffice-powered endpoint
+      // 🔧 CLEAN HTML before sending
+      const cleanedHTML = cleanHTMLForPandoc(reportContent);
+      
+      // Use OnlyOffice-powered endpoint
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`  // LibreOffice for DOCX
-        : `/documents/study/${studyId}/convert-and-upload`;             // Direct for PDF
+        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`  // OnlyOffice for DOCX
+        : `/documents/study/${studyId}/convert-and-upload`;        // Direct for PDF
     
       const response = await api.post(endpoint, {
-        htmlContent: reportContent,
+        htmlContent: cleanedHTML, // 🔧 Use cleaned HTML
         format: format,
         reportData: reportData,
         templateInfo: selectedTemplate ? {
@@ -827,3 +833,307 @@ const processMultiPageContent = (htmlContent, patientData, studyData) => {
 };
 
 export default OnlineReportingSystem;
+
+// 🔧 UPDATED: Remove all class references and target table elements directly
+const documentStyles = `
+  /* Base editor styles */
+  .report-editor {
+    font-family: Arial, sans-serif;
+    line-height: 1.4;
+    color: #000;
+    font-size: 11pt;
+    background: white;
+    outline: none;
+    box-sizing: border-box;
+  }
+  
+  /* Preview container with proper centering */
+  .preview-container {
+    background: #f5f5f5;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  /* Multi-page preview with consistent spacing */
+  .multi-page-preview {
+    width: 21cm;
+    max-width: 21cm;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+  }
+
+  /* Page styling with better space management */
+  .report-page, .report-page-preview {
+    background: white;
+    width: 21cm;
+    min-height: 29.7cm;
+    padding: 0;
+    margin: 0;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+    box-sizing: border-box;
+    position: relative;
+    page-break-after: always;
+    display: block;
+    font-family: Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    color: #000;
+    border: 1px solid #ccc;
+  }
+
+  .report-page:last-child, .report-page-preview:last-child {
+    page-break-after: auto;
+  }
+
+  /* 🔧 FIXED: Target ALL tables directly without classes */
+  .report-page table, 
+  .report-page-preview table,
+  .report-editor table {
+    width: calc(100% - 2.5cm);
+    border-collapse: collapse;
+    margin: 3rem 1.25cm 1rem 1.25cm;
+    font-size: 10pt;
+  }
+
+  .report-page table td, 
+  .report-page-preview table td,
+  .report-editor table td {
+    border: 1px solid #000;
+    padding: 8px 10px;
+    vertical-align: top;
+  }
+
+  .report-page table td:nth-child(1),
+  .report-page table td:nth-child(3),
+  .report-page-preview table td:nth-child(1),
+  .report-page-preview table td:nth-child(3),
+  .report-editor table td:nth-child(1),
+  .report-editor table td:nth-child(3) {
+    background-color: #b2dfdb;
+    font-weight: bold;
+    width: 22%;
+  }
+
+  .report-page table td:nth-child(2),
+  .report-page table td:nth-child(4),
+  .report-page-preview table td:nth-child(2),
+  .report-page-preview table td:nth-child(4),
+  .report-editor table td:nth-child(2),
+  .report-editor table td:nth-child(4) {
+    background-color: #ffffff;
+    width: 28%;
+  }
+
+  /* Content area with maximum space utilization */
+  .content-flow-area {
+    margin: 0 1.25cm;
+    padding: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* Signature section with proper positioning */
+  .signature-section {
+    margin: 1.5rem 1.25cm 1.25cm 1.25cm;
+    text-align: left;
+    font-size: 10pt;
+    line-height: 1.3;
+    border-top: 1px solid #bbb;
+    padding-top: 1rem;
+    page-break-inside: avoid;
+  }
+
+  .doctor-name {
+    font-weight: bold;
+    margin-bottom: 3px;
+    font-size: 12pt;
+  }
+
+  .doctor-specialization,
+  .doctor-license {
+    margin: 3px 0;
+    font-size: 11pt;
+  }
+
+  .signature-image {
+    width: 90px;
+    height: 45px;
+    margin: 8px 0;
+    object-fit: contain;
+  }
+
+  .signature-placeholder {
+    height: 45px;
+    width: 150px;
+    margin: 8px 0;
+    font-size: 9pt;
+    color: #999;
+    border: 1px dashed #ccc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fafafa;
+  }
+
+  .disclaimer {
+    font-style: italic;
+    color: #666;
+    font-size: 9pt;
+    margin-top: 10px;
+    line-height: 1.2;
+  }
+
+  /* Template placeholder */
+  .template-placeholder {
+    text-align: center;
+    padding: 30px 20px;
+    color: #666;
+    font-style: italic;
+    border: 2px dashed #ddd;
+    margin: 15px 0;
+    background: #f9f9f9;
+    border-radius: 4px;
+  }
+
+  /* Text styles with better spacing */
+  p { 
+    margin: 6px 0; 
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+  
+  h1, h2, h3 { 
+    font-weight: bold; 
+    text-decoration: underline; 
+    margin: 15px 0 8px 0; 
+    page-break-after: avoid;
+  }
+  h1 { font-size: 14pt; line-height: 1.3; }
+  h2 { font-size: 12pt; line-height: 1.3; }
+  h3 { font-size: 11pt; line-height: 1.3; }
+  
+  ul, ol { 
+    padding-left: 22px; 
+    margin: 8px 0; 
+  }
+  li { 
+    margin: 3px 0; 
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+  strong { font-weight: bold; }
+  u { text-decoration: underline; }
+
+  /* Page break indicators */
+  div[style*="page-break-after: always"] {
+    height: 3px;
+    margin: 25px 1.25cm;
+    border-top: 2px dashed #0066cc;
+    background: linear-gradient(90deg, transparent 0%, #0066cc 50%, transparent 100%);
+    position: relative;
+  }
+
+  div[style*="page-break-after: always"]:after {
+    content: "PAGE BREAK";
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0066cc;
+    color: white;
+    font-size: 9pt;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: bold;
+  }
+
+  /* Page numbering and labels */
+  .report-page::after, .report-page-preview::after {
+    content: "Page " attr(data-page);
+    position: absolute;
+    bottom: 0.75cm;
+    right: 1.25cm;
+    font-size: 10pt;
+    color: #555;
+    font-weight: normal;
+  }
+
+  .report-page::before, .report-page-preview::before {
+    content: "Page " attr(data-page);
+    position: absolute;
+    top: -30px;
+    left: 0;
+    font-size: 12px;
+    color: #444;
+    background: #e8f4fd;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-weight: bold;
+    border: 1px solid #1976d2;
+  }
+
+  /* Editor mode alignment */
+  .report-editor.bg-white {
+    margin: 0 auto;
+  }
+
+  @media print {
+    .preview-container { 
+      background: white; 
+      padding: 0; 
+    }
+    
+    .multi-page-preview {
+      gap: 0;
+    }
+    
+    .report-page, .report-page-preview { 
+      margin: 0; 
+      box-shadow: none; 
+      page-break-after: always;
+      border: none;
+    }
+    
+    .report-page:last-child, .report-page-preview:last-child { 
+      page-break-after: auto; 
+    }
+    
+    .report-page::before, .report-page-preview::before {
+      display: none;
+    }
+    
+    div[style*="page-break-after: always"] {
+      page-break-after: always;
+      border: none;
+      height: 0;
+      margin: 0;
+      background: none;
+    }
+    
+    div[style*="page-break-after: always"]:after {
+      display: none;
+    }
+  }
+`;
+
+// 🔧 NEW: Clean HTML function to remove all table classes for Pandoc
+const cleanHTMLForPandoc = (htmlContent) => {
+  if (!htmlContent) return '';
+  
+  // Remove all class attributes from table elements
+  let cleanedHTML = htmlContent
+    .replace(/<table[^>]*class="[^"]*"[^>]*>/gi, '<table>')
+    .replace(/<table[^>]*>/gi, '<table>')
+    .replace(/class="patient-info-table[^"]*"/gi, '')
+    .replace(/class="page-header-table[^"]*"/gi, '')
+    .replace(/class="[^"]*patient-info-table[^"]*"/gi, '')
+    .replace(/class="[^"]*page-header-table[^"]*"/gi, '');
+  
+  console.log('🧹 HTML cleaned for Pandoc - removed table classes');
+  return cleanedHTML;
+};
