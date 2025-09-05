@@ -2156,6 +2156,7 @@ static prepareDocxCompatibleHTML(htmlContent) {
 
 
 static async convertHTMLToDOCX(htmlContent, reportData) {
+  console
   try {
     console.log('🔄 Converting HTML to DOCX...');
     
@@ -2193,6 +2194,7 @@ static async convertAndUploadReportViaPandocService(req, res) {
         try {
             const { studyId } = req.params;
             let { htmlContent } = req.body; // We only need the HTML content from the request
+            console.log('Request body:', htmlContent); // Debug: Log the entire request body
 
             if (!htmlContent) {
                 return res.status(400).json({ success: false, message: 'HTML content is required' });
