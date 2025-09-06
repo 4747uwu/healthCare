@@ -140,12 +140,11 @@ const OnlineReportingSystem = () => {
     console.log('🔍 [Reporting] Starting initialization...');
     console.log('🔍 [Reporting] Study ID:', studyId);
     
-    // Check authentication
-    const token = sessionManager.getToken();
-    const currentUser = sessionManager.getUser();
-    console.log('🔍 [Reporting] Token available:', !!token);
-    console.log('🔍 [Reporting] Current user:', currentUser);
-    
+     // Check authentication
+         const token = sessionManager.getToken();
+        const currentUser = sessionManager.getCurrentUser();
+        console.log('🔍 [Reporting] Token available:', !!token);
+        console.log('🔍 [Reporting] Current user:', currentUser);
     if (!token) {
       console.error('❌ [Reporting] No authentication token found');
       toast.error('Authentication required. Redirecting to login...');
