@@ -344,7 +344,7 @@ const handleTemplateSelect = async (templateId) => {
       
       // Use OnlyOffice-powered endpoint for DOCX
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-upload-onlyoffice`
+        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`
         : `/documents/study/${studyId}/convert-and-upload`;
       
       const response = await api.post(endpoint, {
