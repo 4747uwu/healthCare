@@ -6,6 +6,7 @@ import TemplateTreeView from './TemplateTreeView';
 import ReportEditor from './ReportEditor';
 import PatientInfoPanel from './PatientInfoPanel';
 import sessionManager from '../../services/sessionManager';
+import cheerio from 'cheerio';
 
 // 🔧 NEW: HTML decoder function
 const decodeHTMLEntities = (html) => {
@@ -324,27 +325,21 @@ const handleTemplateSelect = async (templateId) => {
 
   // New function to handle draft conversion and upload
   const handleDraftConvertAndUpload = async (format) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to save this report as draft in ${format.toUpperCase()} format?`
-    );
-    
-    if (!confirmed) {
-      return;
-    }
-
-    setSavingDraft(true);
-    setShowDraftModal(false);
+    // ... existing code ...
 
     try {
-      console.log(`🔄 Converting draft report to ${format} using LibreOffice pipeline...`);
+      console.log(`🔄 Converting draft report to ${format} using enhanced table formatting...`);
       
-      // 🔧 NEW: Use LibreOffice-powered endpoint for DOCX drafts
+      // 🔧 ENHANCED: Apply multiple table fixes
+      let cleanedHTML = fixTableStructureForPandoc(reportContent);
+      cleanedHTML = cleanHTMLForPandoc(cleanedHTML);
+      
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`
+        ? `/documents/study/${studyId}/convert-upload-onlyoffice`
         : `/documents/study/${studyId}/convert-and-upload`;
       
       const response = await api.post(endpoint, {
-        htmlContent: reportContent,
+        htmlContent: cleanedHTML,
         format: format,
         reportData: reportData,
         templateInfo: selectedTemplate ? {
@@ -422,15 +417,18 @@ const handleTemplateSelect = async (templateId) => {
     setShowConversionModal(false);
 
     try {
-      console.log(`🔄 Converting report to ${format} using LibreOffice pipeline...`);
+      console.log(`🔄 Converting report to ${format} using enhanced table formatting...`);
       
-      // 🔧 NEW: Use LibreOffice-powered endpoint
+      // 🔧 ENHANCED: Apply multiple table fixes
+      let cleanedHTML = fixTableStructureForPandoc(reportContent);
+      cleanedHTML = cleanHTMLForPandoc(cleanedHTML);
+      
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`  // LibreOffice for DOCX
-        : `/documents/study/${studyId}/convert-and-upload`;             // Direct for PDF
+        ? `/documents/study/${studyId}/convert-upload-onlyoffice`
+        : `/documents/study/${studyId}/convert-and-upload`;
     
       const response = await api.post(endpoint, {
-        htmlContent: reportContent,
+        htmlContent: cleanedHTML,
         format: format,
         reportData: reportData,
         templateInfo: selectedTemplate ? {
@@ -490,26 +488,26 @@ const handleTemplateSelect = async (templateId) => {
 
 
 const processMultiPageContent = (htmlContent, patientData, studyData) => {
-  // Create patient table template for headers
+  // 🔧 ENHANCED: Create patient table template with proper inline styles for Pandoc
   const patientTableTemplate = `
-    <table class="patient-info-table page-header-table">
+    <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt; margin-bottom: 20px;">
       <tr>
-        <td><strong>Name:</strong></td>
-        <td>${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
-        <td><strong>Patient ID:</strong></td>
-        <td>${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Name:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Patient ID:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
       </tr>
       <tr>
-        <td><strong>Accession No:</strong></td>b 
-        <td>${studyData?.accessionNumber || 'N/A'}</td>
-        <td><strong>Age/Gender:</strong></td>
-        <td>${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Accession No:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Age/Gender:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
       </tr>
       <tr>
-        <td><strong>Referred By:</strong></td>
-        <td>N/A</td>
-        <td><strong>Date:</strong></td>
-        <td>${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Referred By:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;N/A</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Date:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
       </tr>
     </table>
   `;
@@ -581,7 +579,7 @@ const processMultiPageContent = (htmlContent, patientData, studyData) => {
     `;
   }
 
-  console.log(`✅ Content split into ${pageNumber} pages`);
+  console.log(`✅ Content split into ${pageNumber} pages with fixed table formatting`);
   return processedContent;
 };
 
@@ -826,3 +824,83 @@ const processMultiPageContent = (htmlContent, patientData, studyData) => {
 };
 
 export default OnlineReportingSystem;
+
+// 🔧 ENHANCED: Clean HTML function with table formatting fixes
+const cleanHTMLForPandoc = (htmlContent) => {
+  if (!htmlContent) return '';
+  
+  const $ = cheerio.load(htmlContent);
+  
+  // Remove all class attributes from table elements
+  $('table').each(function() {
+    $(this).removeAttr('class');
+    $(this).removeAttr('style');
+    
+    // 🔧 FIX: Add proper cell padding and alignment
+    $(this).find('td').each(function() {
+      const $cell = $(this);
+      const cellText = $cell.text().trim();
+      
+      // Remove any existing classes and styles
+      $cell.removeAttr('class');
+      $cell.removeAttr('style');
+      
+      // Add padding to ensure proper spacing
+      if ($cell.index() === 1 || $cell.index() === 3) {
+        // Second and fourth columns - add leading space for better alignment
+        if (cellText && !cellText.startsWith(' ')) {
+          $cell.html('&nbsp;&nbsp;' + $cell.html());
+        }
+      }
+      
+      // Add trailing space to first and third columns to ensure separation
+      if ($cell.index() === 0 || $cell.index() === 2) {
+        if (cellText && !cellText.endsWith(' ')) {
+          $cell.html($cell.html() + '&nbsp;');
+        }
+      }
+    });
+  });
+  
+  console.log('🧹 HTML cleaned for Pandoc - fixed table alignment');
+  return $.html();
+};
+
+// 🔧 NEW: Fix table structure for Pandoc conversion
+const fixTableStructureForPandoc = (htmlContent) => {
+  if (!htmlContent) return '';
+  
+  const $ = cheerio.load(htmlContent);
+  
+  $('table').each(function() {
+    const $table = $(this);
+    
+    // Remove all styling
+    $table.removeAttr('class');
+    $table.removeAttr('style');
+    
+    // Process each row
+    $table.find('tr').each(function() {
+      const $row = $(this);
+      const $cells = $row.find('td');
+      
+      if ($cells.length === 4) {
+        // Create new row structure with better spacing
+        const newRowHtml = `
+          <tr>
+            <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;">${$cells.eq(0).html()}</td>
+            <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">${$cells.eq(1).html()}</td>
+            <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;">${$cells.eq(2).html()}</td>
+            <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">${$cells.eq(3).html()}</td>
+          </tr>
+        `;
+        $row.replaceWith(newRowHtml);
+      }
+    });
+    
+    // Add table-wide styling
+    $table.attr('style', 'width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt;');
+  });
+  
+  return $.html();
+};
