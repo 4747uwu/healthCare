@@ -40,10 +40,6 @@ const ONLYOFFICE_SERVICE_URL = process.env.ONLYOFFICE_SERVICE_URL || 'http://loc
 const TEMP_FILE_HOST = process.env.TEMP_FILE_HOST || 'http://172.17.0.1:8011'; // Your host IP for OnlyOffice to access files
 const PANDOC_SERVICE_URL = process.env.PANDOC_SERVICE_URL || 'http://157.245.86.199:8080';
 
-const ONLYOFFICE_URL = process.env.ONLYOFFICE_URL || 'http://157.245.86.199:9000';
-
-
-
 
 class DocumentController {
   // Generate and download patient report (NO STORAGE)
@@ -2193,89 +2189,77 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
 
 
 static async convertAndUploadReportViaPandocService(req, res) {
-        console.log('🚀 Starting OnlyOffice conversion workflow...');
-        
+        console.log('🔄 Calling Pandoc microservice for conversion (Table Test)...');
+
         try {
             const { studyId } = req.params;
-            let { htmlContent } = req.body;
+            const { htmlContent } = req.body;
+            console.log('Request body:', htmlContent); // Debug: Log the entire request body
 
             if (!htmlContent) {
                 return res.status(400).json({ success: false, message: 'HTML content is required' });
             }
 
-            const study = await DicomStudy.findById(studyId).populate('assignment.assignedTo');
+            const study = await DicomStudy.findById(studyId).populate('patient');
             if (!study) {
                 return res.status(404).json({ success: false, message: 'Study not found' });
             }
 
-            // --- Step 1: Prepare the final HTML (with signature) ---
+            // --- Step 1: Enhance HTML with Content (the signature) ---
+            let assignedDoctor = null;
             if (study.assignment?.assignedTo) {
-                const assignedDoctor = await Doctor.findById(study.assignment.assignedTo);
-                if (assignedDoctor?.signature) {
-                    console.log('🖋️ Embedding doctor signature into HTML...');
-                    const $ = cheerio.load(htmlContent);
-                    const signatureBase64 = assignedDoctor.signature;
-                    $('img').first().attr('src', `data:image/png;base64,${signatureBase64}`);
-                    htmlContent = $.html();
-                }
+                // This assumes assignment.assignedTo holds the Doctor's ObjectId
+                assignedDoctor = await Doctor.findById(study.assignment.assignedTo);
             }
 
-            // --- Step 2: Upload the source HTML to a temporary public Wasabi URL ---
-            const tempHtmlKey = `temp/${uuidv4()}.html`;
-            const htmlUploadResult = await WasabiService.uploadDocument(
-                Buffer.from(htmlContent, 'utf-8'),
-                tempHtmlKey,
-                'text/html'
-            );
-            
-            if (!htmlUploadResult.success || !htmlUploadResult.url) {
-                throw new Error('Failed to upload temporary HTML file or get its public URL.');
+            if (assignedDoctor && assignedDoctor.signature) {
+                console.log('🖋️ Embedding doctor signature into HTML as Base64...');
+                const $ = cheerio.load(htmlContent);
+                const signatureBase64 = assignedDoctor.signature; // Your Base64 string from the DB
+                
+                // Find the first image tag and set its src to the Base64 Data URI
+                $('img').first().attr('src', `data:image/png;base64,${signatureBase64}`);
+                
+                htmlContent = $.html(); // Update htmlContent with the embedded image
+            } else {
+                console.warn('⚠️ No signature found for the assigned doctor.');
             }
-            const publicHtmlUrl = htmlUploadResult.url;
-            console.log(`📤 Temporary HTML uploaded to: ${publicHtmlUrl}`);
 
-            // --- Step 3: Call the OnlyOffice Conversion API ---
-            const conversionPayload = {
-                async: false,
-                filetype: "html",
-                key: uuidv4(),
-                outputtype: "docx",
-                url: publicHtmlUrl,
-            };
-            
-            console.log('🔄 Sending conversion request to OnlyOffice...');
-            const ooResponse = await fetch(`${ONLYOFFICE_URL}/ConvertService.ashx`, {
+            // --- Signature-embedding logic is temporarily removed to focus on table styling ---
+
+            // --- Prepare and send the HTML directly to the Pandoc Service ---
+            const formData = new FormData();
+            const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
+            formData.append('file', htmlBuffer, { filename: 'report.html' });
+
+            const pandocResponse = await fetch(`${PANDOC_SERVICE_URL}/convert`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(conversionPayload),
+                body: formData,
+                headers: formData.getHeaders(),
             });
 
-            const ooResult = await ooResponse.json();
-            if (ooResult.error || !ooResult.fileUrl) {
-                throw new Error(`OnlyOffice conversion failed: ${ooResult.error || 'No file URL returned'}`);
+            if (!pandocResponse.ok) {
+                const errorText = await pandocResponse.text();
+                throw new Error(`Pandoc service failed: ${errorText}`);
             }
-            const convertedDocxUrl = ooResult.fileUrl;
-            console.log(`✅ OnlyOffice conversion successful. DOCX at: ${convertedDocxUrl}`);
 
-            // --- Step 4: Download the converted DOCX from OnlyOffice ---
-            const finalDocxResponse = await fetch(convertedDocxUrl);
-            const docxArrayBuffer = await finalDocxResponse.arrayBuffer();
+            // --- Get the converted DOCX buffer back ---
+            const docxArrayBuffer = await pandocResponse.arrayBuffer();
             const docxBuffer = Buffer.from(docxArrayBuffer);
+            console.log(`✅ Received converted DOCX from Pandoc, size: ${docxBuffer.length} bytes`);
 
-            // --- Step 5: Upload the final DOCX to its permanent Wasabi location ---
-            const finalFileName = `Report_${studyId}_${Date.now()}.docx`;
-            const wasabiResult = await WasabiService.uploadDocument(docxBuffer, finalFileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', { studyId });
+            // --- Upload to Wasabi and save to database ---
+            const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+            const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'clinical', { studyId });
             
             if (!wasabiResult.success) {
                 throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
             }
-
-            // Your existing database saving logic for the Document and DicomStudy models
-            // For example:
+            
             const documentRecord = new Document({
                 studyId: study._id,
                 patientId: study.patient?._id,
-                fileName: finalFileName,
+                fileName: fileName,
                 fileSize: docxBuffer.length,
                 contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                 wasabiKey: wasabiResult.key,
@@ -2284,22 +2268,45 @@ static async convertAndUploadReportViaPandocService(req, res) {
                 uploadedBy: req.user._id
             });
             await documentRecord.save();
-            
+
+            const doctorReportEntry = {
+                _id: documentRecord._id,
+                filename: fileName,
+                contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                size: docxBuffer.length,
+                reportType: 'doctor-report',
+                reportStatus: 'finalized',
+                uploadedAt: new Date(),
+                uploadedBy: req.user?.fullName || 'Online System',
+                storageType: 'wasabi'
+            };
+
             if (!study.doctorReports) {
                 study.doctorReports = [];
             }
-            study.doctorReports.push({ _id: documentRecord._id /* ...other metadata */ });
+            study.doctorReports.push(doctorReportEntry);
             study.ReportAvailable = true;
+            study.workflowStatus = 'report_finalized';
             await study.save();
-            
+
+            console.log('✅ Report uploaded to Wasabi successfully.');
             res.status(201).json({
                 success: true,
-                message: 'Report converted via OnlyOffice and uploaded successfully',
+                message: 'Report converted and uploaded successfully',
+                data: {
+                    documentId: documentRecord._id,
+                    filename: fileName,
+                    wasabiKey: wasabiResult.key,
+                }
             });
 
         } catch (error) {
-            console.error('❌ Error in OnlyOffice workflow:', error);
-            res.status(500).json({ success: false, message: 'Failed to convert report', error: error.message });
+            console.error('❌ Error in Pandoc service workflow:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to convert report',
+                error: error.message
+            });
         }
     }
 
