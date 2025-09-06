@@ -63,7 +63,7 @@ const generateDefaultReport = ({ patientData, studyData, doctorDetails, currentU
       <!-- Page 1 -->
       <div class="report-page" data-page="1">
         <!-- Patient Information Table - Always present on every page -->
-        <table class="patient-info-table page-header-table">
+        <table>
           <tr>
             <td><strong>Name:</strong></td>
             <td>${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
@@ -92,7 +92,7 @@ const generateDefaultReport = ({ patientData, studyData, doctorDetails, currentU
           </div>
         </div>
 
-        <!-- 🔧 UPDATED: Normal signature section (not floating) -->
+        <!-- Normal signature section -->
         <div class="signature-section">
           <div class="doctor-name">${doctorDetails?.fullName || currentUser?.fullName || 'Dr. Gamma Ray'}</div>
           <div class="doctor-specialization">${doctorDetails?.specialization || 'Oncology'}</div>
@@ -140,12 +140,11 @@ const OnlineReportingSystem = () => {
     console.log('🔍 [Reporting] Starting initialization...');
     console.log('🔍 [Reporting] Study ID:', studyId);
     
-    // Check authentication
-     const token = sessionManager.getToken();
-    const currentUser = sessionManager.getCurrentUser();
-    console.log('🔍 [Reporting] Token available:', !!token);
-    console.log('🔍 [Reporting] Current user:', currentUser);
-    
+     // Check authentication
+         const token = sessionManager.getToken();
+        const currentUser = sessionManager.getCurrentUser();
+        console.log('🔍 [Reporting] Token available:', !!token);
+        console.log('🔍 [Reporting] Current user:', currentUser);
     if (!token) {
       console.error('❌ [Reporting] No authentication token found');
       toast.error('Authentication required. Redirecting to login...');
@@ -325,27 +324,21 @@ const handleTemplateSelect = async (templateId) => {
 
   // New function to handle draft conversion and upload
   const handleDraftConvertAndUpload = async (format) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to save this report as draft in ${format.toUpperCase()} format?`
-    );
-    
-    if (!confirmed) {
-      return;
-    }
-
-    setSavingDraft(true);
-    setShowDraftModal(false);
+    // ... existing code ...
 
     try {
-      console.log(`🔄 Converting draft report to ${format} using LibreOffice pipeline...`);
+      console.log(`🔄 Converting draft report to ${format} using enhanced table formatting...`);
       
-      // 🔧 NEW: Use LibreOffice-powered endpoint for DOCX drafts
+      // 🔧 ENHANCED: Apply multiple table fixes
+      let cleanedHTML = fixTableStructureForPandoc(reportContent);
+      cleanedHTML = cleanHTMLForPandoc(cleanedHTML);
+      
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`
+        ? `/documents/study/${studyId}/convert-upload-onlyoffice`
         : `/documents/study/${studyId}/convert-and-upload`;
       
       const response = await api.post(endpoint, {
-        htmlContent: reportContent,
+        htmlContent: cleanedHTML,
         format: format,
         reportData: reportData,
         templateInfo: selectedTemplate ? {
@@ -423,15 +416,18 @@ const handleTemplateSelect = async (templateId) => {
     setShowConversionModal(false);
 
     try {
-      console.log(`🔄 Converting report to ${format} using LibreOffice pipeline...`);
+      console.log(`🔄 Converting report to ${format} using enhanced table formatting...`);
       
-      // 🔧 NEW: Use LibreOffice-powered endpoint
+      // 🔧 ENHANCED: Apply multiple table fixes
+      let cleanedHTML = fixTableStructureForPandoc(reportContent);
+      cleanedHTML = cleanHTMLForPandoc(cleanedHTML);
+      
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`  // LibreOffice for DOCX
-        : `/documents/study/${studyId}/convert-and-upload`;             // Direct for PDF
+        ? `/documents/study/${studyId}/convert-upload-onlyoffice`
+        : `/documents/study/${studyId}/convert-and-upload`;
     
       const response = await api.post(endpoint, {
-        htmlContent: reportContent,
+        htmlContent: cleanedHTML,
         format: format,
         reportData: reportData,
         templateInfo: selectedTemplate ? {
@@ -491,26 +487,26 @@ const handleTemplateSelect = async (templateId) => {
 
 
 const processMultiPageContent = (htmlContent, patientData, studyData) => {
-  // Create patient table template for headers
+  // 🔧 ENHANCED: Create patient table template with proper inline styles for Pandoc
   const patientTableTemplate = `
-    <table class="patient-info-table page-header-table">
+    <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt; margin-bottom: 20px;">
       <tr>
-        <td><strong>Name:</strong></td>
-        <td>${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
-        <td><strong>Patient ID:</strong></td>
-        <td>${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Name:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Patient ID:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
       </tr>
       <tr>
-        <td><strong>Accession No:</strong></td>b 
-        <td>${studyData?.accessionNumber || 'N/A'}</td>
-        <td><strong>Age/Gender:</strong></td>
-        <td>${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Accession No:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Age/Gender:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
       </tr>
       <tr>
-        <td><strong>Referred By:</strong></td>
-        <td>N/A</td>
-        <td><strong>Date:</strong></td>
-        <td>${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Referred By:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;N/A</td>
+        <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;"><strong>Date:</strong></td>
+        <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
       </tr>
     </table>
   `;
@@ -582,7 +578,7 @@ const processMultiPageContent = (htmlContent, patientData, studyData) => {
     `;
   }
 
-  console.log(`✅ Content split into ${pageNumber} pages`);
+  console.log(`✅ Content split into ${pageNumber} pages with fixed table formatting`);
   return processedContent;
 };
 
@@ -827,3 +823,98 @@ const processMultiPageContent = (htmlContent, patientData, studyData) => {
 };
 
 export default OnlineReportingSystem;
+
+// 🔧 ENHANCED: Clean HTML function with table formatting fixes
+const cleanHTMLForPandoc = (htmlContent) => {
+  if (!htmlContent) return '';
+  
+  // Create a temporary DOM parser
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
+  
+  // Remove all class attributes from table elements
+  const tables = doc.querySelectorAll('table');
+  tables.forEach(table => {
+    table.removeAttribute('class');
+    table.removeAttribute('style');
+    
+    // Fix cell padding and alignment
+    const cells = table.querySelectorAll('td');
+    cells.forEach((cell, index) => {
+      const cellText = cell.textContent.trim();
+      
+      // Remove any existing classes and styles
+      cell.removeAttribute('class');
+      cell.removeAttribute('style');
+      
+      // Get the column index (0-based)
+      const columnIndex = Array.from(cell.parentNode.children).indexOf(cell);
+      
+      // Add padding to ensure proper spacing
+      if (columnIndex === 1 || columnIndex === 3) {
+        // Second and fourth columns - add leading space for better alignment
+        if (cellText && !cell.innerHTML.startsWith('&nbsp;')) {
+          cell.innerHTML = '&nbsp;&nbsp;' + cell.innerHTML;
+        }
+      }
+      
+      // Add trailing space to first and third columns to ensure separation
+      if (columnIndex === 0 || columnIndex === 2) {
+        if (cellText && !cell.innerHTML.endsWith('&nbsp;')) {
+          cell.innerHTML = cell.innerHTML + '&nbsp;';
+        }
+      }
+    });
+  });
+  
+  console.log('🧹 HTML cleaned for Pandoc - fixed table alignment');
+  return doc.documentElement.innerHTML;
+};
+
+// 🔧 NEW: Browser-compatible table structure fix
+const fixTableStructureForPandoc = (htmlContent) => {
+  if (!htmlContent) return '';
+  
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
+  
+  const tables = doc.querySelectorAll('table');
+  tables.forEach(table => {
+    // Remove all styling
+    table.removeAttribute('class');
+    table.removeAttribute('style');
+    
+    // Process each row
+    const rows = table.querySelectorAll('tr');
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      
+      if (cells.length === 4) {
+        // Create new cells with proper styling
+        cells.forEach((cell, index) => {
+          const cellContent = cell.innerHTML;
+          
+          // Remove existing attributes
+          cell.removeAttribute('class');
+          cell.removeAttribute('style');
+          
+          // Apply new styles based on column position
+          if (index === 0 || index === 2) {
+            // First and third columns - headers
+            cell.setAttribute('style', 'width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;');
+          } else {
+            // Second and fourth columns - data
+            cell.setAttribute('style', 'width: 30%; padding: 8px 12px; border: 1px solid black;');
+          }
+          
+          cell.innerHTML = cellContent;
+        });
+      }
+    });
+    
+    // Add table-wide styling
+    table.setAttribute('style', 'width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt;');
+  });
+  
+  return doc.documentElement.innerHTML;
+};
