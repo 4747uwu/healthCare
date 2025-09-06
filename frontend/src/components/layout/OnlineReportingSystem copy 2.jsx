@@ -334,7 +334,7 @@ const handleTemplateSelect = async (templateId) => {
       cleanedHTML = cleanHTMLForPandoc(cleanedHTML);
       
       const endpoint = format.toLowerCase() === 'docx' 
-        ? `/documents/study/${studyId}/convert-upload-onlyoffice`
+        ? `/documents/study/${studyId}/convert-and-upload-libreoffice`
         : `/documents/study/${studyId}/convert-and-upload`;
       
       const response = await api.post(endpoint, {
