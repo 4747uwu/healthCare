@@ -6,7 +6,6 @@ import TemplateTreeView from './TemplateTreeView';
 import ReportEditor from './ReportEditor';
 import PatientInfoPanel from './PatientInfoPanel';
 import sessionManager from '../../services/sessionManager';
-import cheerio from 'cheerio';
 
 // 🔧 NEW: HTML decoder function
 const decodeHTMLEntities = (html) => {
@@ -64,7 +63,7 @@ const generateDefaultReport = ({ patientData, studyData, doctorDetails, currentU
       <!-- Page 1 -->
       <div class="report-page" data-page="1">
         <!-- Patient Information Table - Always present on every page -->
-        <table class="patient-info-table page-header-table">
+        <table>
           <tr>
             <td><strong>Name:</strong></td>
             <td>${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
@@ -93,7 +92,7 @@ const generateDefaultReport = ({ patientData, studyData, doctorDetails, currentU
           </div>
         </div>
 
-        <!-- 🔧 UPDATED: Normal signature section (not floating) -->
+        <!-- Normal signature section -->
         <div class="signature-section">
           <div class="doctor-name">${doctorDetails?.fullName || currentUser?.fullName || 'Dr. Gamma Ray'}</div>
           <div class="doctor-specialization">${doctorDetails?.specialization || 'Oncology'}</div>
@@ -829,78 +828,93 @@ export default OnlineReportingSystem;
 const cleanHTMLForPandoc = (htmlContent) => {
   if (!htmlContent) return '';
   
-  const $ = cheerio.load(htmlContent);
+  // Create a temporary DOM parser
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
   
   // Remove all class attributes from table elements
-  $('table').each(function() {
-    $(this).removeAttr('class');
-    $(this).removeAttr('style');
+  const tables = doc.querySelectorAll('table');
+  tables.forEach(table => {
+    table.removeAttribute('class');
+    table.removeAttribute('style');
     
-    // 🔧 FIX: Add proper cell padding and alignment
-    $(this).find('td').each(function() {
-      const $cell = $(this);
-      const cellText = $cell.text().trim();
+    // Fix cell padding and alignment
+    const cells = table.querySelectorAll('td');
+    cells.forEach((cell, index) => {
+      const cellText = cell.textContent.trim();
       
       // Remove any existing classes and styles
-      $cell.removeAttr('class');
-      $cell.removeAttr('style');
+      cell.removeAttribute('class');
+      cell.removeAttribute('style');
+      
+      // Get the column index (0-based)
+      const columnIndex = Array.from(cell.parentNode.children).indexOf(cell);
       
       // Add padding to ensure proper spacing
-      if ($cell.index() === 1 || $cell.index() === 3) {
+      if (columnIndex === 1 || columnIndex === 3) {
         // Second and fourth columns - add leading space for better alignment
-        if (cellText && !cellText.startsWith(' ')) {
-          $cell.html('&nbsp;&nbsp;' + $cell.html());
+        if (cellText && !cell.innerHTML.startsWith('&nbsp;')) {
+          cell.innerHTML = '&nbsp;&nbsp;' + cell.innerHTML;
         }
       }
       
       // Add trailing space to first and third columns to ensure separation
-      if ($cell.index() === 0 || $cell.index() === 2) {
-        if (cellText && !cellText.endsWith(' ')) {
-          $cell.html($cell.html() + '&nbsp;');
+      if (columnIndex === 0 || columnIndex === 2) {
+        if (cellText && !cell.innerHTML.endsWith('&nbsp;')) {
+          cell.innerHTML = cell.innerHTML + '&nbsp;';
         }
       }
     });
   });
   
   console.log('🧹 HTML cleaned for Pandoc - fixed table alignment');
-  return $.html();
+  return doc.documentElement.innerHTML;
 };
 
-// 🔧 NEW: Fix table structure for Pandoc conversion
+// 🔧 NEW: Browser-compatible table structure fix
 const fixTableStructureForPandoc = (htmlContent) => {
   if (!htmlContent) return '';
   
-  const $ = cheerio.load(htmlContent);
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
   
-  $('table').each(function() {
-    const $table = $(this);
-    
+  const tables = doc.querySelectorAll('table');
+  tables.forEach(table => {
     // Remove all styling
-    $table.removeAttr('class');
-    $table.removeAttr('style');
+    table.removeAttribute('class');
+    table.removeAttribute('style');
     
     // Process each row
-    $table.find('tr').each(function() {
-      const $row = $(this);
-      const $cells = $row.find('td');
+    const rows = table.querySelectorAll('tr');
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
       
-      if ($cells.length === 4) {
-        // Create new row structure with better spacing
-        const newRowHtml = `
-          <tr>
-            <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;">${$cells.eq(0).html()}</td>
-            <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">${$cells.eq(1).html()}</td>
-            <td style="width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;">${$cells.eq(2).html()}</td>
-            <td style="width: 30%; padding: 8px 12px; border: 1px solid black;">${$cells.eq(3).html()}</td>
-          </tr>
-        `;
-        $row.replaceWith(newRowHtml);
+      if (cells.length === 4) {
+        // Create new cells with proper styling
+        cells.forEach((cell, index) => {
+          const cellContent = cell.innerHTML;
+          
+          // Remove existing attributes
+          cell.removeAttribute('class');
+          cell.removeAttribute('style');
+          
+          // Apply new styles based on column position
+          if (index === 0 || index === 2) {
+            // First and third columns - headers
+            cell.setAttribute('style', 'width: 20%; font-weight: bold; padding: 8px; border: 1px solid black; background-color: #e7f5fe;');
+          } else {
+            // Second and fourth columns - data
+            cell.setAttribute('style', 'width: 30%; padding: 8px 12px; border: 1px solid black;');
+          }
+          
+          cell.innerHTML = cellContent;
+        });
       }
     });
     
     // Add table-wide styling
-    $table.attr('style', 'width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt;');
+    table.setAttribute('style', 'width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt;');
   });
   
-  return $.html();
+  return doc.documentElement.innerHTML;
 };
