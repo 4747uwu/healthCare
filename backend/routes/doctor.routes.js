@@ -8,7 +8,8 @@ import {
   startReport,
   submitReport,
   getDoctorStats,
-  getValues
+  getValues,
+  getCurrentDoctorProfile
 } from '../controllers/doctor.controller.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -29,5 +30,6 @@ router.get('/patients/:id/detailed-view', getPatientDetailedViewForDoctor);
 router.post('/studies/:studyId/start-report', startReport);
 router.post('/studies/:studyId/submit-report', submitReport);
 router.get('/stats', getDoctorStats);
+router.get('/profile', protect, authorize('doctor_account'), getCurrentDoctorProfile);
 
 export default router;
