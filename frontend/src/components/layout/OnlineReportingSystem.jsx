@@ -532,7 +532,7 @@ const processMultiPageContent = (htmlContent, patientData, studyData) => {
   let pageNumber = 1;
   
   // Approximate content limits (based on A4 page size)
-  const MAX_CHARS_PER_PAGE = 2500; // Characters per page
+  const MAX_CHARS_PER_PAGE = 2400; // Characters per page
   const MAX_ELEMENTS_PER_PAGE = 15; // Number of elements per page
   
   let currentCharCount = 0;
@@ -1163,96 +1163,66 @@ ${contentHTML}
 
 
 
-// 🔧 ALTERNATIVE: Even more aggressive ghost spacing function
-const createSuperWideTableForPandoc = (patientData, studyData) => {
-  // Using em spaces, en spaces, and regular spaces for maximum width
-  const ghostSpacing = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
-  
-  return `
-<table>
-<tr>
-<td><strong>Name:</strong>${ghostSpacing.substring(0, 50)}</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}${ghostSpacing}</td>
-<td><strong>Patient ID:</strong>${ghostSpacing.substring(0, 40)}</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}${ghostSpacing}</td>
-</tr>
-<tr>
-<td><strong>Accession No:</strong>${ghostSpacing.substring(0, 35)}</td>
-<td>&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}${ghostSpacing}</td>
-<td><strong>Age/Gender:</strong>${ghostSpacing.substring(0, 40)}</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}${ghostSpacing}</td>
-</tr>
-<tr>
-<td><strong>Referred By:</strong>${ghostSpacing.substring(0, 38)}</td>
-<td>&nbsp;&nbsp;&nbsp;N/A${ghostSpacing}</td>
-<td><strong>Date:</strong>${ghostSpacing.substring(0, 55)}</td>
-<td>&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}${ghostSpacing}</td>
-</tr>
-</table>
-`;
-};
-
-// 🔧 ENHANCED: Credfdate ultra-compact table with single-line text and reduced height
-// 🔧 ENHANCED: Create ultra-compact table with single-line text and reduced height
+// 🔧 ENHANCED: Create ultra-compact table with zero bottom padding/margin
 const createUltraWideTableForPandoc = (patientData, studyData) => {
   // Compact spacing - enough for width but not excessive height
   const compactSpacing = '&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;';
   
   return `
-<table style="table-layout: fixed; width: 100%; border-collapse: collapse;">
-<tr style="height: 20px;">
-<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Name:</strong>${compactSpacing.substring(0, 80)}</td>
-<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}${compactSpacing.substring(0, 150)}</td>
-<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Patient&nbsp;ID:</strong>${compactSpacing.substring(0, 70)}</td>
-<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}${compactSpacing.substring(0, 150)}</td>
+<table style="table-layout: fixed; width: 100%; border-collapse: collapse; margin: 0; padding: 0;">
+<tr style="height: 16px; margin: 0; padding: 0;">
+<td style="width: 18%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;"><strong>Name:</strong>${compactSpacing.substring(0, 80)}</td>
+<td style="width: 32%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}${compactSpacing.substring(0, 150)}</td>
+<td style="width: 18%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;"><strong>Patient&nbsp;ID:</strong>${compactSpacing.substring(0, 70)}</td>
+<td style="width: 32%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}${compactSpacing.substring(0, 150)}</td>
 </tr>
-<tr style="height: 20px;">
-<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Accession&nbsp;No:</strong>${compactSpacing.substring(0, 60)}</td>
-<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}${compactSpacing.substring(0, 180)}</td>
-<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Age/Gender:</strong>${compactSpacing.substring(0, 70)}</td>
-<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}${compactSpacing.substring(0, 150)}</td>
+<tr style="height: 16px; margin: 0; padding: 0;">
+<td style="width: 18%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;"><strong>Accession&nbsp;No:</strong>${compactSpacing.substring(0, 60)}</td>
+<td style="width: 32%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}${compactSpacing.substring(0, 180)}</td>
+<td style="width: 18%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;"><strong>Age/Gender:</strong>${compactSpacing.substring(0, 70)}</td>
+<td style="width: 32%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}${compactSpacing.substring(0, 150)}</td>
 </tr>
-<tr style="height: 20px;">
-<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Referred&nbsp;By:</strong>${compactSpacing.substring(0, 65)}</td>
-<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;N/A${compactSpacing.substring(0, 200)}</td>
-<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Date:</strong>${compactSpacing.substring(0, 100)}</td>
-<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}${compactSpacing.substring(0, 120)}</td>
+<tr style="height: 16px; margin: 0; padding: 0;">
+<td style="width: 18%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;"><strong>Referred&nbsp;By:</strong>${compactSpacing.substring(0, 65)}</td>
+<td style="width: 32%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;N/A${compactSpacing.substring(0, 200)}</td>
+<td style="width: 18%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;"><strong>Date:</strong>${compactSpacing.substring(0, 100)}</td>
+<td style="width: 32%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}${compactSpacing.substring(0, 120)}</td>
 </tr>
 </table>
 `;
 };
 
-// 🔧 UPDATED: Minimal table with compact height and single-line text
+// 🔧 UPDATED: Minimal table with zero bottom padding
 const createMinimalTableForPandoc = (patientData, studyData) => {
   return `
-<table style="table-layout: fixed; width: 100%; border-collapse: collapse;">
-<tr style="height: 18px;">
-<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Name:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Patient&nbsp;ID:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<table style="table-layout: fixed; width: 100%; border-collapse: collapse; margin: 0; padding: 0;">
+<tr style="height: 16px; margin: 0; padding: 0;">
+<td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Name:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Patient&nbsp;ID:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
 </tr>
-<tr style="height: 18px;">
-<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Accession&nbsp;No:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Age/Gender:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<tr style="height: 16px; margin: 0; padding: 0;">
+<td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Accession&nbsp;No:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Age/Gender:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
 </tr>
-<tr style="height: 18px;">
-<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Referred&nbsp;By:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;N/A&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Date:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<tr style="height: 16px; margin: 0; padding: 0;">
+<td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Referred&nbsp;By:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;N/A&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Date:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
 </tr>
 </table>
 `;
 };
 
-// 🔧 UPDATED: Enhanced cleaning function with compact row styling
+// 🔧 UPDATED: Enhanced cleaning function with zero bottom padding
 const cleanHTMLForPandoc = (htmlContent) => {
   if (!htmlContent) return '';
   
-  console.log('🧹 Starting HTML cleaning for Pandoc with compact table styling...');
+  console.log('🧹 Starting HTML cleaning for Pandoc with zero bottom padding...');
   
   // Create a temporary DOM parser
   const parser = new DOMParser();
@@ -1266,23 +1236,23 @@ const cleanHTMLForPandoc = (htmlContent) => {
     element.removeAttribute('data-page');
   });
   
-  // Specifically handle tables with compact styling
+  // Specifically handle tables with zero bottom padding
   const tables = doc.querySelectorAll('table');
-  console.log(`🔍 Found ${tables.length} tables to clean with compact styling`);
+  console.log(`🔍 Found ${tables.length} tables to clean with zero bottom padding`);
   
   tables.forEach((table, tableIndex) => {
-    console.log(`🧹 Cleaning table ${tableIndex + 1} with compact height`);
+    console.log(`🧹 Cleaning table ${tableIndex + 1} with zero bottom padding`);
     
-    // Set compact table styling
+    // Set compact table styling with zero margins/padding
     table.removeAttribute('class');
-    table.setAttribute('style', 'table-layout: fixed; width: 100%; border-collapse: collapse;');
+    table.setAttribute('style', 'table-layout: fixed; width: 100%; border-collapse: collapse; margin: 0; padding: 0;');
     
     // Process each row
     const rows = table.querySelectorAll('tr');
     rows.forEach((row, rowIndex) => {
-      // Set compact row height
+      // Set compact row height with zero margins/padding
       row.removeAttribute('class');
-      row.setAttribute('style', 'height: 18px;');
+      row.setAttribute('style', 'height: 16px; margin: 0; padding: 0;');
       
       const cells = row.querySelectorAll('td, th');
       cells.forEach((cell, cellIndex) => {
@@ -1293,9 +1263,9 @@ const cleanHTMLForPandoc = (htmlContent) => {
         cell.removeAttribute('colspan');
         cell.removeAttribute('rowspan');
         
-        // Set compact cell styling
+        // Set compact cell styling with zero bottom padding
         const cellWidth = cellIndex === 0 || cellIndex === 2 ? '20%' : '30%';
-        cell.setAttribute('style', `width: ${cellWidth}; padding: 3px 6px; border: 1px solid black; white-space: nowrap; overflow: hidden;`);
+        cell.setAttribute('style', `width: ${cellWidth}; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; overflow: hidden; line-height: 1; vertical-align: top;`);
         
         // Clean cell content but preserve text
         const cellText = cell.textContent.trim();
@@ -1335,32 +1305,32 @@ const cleanHTMLForPandoc = (htmlContent) => {
   // Get cleaned HTML
   const cleanedHTML = doc.body ? doc.body.innerHTML : doc.documentElement.innerHTML;
   
-  console.log('🧹 HTML cleaned for Pandoc with compact table styling');
+  console.log('🧹 HTML cleaned for Pandoc with zero bottom padding');
   return cleanedHTML;
 };
 
-// 🔧 UPDATED: processMultiPageContent with compact table
+// 🔧 UPDATED: processMultiPageContent with zero bottom padding table
 const processMultiPageContent = (htmlContent, patientData, studyData) => {
-  // Create compact patient table template for headers
+  // Create compact patient table template for headers with zero bottom padding
   const patientTableTemplate = `
-    <table style="table-layout: fixed; width: 100%; border-collapse: collapse;">
-      <tr style="height: 18px;">
-        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Name:</strong></td>
-        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
-        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Patient&nbsp;ID:</strong></td>
-        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
+    <table style="table-layout: fixed; width: 100%; border-collapse: collapse; margin: 0; padding: 0;">
+      <tr style="height: 16px; margin: 0; padding: 0;">
+        <td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Name:</strong></td>
+        <td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
+        <td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Patient&nbsp;ID:</strong></td>
+        <td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
       </tr>
-      <tr style="height: 18px;">
-        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Accession&nbsp;No:</strong></td>
-        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${studyData?.accessionNumber || 'N/A'}</td>
-        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Age/Gender:</strong></td>
-        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
+      <tr style="height: 16px; margin: 0; padding: 0;">
+        <td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Accession&nbsp;No:</strong></td>
+        <td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">${studyData?.accessionNumber || 'N/A'}</td>
+        <td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Age/Gender:</strong></td>
+        <td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
       </tr>
-      <tr style="height: 18px;">
-        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Referred&nbsp;By:</strong></td>
-        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">N/A</td>
-        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Date:</strong></td>
-        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
+      <tr style="height: 16px; margin: 0; padding: 0;">
+        <td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Referred&nbsp;By:</strong></td>
+        <td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">N/A</td>
+        <td style="width: 20%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;"><strong>Date:</strong></td>
+        <td style="width: 30%; padding: 2px 4px 0px 4px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 1; vertical-align: top;">${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
       </tr>
     </table>
   `;
@@ -1425,6 +1395,6 @@ const processMultiPageContent = (htmlContent, patientData, studyData) => {
     `;
   }
 
-  console.log(`✅ Content split into ${pageNumber} pages with compact tables`);
+  console.log(`✅ Content split into ${pageNumber} pages with zero bottom padding tables`);
   return processedContent;
 };
