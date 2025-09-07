@@ -9,6 +9,7 @@ import Lab from '../models/labModel.js';
 import Patient from '../models/patientModel.js';
 import Doctor from '../models/doctorModel.js';
 import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
+import axios from 'axios';
 
 import WasabiService from '../services/wasabi.service.js';
 
@@ -2316,15 +2317,13 @@ static async generateReportWithDocxService(req, res) {
 
     try {
         const { studyId } = req.params;
-        // The frontend will now send templateName and placeholders directly
         const { templateName, placeholders } = req.body;
-        console.log('Request body:', req.body); // Debug: Log the entire request body
 
         if (!templateName || !placeholders) {
             return res.status(400).json({ success: false, message: 'templateName and placeholders are required.' });
         }
         
-        const study = await DicomStudy.findById(studyId).populate('patient');
+        const study = await DicomStudy.findById(studyId).populate('patient').populate('assignment.assignedTo');
         if (!study) {
             return res.status(404).json({ success: false, message: 'Study not found' });
         }
@@ -2336,7 +2335,6 @@ static async generateReportWithDocxService(req, res) {
             templateName: templateName,
             placeholders: placeholders
         }, {
-            // CRITICAL: We expect a binary file back, so we use 'arraybuffer'
             responseType: 'arraybuffer' 
         });
 
@@ -2352,7 +2350,11 @@ static async generateReportWithDocxService(req, res) {
         }
         console.log('✅ Report uploaded to Wasabi successfully.');
 
-        // --- Step 3: Save the document record to your database (reusing your old logic) ---
+        // --- MERGED LOGIC: Get Doctor Info and Uploader Name ---
+        let doctor = study.assignment?.assignedTo;
+        const uploaderName = doctor?.fullName || req.user?.fullName || 'Online System';
+
+        // --- MERGED LOGIC: Create the main Document record ---
         const documentRecord = new Document({
             studyId: study._id,
             patientId: study.patient?._id,
@@ -2361,25 +2363,53 @@ static async generateReportWithDocxService(req, res) {
             contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             wasabiKey: wasabiResult.key,
             wasabiBucket: wasabiResult.bucket,
-            documentType: 'clinical',
+            documentType: 'clinical', // Matching your old 'clinical' type
             uploadedBy: req.user._id
         });
         await documentRecord.save();
-        
-        // Update the study record
-        study.ReportAvailable = true;
-        study.workflowStatus = 'report_finalized';
-        await study.save();
 
-        console.log('✅ Database updated successfully.');
+        // --- MERGED LOGIC: Create the detailed doctorReports sub-document ---
+        const doctorReportDocument = {
+            _id: documentRecord._id,
+            filename: fileName,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            size: docxBuffer.length,
+            reportType: doctor ? 'doctor-report' : 'radiologist-report',
+            uploadedAt: new Date(),
+            uploadedBy: uploaderName,
+            reportStatus: 'finalized',
+            doctorId: doctor?._id,
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            storageType: 'wasabi',
+            templateUsed: templateName // Use the templateName from the request
+        };
+
+        // --- MERGED LOGIC: Update the Study with the new report ---
+        if (!study.doctorReports) {
+            study.doctorReports = [];
+        }
+        study.doctorReports.push(doctorReportDocument);
+        study.ReportAvailable = true;
+
+        // Update other study fields as per your old logic
+        study.reportInfo = study.reportInfo || {};
+        study.reportInfo.finalizedAt = new Date();
+        study.reportInfo.reporterName = uploaderName;
+        study.workflowStatus = 'report_finalized'; // Or call your updateWorkflowStatus function
         
+        await study.save();
+        console.log('✅ Database updated successfully with detailed report info.');
+        
+        const downloadUrl = wasabiResult.url; // Assuming wasabi service returns the final URL
+
         res.status(201).json({
             success: true,
             message: 'Report generated and uploaded successfully',
             data: {
                 documentId: documentRecord._id,
                 filename: fileName,
-                downloadUrl: wasabiResult.url // Or however you get the URL
+                downloadUrl: downloadUrl
             }
         });
 
