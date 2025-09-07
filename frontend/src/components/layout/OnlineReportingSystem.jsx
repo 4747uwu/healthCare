@@ -1160,120 +1160,6 @@ ${contentHTML}
   return finalContent;
 };
 
-// 🔧 ENHANCED: Create minimal table structure with ghost spacing for full width
-const createMinimalTableForPandoc = (patientData, studyData) => {
-  return `
-<table>
-<tr>
-<td><strong>Name:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td><strong>Patient ID:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-</tr>
-<tr>
-<td><strong>Accession No:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td>&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td><strong>Age/Gender:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-</tr>
-<tr>
-<td><strong>Referred By:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td>&nbsp;&nbsp;&nbsp;N/A&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td><strong>Date:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-<td>&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
-</tr>
-</table>
-`;
-};
-
-// 🔧 ENHANCED: Clean HTML function with more aggressive ghost spacing
-const cleanHTMLForPandoc = (htmlContent) => {
-  if (!htmlContent) return '';
-  
-  console.log('🧹 Starting HTML cleaning for Pandoc with ghost spacing...');
-  
-  // Create a temporary DOM parser
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(htmlContent, 'text/html');
-  
-  // Remove all class and style attributes from ALL elements
-  const allElements = doc.querySelectorAll('*');
-  allElements.forEach(element => {
-    element.removeAttribute('class');
-    element.removeAttribute('style');
-    element.removeAttribute('data-page');
-  });
-  
-  // Specifically handle tables with extensive ghost spacing
-  const tables = doc.querySelectorAll('table');
-  console.log(`🔍 Found ${tables.length} tables to clean with ghost spacing`);
-  
-  tables.forEach((table, tableIndex) => {
-    console.log(`🧹 Cleaning table ${tableIndex + 1} with full-width ghost spacing`);
-    
-    // Remove all table attributes
-    table.removeAttribute('class');
-    table.removeAttribute('style');
-    table.removeAttribute('cellpadding');
-    table.removeAttribute('cellspacing');
-    table.removeAttribute('border');
-    
-    // Process each row
-    const rows = table.querySelectorAll('tr');
-    rows.forEach((row, rowIndex) => {
-      row.removeAttribute('class');
-      row.removeAttribute('style');
-      
-      const cells = row.querySelectorAll('td, th');
-      cells.forEach((cell, cellIndex) => {
-        // Remove all cell attributes
-        cell.removeAttribute('class');
-        cell.removeAttribute('style');
-        cell.removeAttribute('width');
-        cell.removeAttribute('height');
-        cell.removeAttribute('colspan');
-        cell.removeAttribute('rowspan');
-        
-        // Clean cell content but preserve text
-        const cellText = cell.textContent.trim();
-        
-        // 🔧 ENHANCED: Add extensive ghost spacing for full width stretching
-        if (cellIndex === 0 || cellIndex === 2) {
-          // First and third columns (headers) - add trailing ghost spacing
-          cell.innerHTML = cellText + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
-        } else if (cellIndex === 1) {
-          // Second column (data) - add both leading and extensive trailing spacing
-          cell.innerHTML = '&nbsp;&nbsp;&nbsp;' + cellText + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
-        } else if (cellIndex === 3) {
-          // Fourth column (data) - add leading and extensive trailing spacing
-          cell.innerHTML = '&nbsp;&nbsp;&nbsp;' + cellText + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
-        } else {
-          cell.innerHTML = cellText;
-        }
-      });
-    });
-  });
-  
-  // Remove div wrappers that might interfere
-  const divs = doc.querySelectorAll('div');
-  divs.forEach(div => {
-    if (div.classList.contains('report-page') || 
-        div.classList.contains('content-flow-area') ||
-        div.classList.contains('report-document')) {
-      // Move children out and remove wrapper
-      while (div.firstChild) {
-        div.parentNode.insertBefore(div.firstChild, div);
-      }
-      div.remove();
-    }
-  });
-  
-  // Get cleaned HTML
-  const cleanedHTML = doc.body ? doc.body.innerHTML : doc.documentElement.innerHTML;
-  
-  console.log('🧹 HTML cleaned for Pandoc with full-width ghost spacing');
-  return cleanedHTML;
-};
 
 
 
@@ -1306,31 +1192,239 @@ const createSuperWideTableForPandoc = (patientData, studyData) => {
 `;
 };
 
-// 🔧 ULTRA-WIDE: Using different space characters for maximum width
+// 🔧 ENHANCED: Credfdate ultra-compact table with single-line text and reduced height
+// 🔧 ENHANCED: Create ultra-compact table with single-line text and reduced height
 const createUltraWideTableForPandoc = (patientData, studyData) => {
-  // Mix of different Unicode spaces for maximum stretching
-  const wideSpacing = '&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;';
+  // Compact spacing - enough for width but not excessive height
+  const compactSpacing = '&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;&nbsp;&ensp;&emsp;';
   
   return `
-<table>
-<tr>
-<td><strong>Name:</strong>${wideSpacing.substring(0, 200)}</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}${wideSpacing}</td>
-<td><strong>Patient ID:</strong>${wideSpacing.substring(0, 150)}</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}${wideSpacing}</td>
+<table style="table-layout: fixed; width: 100%; border-collapse: collapse;">
+<tr style="height: 20px;">
+<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Name:</strong>${compactSpacing.substring(0, 80)}</td>
+<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}${compactSpacing.substring(0, 150)}</td>
+<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Patient&nbsp;ID:</strong>${compactSpacing.substring(0, 70)}</td>
+<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}${compactSpacing.substring(0, 150)}</td>
 </tr>
-<tr>
-<td><strong>Accession No:</strong>${wideSpacing.substring(0, 120)}</td>
-<td>&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}${wideSpacing}</td>
-<td><strong>Age/Gender:</strong>${wideSpacing.substring(0, 140)}</td>
-<td>&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}${wideSpacing}</td>
+<tr style="height: 20px;">
+<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Accession&nbsp;No:</strong>${compactSpacing.substring(0, 60)}</td>
+<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}${compactSpacing.substring(0, 180)}</td>
+<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Age/Gender:</strong>${compactSpacing.substring(0, 70)}</td>
+<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}${compactSpacing.substring(0, 150)}</td>
 </tr>
-<tr>
-<td><strong>Referred By:</strong>${wideSpacing.substring(0, 130)}</td>
-<td>&nbsp;&nbsp;&nbsp;N/A${wideSpacing}</td>
-<td><strong>Date:</strong>${wideSpacing.substring(0, 180)}</td>
-<td>&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}${wideSpacing}</td>
+<tr style="height: 20px;">
+<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Referred&nbsp;By:</strong>${compactSpacing.substring(0, 65)}</td>
+<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;N/A${compactSpacing.substring(0, 200)}</td>
+<td style="width: 18%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;"><strong>Date:</strong>${compactSpacing.substring(0, 100)}</td>
+<td style="width: 32%; padding: 4px 8px; border: 1px solid black; white-space: nowrap; overflow: hidden;">&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}${compactSpacing.substring(0, 120)}</td>
 </tr>
 </table>
 `;
+};
+
+// 🔧 UPDATED: Minimal table with compact height and single-line text
+const createMinimalTableForPandoc = (patientData, studyData) => {
+  return `
+<table style="table-layout: fixed; width: 100%; border-collapse: collapse;">
+<tr style="height: 18px;">
+<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Name:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${patientData?.fullName || patientData?.patientName || '[Patient Name]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Patient&nbsp;ID:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${patientData?.patientId || patientData?.patientID || '[Patient ID]'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+</tr>
+<tr style="height: 18px;">
+<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Accession&nbsp;No:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${studyData?.accessionNumber || 'N/A'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Age/Gender:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+</tr>
+<tr style="height: 18px;">
+<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Referred&nbsp;By:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;N/A&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Date:</strong>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+<td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">&nbsp;&nbsp;&nbsp;${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+</tr>
+</table>
+`;
+};
+
+// 🔧 UPDATED: Enhanced cleaning function with compact row styling
+const cleanHTMLForPandoc = (htmlContent) => {
+  if (!htmlContent) return '';
+  
+  console.log('🧹 Starting HTML cleaning for Pandoc with compact table styling...');
+  
+  // Create a temporary DOM parser
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent, 'text/html');
+  
+  // Remove all class and style attributes from ALL elements except tables
+  const allElements = doc.querySelectorAll('*:not(table):not(tr):not(td)');
+  allElements.forEach(element => {
+    element.removeAttribute('class');
+    element.removeAttribute('style');
+    element.removeAttribute('data-page');
+  });
+  
+  // Specifically handle tables with compact styling
+  const tables = doc.querySelectorAll('table');
+  console.log(`🔍 Found ${tables.length} tables to clean with compact styling`);
+  
+  tables.forEach((table, tableIndex) => {
+    console.log(`🧹 Cleaning table ${tableIndex + 1} with compact height`);
+    
+    // Set compact table styling
+    table.removeAttribute('class');
+    table.setAttribute('style', 'table-layout: fixed; width: 100%; border-collapse: collapse;');
+    
+    // Process each row
+    const rows = table.querySelectorAll('tr');
+    rows.forEach((row, rowIndex) => {
+      // Set compact row height
+      row.removeAttribute('class');
+      row.setAttribute('style', 'height: 18px;');
+      
+      const cells = row.querySelectorAll('td, th');
+      cells.forEach((cell, cellIndex) => {
+        // Remove old attributes
+        cell.removeAttribute('class');
+        cell.removeAttribute('width');
+        cell.removeAttribute('height');
+        cell.removeAttribute('colspan');
+        cell.removeAttribute('rowspan');
+        
+        // Set compact cell styling
+        const cellWidth = cellIndex === 0 || cellIndex === 2 ? '20%' : '30%';
+        cell.setAttribute('style', `width: ${cellWidth}; padding: 3px 6px; border: 1px solid black; white-space: nowrap; overflow: hidden;`);
+        
+        // Clean cell content but preserve text
+        const cellText = cell.textContent.trim();
+        
+        // Add compact spacing with single-line enforcement
+        if (cellIndex === 0 || cellIndex === 2) {
+          // First and third columns (headers) - use non-breaking space for single line
+          const singleLineText = cellText.replace(/\s+/g, '&nbsp;');
+          cell.innerHTML = singleLineText + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+        } else if (cellIndex === 1) {
+          // Second column (data) - compact spacing
+          cell.innerHTML = '&nbsp;&nbsp;&nbsp;' + cellText + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+        } else if (cellIndex === 3) {
+          // Fourth column (data) - compact spacing
+          cell.innerHTML = '&nbsp;&nbsp;&nbsp;' + cellText + '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+        } else {
+          cell.innerHTML = cellText;
+        }
+      });
+    });
+  });
+  
+  // Remove div wrappers that might interfere
+  const divs = doc.querySelectorAll('div');
+  divs.forEach(div => {
+    if (div.classList.contains('report-page') || 
+        div.classList.contains('content-flow-area') ||
+        div.classList.contains('report-document')) {
+      // Move children out and remove wrapper
+      while (div.firstChild) {
+        div.parentNode.insertBefore(div.firstChild, div);
+      }
+      div.remove();
+    }
+  });
+  
+  // Get cleaned HTML
+  const cleanedHTML = doc.body ? doc.body.innerHTML : doc.documentElement.innerHTML;
+  
+  console.log('🧹 HTML cleaned for Pandoc with compact table styling');
+  return cleanedHTML;
+};
+
+// 🔧 UPDATED: processMultiPageContent with compact table
+const processMultiPageContent = (htmlContent, patientData, studyData) => {
+  // Create compact patient table template for headers
+  const patientTableTemplate = `
+    <table style="table-layout: fixed; width: 100%; border-collapse: collapse;">
+      <tr style="height: 18px;">
+        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Name:</strong></td>
+        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
+        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Patient&nbsp;ID:</strong></td>
+        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
+      </tr>
+      <tr style="height: 18px;">
+        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Accession&nbsp;No:</strong></td>
+        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${studyData?.accessionNumber || 'N/A'}</td>
+        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Age/Gender:</strong></td>
+        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
+      </tr>
+      <tr style="height: 18px;">
+        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Referred&nbsp;By:</strong></td>
+        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">N/A</td>
+        <td style="width: 20%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;"><strong>Date:</strong></td>
+        <td style="width: 30%; padding: 3px 6px; border: 1px solid black; white-space: nowrap;">${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
+      </tr>
+    </table>
+  `;
+
+  // Rest of the function remains the same...
+  const cleanedContent = htmlContent.replace(/^\s+|\s+$/g, '');
+  const contentParts = cleanedContent.split(/(?=<p[^>]*><strong><u>)|(?=<h[1-6])|(?=<div[^>]*class="section)/);
+  
+  let processedContent = '';
+  let currentPageContent = '';
+  let pageNumber = 1;
+  
+  const MAX_CHARS_PER_PAGE = 2500;
+  const MAX_ELEMENTS_PER_PAGE = 15;
+  
+  let currentCharCount = 0;
+  let currentElementCount = 0;
+
+  contentParts.forEach((part, index) => {
+    if (!part.trim()) return;
+    
+    const partCharCount = part.replace(/<[^>]*>/g, '').length;
+    const isNewSection = part.includes('<strong><u>') || part.includes('<h');
+    
+    const shouldBreakPage = (
+      currentCharCount > 0 && (
+        currentCharCount + partCharCount > MAX_CHARS_PER_PAGE ||
+        currentElementCount >= MAX_ELEMENTS_PER_PAGE ||
+        (isNewSection && currentCharCount > 1500)
+      )
+    );
+
+    if (shouldBreakPage) {
+      processedContent += `
+        <div class="report-page" data-page="${pageNumber}">
+          ${patientTableTemplate}
+          <div class="content-flow-area">
+            ${currentPageContent}
+          </div>
+        </div>
+      `;
+      
+      pageNumber++;
+      currentPageContent = part;
+      currentCharCount = partCharCount;
+      currentElementCount = 1;
+    } else {
+      currentPageContent += part;
+      currentCharCount += partCharCount;
+      currentElementCount++;
+    }
+  });
+
+  if (currentPageContent.trim()) {
+    processedContent += `
+      <div class="report-page" data-page="${pageNumber}">
+        ${patientTableTemplate}
+        <div class="content-flow-area">
+          ${currentPageContent}
+        </div>
+      </div>
+    `;
+  }
+
+  console.log(`✅ Content split into ${pageNumber} pages with compact tables`);
+  return processedContent;
 };
