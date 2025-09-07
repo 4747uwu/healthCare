@@ -82,4 +82,6 @@ router.delete('/study/:studyId/reports/:reportIndex',
   DocumentController.deleteStudyReport
 );
 
+// In your routes file (e.g., documents.js)
+router.post('/study/:studyId/generate-report', DocumentController.generateReportWithDocxService);
 export default router;

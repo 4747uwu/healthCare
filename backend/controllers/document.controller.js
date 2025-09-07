@@ -39,6 +39,7 @@ const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://l
 const ONLYOFFICE_SERVICE_URL = process.env.ONLYOFFICE_SERVICE_URL || 'http://localhost:9000';
 const TEMP_FILE_HOST = process.env.TEMP_FILE_HOST || 'http://172.17.0.1:8011'; // Your host IP for OnlyOffice to access files
 const PANDOC_SERVICE_URL = process.env.PANDOC_SERVICE_URL || 'http://157.245.86.199:8080';
+const DOCX_SERVICE_URL = 'http://157.245.86.199:8777/api/document/generate';
 
 
 class DocumentController {
@@ -2309,6 +2310,87 @@ static async convertAndUploadReportViaPandocService(req, res) {
             });
         }
     }
+
+static async generateReportWithDocxService(req, res) {
+    console.log('🔄 Received request to generate report via C# DOCX Service...');
+
+    try {
+        const { studyId } = req.params;
+        // The frontend will now send templateName and placeholders directly
+        const { templateName, placeholders } = req.body;
+
+        if (!templateName || !placeholders) {
+            return res.status(400).json({ success: false, message: 'templateName and placeholders are required.' });
+        }
+        
+        const study = await DicomStudy.findById(studyId).populate('patient');
+        if (!study) {
+            return res.status(404).json({ success: false, message: 'Study not found' });
+        }
+
+        // --- Step 1: Call the C# DOCX Generation Service ---
+        console.log(`📞 Calling C# service with template: ${templateName}`);
+        
+        const docxResponse = await axios.post(DOCX_SERVICE_URL, {
+            templateName: templateName,
+            placeholders: placeholders
+        }, {
+            // CRITICAL: We expect a binary file back, so we use 'arraybuffer'
+            responseType: 'arraybuffer' 
+        });
+
+        const docxBuffer = Buffer.from(docxResponse.data);
+        console.log(`✅ Received generated DOCX from C# service, size: ${docxBuffer.length} bytes`);
+
+        // --- Step 2: Upload the generated DOCX to Wasabi ---
+        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'final-reports', { studyId });
+        
+        if (!wasabiResult.success) {
+            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+        }
+        console.log('✅ Report uploaded to Wasabi successfully.');
+
+        // --- Step 3: Save the document record to your database (reusing your old logic) ---
+        const documentRecord = new Document({
+            studyId: study._id,
+            patientId: study.patient?._id,
+            fileName: fileName,
+            fileSize: docxBuffer.length,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            documentType: 'final-medical-report',
+            uploadedBy: req.user._id
+        });
+        await documentRecord.save();
+        
+        // Update the study record
+        study.ReportAvailable = true;
+        study.workflowStatus = 'report_finalized';
+        await study.save();
+
+        console.log('✅ Database updated successfully.');
+        
+        res.status(201).json({
+            success: true,
+            message: 'Report generated and uploaded successfully',
+            data: {
+                documentId: documentRecord._id,
+                filename: fileName,
+                downloadUrl: wasabiResult.url // Or however you get the URL
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in new DOCX service workflow:', error.message);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate report',
+            error: error.message
+        });
+    }
+}
 
  
 }
