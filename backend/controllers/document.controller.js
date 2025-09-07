@@ -2361,7 +2361,7 @@ static async generateReportWithDocxService(req, res) {
             contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             wasabiKey: wasabiResult.key,
             wasabiBucket: wasabiResult.bucket,
-            documentType: 'final-medical-report',
+            documentType: 'clinical',
             uploadedBy: req.user._id
         });
         await documentRecord.save();

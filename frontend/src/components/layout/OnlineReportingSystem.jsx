@@ -1,945 +1,2573 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import api from '../../services/api';
-import { toast } from 'react-toastify';
-import TemplateTreeView from './TemplateTreeView';
-import ReportEditor from './ReportEditor';
-import PatientInfoPanel from './PatientInfoPanel';
-import sessionManager from '../../services/sessionManager';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import PizZip from 'pizzip';
+import Docxtemplater from 'docxtemplater';
+import DicomStudy from '../models/dicomStudyModel.js';
+import User from '../models/userModel.js';
+import Lab from '../models/labModel.js';
+import Patient from '../models/patientModel.js';
+import Doctor from '../models/doctorModel.js';
+import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
+import axios from 'axios';
 
-// 🔧 NEW: HTML decoder function
-const decodeHTMLEntities = (html) => {
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = html;
-  return textarea.value;
-};
+import WasabiService from '../services/wasabi.service.js';
 
-// 🔧 UPDATED: Enhanced HTML template processor with content insertion
-const processHTMLTemplate = (htmlContent, reportData) => {
-  // First decode HTML entities
-  let processedHtml = decodeHTMLEntities(htmlContent);
-  
-  console.log('🔧 Processing HTML template for content insertion...');
-  
-  // Define placeholder mappings
-  const placeholderMap = {
-    '{{PATIENT_NAME}}': reportData?.patientName || '[Patient Name]',
-    '{{PATIENT_ID}}': reportData?.patientId || '[Patient ID]',
-    '{{PATIENT_AGE}}': reportData?.age || '[Age]',
-    '{{PATIENT_GENDER}}': reportData?.gender || '[Gender]',
-    '{{STUDY_DATE}}': reportData?.studyDate ? new Date(reportData.studyDate).toLocaleDateString() : '[Study Date]',
-    '{{MODALITY}}': reportData?.modality || '[Modality]',
-    '{{ACCESSION_NUMBER}}': reportData?.accessionNumber || '[Accession Number]',
-    '{{REFERRING_PHYSICIAN}}': reportData?.referringPhysician || '[Referring Physician]',
-    '{{DOCTOR_NAME}}': reportData?.doctorName || '[Doctor Name]',
-    '{{DOCTOR_SPECIALIZATION}}': reportData?.doctorSpecialization || '[Specialization]',
-    '{{DOCTOR_LICENSE}}': reportData?.doctorLicenseNumber || '[License Number]',
-    '{{CURRENT_DATE}}': new Date().toLocaleDateString(),
-    '{{CURRENT_TIME}}': new Date().toLocaleTimeString()
-  };
-  
-  // Replace all placeholders
-  Object.entries(placeholderMap).forEach(([placeholder, value]) => {
-    const regex = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-    processedHtml = processedHtml.replace(regex, value);
-  });
-  
-  // Clean template content (remove any existing structure)
-  processedHtml = processedHtml
-    .replace(/<table[^>]*class="patient-info-table"[^>]*>.*?<\/table>/gis, '') // Remove patient table
-    .replace(/<div[^>]*class="signature-section"[^>]*>.*?<\/div>/gis, '') // Remove signature section
-    .replace(/<div[^>]*class="report-document"[^>]*>/gi, '') // Remove document wrapper
-    .replace(/<\/div>\s*$/gi, '') // Remove closing wrapper
-    .trim();
-  
-  console.log('✅ Template content cleaned and processed for insertion');
-  return processedHtml;
-};
+import Document from '../models/documentModal.js';
+import { calculateSimpleTAT } from '../utils/TATutility.js';
+import puppeteer from 'puppeteer';
+import { createWriteStream, writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { v4 as uuidv4 } from 'uuid';
+import HTMLtoDOCX from 'html-to-docx';
+import * as cheerio from 'cheerio';
+
+import FormData from 'form-data';
+import fetch from 'node-fetch';
+import { Readable } from 'stream';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// 🔧 FIX: Define TEMPLATES_DIR constant
+const TEMPLATES_DIR = path.join(__dirname, '../templates');
+
+// Add LibreOffice configuration
+const LIBREOFFICE_SERVICE_URL = process.env.LIBREOFFICE_SERVICE_URL || 'http://localhost:8000';
+// At the top of document.controller.js
+const PANDOC_SERVICE_URL = process.env.PANDOC_SERVICE_URL || 'http://157.245.86.199:8080';
+const DOCX_SERVICE_URL = 'http://157.245.86.199:8777/api/document/generate';
 
 
-const generateDefaultReport = ({ patientData, studyData, doctorDetails, currentUser }) => {
-  return `
-    <div class="report-document multi-page-report">
-      <!-- Page 1 -->
-      <div class="report-page" data-page="1">
-        <!-- Patient Information Table - Always present on every page -->
-        <table>
-          <tr>
-            <td><strong>Name:</strong></td>
-            <td>${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
-            <td><strong>Patient ID:</strong></td>
-            <td>${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
-          </tr>
-          <tr>
-            <td><strong>Accession No:</strong></td>
-            <td>${studyData?.accessionNumber || 'N/A'}</td>
-            <td><strong>Age/Gender:</strong></td>
-            <td>${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
-          </tr>
-          <tr>
-            <td><strong>Referred By:</strong></td>
-            <td>N/A</td>
-            <td><strong>Date:</strong></td>
-            <td>${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
-          </tr>
-        </table>
-
-        <!-- Template Content Area - Content flows here -->
-        <div id="template-content-area" class="content-flow-area">
-          <div class="template-placeholder" style="text-align: center; padding: 40px 20px; color: #666; font-style: italic; border: 2px dashed #ddd; margin: 20px 0;">
-            <p>Select a template from the left panel to insert report content here...</p>
-            <p style="font-size: 12px; margin-top: 10px;">Content will automatically flow to new pages with table headers.</p>
-          </div>
-        </div>
-
-        <!-- 🔧 UPDATED: Normal signature section (not floating) -->
-        <div class="signature-section">
-          <div class="doctor-name">${doctorDetails?.fullName || currentUser?.fullName || 'Dr. Gamma Ray'}</div>
-          <div class="doctor-specialization">${doctorDetails?.specialization || 'Oncology'}</div>
-          <div class="doctor-license">Reg no. ${doctorDetails?.licenseNumber || 'ONC777G'}</div>
-          ${doctorDetails?.signature ? `
-            <div class="doctor-signature">
-              <img src="data:${doctorDetails?.signatureMetadata?.mimeType || 'image/png'};base64,${doctorDetails.signature}" 
-                   alt="Doctor Signature" class="signature-image" />
-            </div>
-          ` : '<div class="signature-placeholder">[Signature Area]</div>'}
-          <div class="disclaimer">Disclaimer: This is an online interpretation...</div>
-        </div>
-      </div>
-    </div>
-  `;
-};
-
-const OnlineReportingSystem = () => {
-  const { studyId } = useParams();
-  const navigate = useNavigate();
-  
-  const [studyData, setStudyData] = useState(null);
-  const [patientData, setPatientData] = useState(null);
-  const [templates, setTemplates] = useState({});
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [reportData, setReportData] = useState({});
-  const [reportContent, setReportContent] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [finalizing, setFinalizing] = useState(false);
-
-  useEffect(() => {
-    if (studyId) {
-      initializeReportingSystem();
-    }
-  }, [studyId]);
-
-  const initializeReportingSystem = async () => {
-    console.log('🔍 [Reporting] Starting initialization...');
-    console.log('🔍 [Reporting] Study ID:', studyId);
-    
-    // Check authentication
-     const token = sessionManager.getToken();
-    const currentUser = sessionManager.getCurrentUser();
-    console.log('🔍 [Reporting] Token available:', !!token);
-    console.log('🔍 [Reporting] Current user:', currentUser);
-    
-    if (!token) {
-      console.error('❌ [Reporting] No authentication token found');
-      toast.error('Authentication required. Redirecting to login...');
-      navigate('/login');
-      return;
-    }
-
-    setLoading(true);
+class DocumentController {
+  // Generate and download patient report (NO STORAGE)
+  static async generatePatientReport(req, res) {
     try {
-      console.log('🔍 [Reporting] Making API calls...');
-      
-      // 🔧 NEW: Fetch current doctor details first
-      let doctorDetails = null;
-      if (currentUser?.role === 'doctor_account') {
-        try {
-          console.log('🔍 [Reporting] Fetching doctor profile...');
-          const doctorResponse = await api.get(`/doctor/profile`);
-          if (doctorResponse.data.success) {
-            doctorDetails = doctorResponse.data.doctor || doctorResponse.data.data;
-            console.log('✅ [Reporting] Doctor details loaded:', {
-              name: doctorDetails.fullName,
-              specialization: doctorDetails.specialization,
-              licenseNumber: doctorDetails.licenseNumber,
-              hasSignature: !!doctorDetails.signature
+        const { studyId } = req.params;
+        
+        // 🔧 ENHANCED: Populate all necessary fields INCLUDING doctor signatures
+        const study = await DicomStudy.findById(studyId)
+            .populate({
+                path: 'assignment.assignedTo',
+                populate: {
+                    path: 'userAccount',
+                    select: 'fullName email'
+                }
+            })
+            .populate({
+                path: 'lastAssignedDoctor', // Your legacy field
+                populate: {
+                    path: 'userAccount',
+                    select: 'fullName email'
+                }
+            })
+            .populate('sourceLab', 'name identifier')
+            .populate('patient', 'firstName lastName patientNameRaw patientID computed ageString gender dateOfBirth');
+        
+        if (!study) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Study not found' 
             });
-          }
-        } catch (doctorError) {
-          console.warn('⚠️ [Reporting] Could not fetch doctor details:', doctorError.message);
         }
-      }
-      
-      // 🔧 FIXED: Fetch HTML templates using the correct endpoint
-      console.log('🔍 [Reporting] Fetching HTML templates...');
-      const templatesResponse = await api.get('/html-templates/reporting');
-      console.log('✅ [Reporting] Templates response:', templatesResponse.data);
-      
-      // Fetch study data
-      console.log('🔍 [Reporting] Fetching study data...');
-      const studyResponse = await api.get(`/labEdit/patients/${studyId}`);
-      console.log('✅ [Reporting] Study response:', studyResponse.data);
 
-      // Set templates first
-      if (templatesResponse.data.success) {
-        console.log('📋 HTML Templates loaded:', templatesResponse.data.data.templates);
-        setTemplates(templatesResponse.data.data.templates);
-      } else {
-        console.warn('⚠️ No HTML templates loaded');
-        setTemplates({});
-      }
-
-      // Process study data with null checks
-      let processedStudyData = null;
-      let processedPatientData = null;
-      
-      if (studyResponse.data.success) {
-        const data = studyResponse.data.data;
-        console.log('👤 Study data loaded:', data);
-        
-        processedStudyData = data.currentStudy || {};
-        processedPatientData = data.patientInfo || {};
-        
-        setStudyData(processedStudyData);
-        setPatientData(processedPatientData);
-        
-        // Pre-fill basic report data with safe defaults
-        setReportData({
-          patientName: processedPatientData.fullName || processedPatientData.patientName || 'Unknown Patient',
-          patientId: processedPatientData.patientId || processedPatientData.patientID || 'N/A',
-          age: processedPatientData.age || 'N/A',
-          gender: processedPatientData.gender || 'N/A',
-          studyDate: processedStudyData.studyDate || processedStudyData.studyDateTime || new Date().toISOString(),
-          modality: processedStudyData.modality || 'N/A',
-          accessionNumber: processedStudyData.accessionNumber || 'N/A',
-          referringPhysician: data.referringPhysician?.name || 'N/A',
-          examDescription: processedStudyData.examDescription || processedStudyData.description || 'N/A',
-          institutionName: processedStudyData.institutionName || 'N/A',
-          // 🔧 NEW: Add doctor details
-          doctorName: doctorDetails?.fullName || currentUser?.fullName || 'Unknown Doctor',
-          doctorSpecialization: doctorDetails?.specialization || 'N/A',
-          doctorLicenseNumber: doctorDetails?.licenseNumber || 'N/A',
-          doctorSignature: doctorDetails?.signature || null,
-          doctorSignatureMetadata: doctorDetails?.signatureMetadata || null
-        });
-      } else {
-        console.warn('⚠️ No study data loaded');
-      }
-
-      // 🔧 NEW: Generate default report with actual data
-      if (processedStudyData && processedPatientData) {
-        const defaultReport = generateDefaultReport({
-          patientData: processedPatientData,
-          studyData: processedStudyData,
-          doctorDetails: doctorDetails || {},
-          currentUser: currentUser || {}
-        });
-        setReportContent(defaultReport);
-        console.log('✅ [Reporting] Default report generated');
-      }
-
-    } catch (error) {
-      console.error('❌ [Reporting] API Error:', error);
-      console.error('❌ [Reporting] Error status:', error.response?.status);
-      console.error('❌ [Reporting] Error data:', error.response?.data);
-      
-      if (error.response?.status === 401) {
-        toast.error('Session expired. Please login again.');
-        navigate('/login');
-        return;
-      }
-      
-      toast.error('Failed to load reporting system');
-      
-    } finally {
-      setLoading(false);
-    }
-  };
-
-const handleTemplateSelect = async (templateId) => {
-  try {
-    console.log('🔍 Loading HTML template:', templateId);
-    const response = await api.get(`/html-templates/${templateId}`);
-    
-    if (response.data.success) {
-      const template = response.data.data;
-      setSelectedTemplate(template);
-      
-      console.log('📋 HTML Template loaded:', template);
-      
-      // Process template content
-      const processedTemplateContent = processHTMLTemplate(template.htmlContent, reportData);
-      
-      // Process content for multi-page layout
-      const multiPageContent = processMultiPageContent(processedTemplateContent, patientData, studyData);
-      
-      // 🔧 UPDATED: Add signature as normal content at the end
-      const completeDocument = `
-        <div class="report-document multi-page-report">
-          ${multiPageContent}
-          
-          <!-- 🔧 UPDATED: Normal signature section (not floating) -->
-          <div class="signature-section">
-            <div class="doctor-name">${reportData?.doctorName || 'Dr. Gamma Ray'}</div>
-            <div class="doctor-specialization">${reportData?.doctorSpecialization || 'Oncology'}</div>
-            <div class="doctor-license">Reg no. ${reportData?.doctorLicenseNumber || 'ONC777G'}</div>
-            ${reportData?.doctorSignature ? `
-              <div class="doctor-signature">
-                <img src="data:${reportData?.doctorSignatureMetadata?.mimeType || 'image/png'};base64,${reportData.doctorSignature}" 
-                     alt="Doctor Signature" class="signature-image" />
-              </div>
-            ` : '<div class="signature-placeholder">[Signature Area]</div>'}
-            <div class="disclaimer">Disclaimer: This is an online interpretation...</div>
-          </div>
-        </div>
-      `;
-      
-      setReportContent(completeDocument);
-      
-      console.log('✅ Multi-page template content inserted with normal signature flow');
-      toast.success(`Template "${template.title}" loaded with multi-page support`);
-    }
-  } catch (error) {
-    console.error('❌ Error loading HTML template:', error);
-    toast.error('Failed to load template');
-  }
-};
-
-  // 🔧 SIMPLIFIED: Basic save draft function (without format selection)
-  const handleSaveDraft = async () => {
-    if (!reportContent.trim()) {
-      toast.error('Please enter report content');
-      return;
-    }
-
-    const confirmed = window.confirm('Save this report as draft?');
-    if (!confirmed) return;
-
-    setSaving(true);
-    
-    try {
-      // Simple draft save - you can keep this or modify as needed
-      const response = await api.post(`/study/${studyId}/generate-report`, {
-        reportContent: reportContent,
-        reportData: reportData,
-        templateInfo: selectedTemplate ? {
-          templateId: selectedTemplate._id,
-          templateName: selectedTemplate.title,
-          templateType: 'html'
-        } : null
-      });
-
-      if (response.data.success) {
-        toast.success('Draft saved successfully!');
-      } else {
-        throw new Error(response.data.message || 'Failed to save draft');
-      }
-
-    } catch (error) {
-      console.error('❌ Error saving draft:', error);
-      toast.error('Failed to save draft. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // 🔧 NEW: Simplified finalize function using DOCX service
-  const handleFinalizeWithDocxService = async () => {
-    if (!reportContent.trim()) {
-      toast.error('Please enter report content');
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Are you sure you want to finalize this report? Once finalized, it cannot be edited.`
-    );
-    if (!confirmed) return;
-
-    setFinalizing(true);
-    
-    try {
-        const currentUser = sessionManager.getCurrentUser();
-        
-        // 1. Define the template name based on the doctor's email
-        // Example: 'doctor@example.com' becomes 'doctor@example.com.docx'
-        // const templateName = currentUser.email + '.docx';
-        const templateName =  'MyReport.docx';
-
-        // 2. Prepare the placeholders object for our C# service
-        const placeholders = {
-            // Map your frontend data to the placeholders in your .docx template
-            '--name--': patientData?.fullName || patientData?.patientName || '',
-            '--patientid--': patientData?.patientId || patientData?.patientID || '',
-            '--accessionno--': studyData?.accessionNumber || '',
-            '--agegender--': `${patientData?.age || ''} / ${patientData?.gender || ''}`,
-            '--referredby--': reportData?.referringPhysician || '',
-            '--reporteddate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString(),
-            // The main content comes from your rich text editor!
-            '--Content--': reportContent 
-        };
-
-        // 3. Call your NEW Node.js endpoint
-        console.log(`🚀 Finalizing report with template: ${templateName}`);
-        console.log('📋 Placeholders:', placeholders);
-        
-        const response = await api.post(`/study/${studyId}/generate-report`, {
-            templateName,
-            placeholders
+        console.log('🔍 Study data for report generation:', {
+            studyId: study._id,
+            assignment: study.assignment,
+            lastAssignedDoctor: study.lastAssignedDoctor,
+            patient: study.patient,
+            examDescription: study.examDescription,
+            studyDescription: study.studyDescription
         });
 
-        if (response.data.success) {
-            toast.success('Report finalized and saved successfully!');
-            
-            // Show download link if available
-            if (response.data.data?.downloadUrl) {
-                toast.info(
-                  <div>
-                    <p className="mb-2">Report ready for download!</p>
-                    <a 
-                      href={response.data.data.downloadUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="bg-blue-500 text-white px-3 py-1 rounded text-sm"
-                    >
-                      Download Report
-                    </a>
-                  </div>,
-                  { autoClose: 10000 }
-                );
-                
-                // Automatically open the download link
-                window.open(response.data.data.downloadUrl, '_blank');
+        // 🔧 GET PATIENT INFORMATION with proper age and gender handling
+        let patientName = 'Unknown Patient';
+        let patientAge = 'Unknown';
+        let patientGender = 'Unknown';
+        
+        // 🔧 UPDATED: Handle ageGender field format "046Y / F"
+        if (study.ageGender) {
+            const ageGenderParts = study.ageGender.split(' / ');
+            if (ageGenderParts.length >= 2) {
+                patientAge = ageGenderParts[0]; // "046Y"
+                patientGender = ageGenderParts[1] === 'M' ? 'Male' : 
+                               ageGenderParts[1] === 'F' ? 'Female' : 
+                               ageGenderParts[1];
+            }
+        }
+        
+        // Use patientName directly from study
+        if (study.patientName) {
+            patientName = study.patientName;
+        }
+        
+        // Fallback to patient population if available
+        if (study.patient) {
+            // Handle patient name from populated data
+            if (study.patient.computed?.fullName) {
+                patientName = study.patient.computed.fullName;
+            } else if (study.patient.firstName || study.patient.lastName) {
+                const firstName = study.patient.firstName || '';
+                const lastName = study.patient.lastName || '';
+                patientName = `${firstName} ${lastName}`.trim();
+            } else if (study.patient.patientNameRaw) {
+                const nameParts = study.patient.patientNameRaw.split('^');
+                const lastName = nameParts[0] || '';
+                const firstName = nameParts[1] || '';
+                patientName = `${firstName} ${lastName}`.trim();
             }
             
-            // Redirect to worklist after delay
-            setTimeout(() => navigate('/admin/worklist'), 3000);
+            // 🔧 UPDATED: Handle age from patient model if ageGender not available
+            if (!study.ageGender && study.patient.ageString) {
+                const ageString = study.patient.ageString;
+                const ageNumber = parseInt(ageString.substring(0, 3));
+                const ageUnit = ageString.substring(3);
+                
+                switch(ageUnit) {
+                    case 'Y':
+                        patientAge = `${ageNumber} years`;
+                        break;
+                    case 'M':
+                        patientAge = `${ageNumber} months`;
+                        break;
+                    case 'D':
+                        patientAge = `${ageNumber} days`;
+                        break;
+                    default:
+                        patientAge = ageString;
+                }
+            }
             
-        } else {
-            throw new Error(response.data.message || 'Failed to finalize report');
+            // Handle gender from patient if not in ageGender
+            if (!study.ageGender && study.patient.gender) {
+                patientGender = study.patient.gender === 'M' ? 'Male' : 
+                               study.patient.gender === 'F' ? 'Female' : 
+                               study.patient.gender;
+            }
         }
+
+        // 🔧 UPDATED: Get doctor information from new assignment structure
+        let doctorInfo = {
+            name: 'Not Assigned',
+            specialization: 'Unknown',
+            licenseNumber: 'Unknown',
+            signature: null,
+            doctorId: null
+        };
+        
+        let assignedDoctor = null;
+        
+        // 🔧 NEW: Use latestAssignedDoctorDetails if available
+        if (study.latestAssignedDoctorDetails) {
+            doctorInfo.name = study.latestAssignedDoctorDetails.fullName;
+            assignedDoctor = { _id: study.latestAssignedDoctorDetails._id };
+        }
+        // Fallback to assignedDoctorName
+        else if (study.assignedDoctorName) {
+            doctorInfo.name = study.assignedDoctorName;
+            // Try to find doctor ID from doctorAssignments
+            if (study.doctorAssignments && study.doctorAssignments.length > 0) {
+                const latestAssignment = study.doctorAssignments[study.doctorAssignments.length - 1];
+                assignedDoctor = { _id: latestAssignment.doctorId };
+            }
+        }
+        // Try assignment.assignedTo (legacy)
+        else if (study.assignment?.assignedTo) {
+            assignedDoctor = study.assignment.assignedTo;
+            if (assignedDoctor.userAccount?.fullName) {
+                doctorInfo.name = assignedDoctor.userAccount.fullName;
+            }
+        }
+        // Try lastAssignedDoctor (legacy)
+        else if (study.lastAssignedDoctor) {
+            assignedDoctor = study.lastAssignedDoctor;
+            if (assignedDoctor.userAccount?.fullName) {
+                doctorInfo.name = assignedDoctor.userAccount.fullName;
+            }
+        }
+
+        // 🔧 FETCH FULL DOCTOR DETAILS INCLUDING MONGODB SIGNATURE
+        let signatureBuffer = null;
+        if (assignedDoctor && assignedDoctor._id) {
+            try {
+                console.log('🔍 Fetching doctor details for:', assignedDoctor._id);
+                
+                const doctorDetails = await Doctor.findById(assignedDoctor._id)
+                    .populate('userAccount', 'fullName email')
+                    .select('specialization licenseNumber signature signatureMetadata userAccount')
+                    .lean();
+                
+                if (doctorDetails) {
+                    console.log('✅ Doctor details found:', {
+                        id: doctorDetails._id,
+                        name: doctorDetails.userAccount?.fullName,
+                        specialization: doctorDetails.specialization,
+                        licenseNumber: doctorDetails.licenseNumber,
+                        hasSignature: !!doctorDetails.signature
+                    });
+                    
+                    doctorInfo = {
+                        name: doctorDetails.userAccount?.fullName || doctorInfo.name,
+                        specialization: doctorDetails.specialization || 'Unknown',
+                        licenseNumber: doctorDetails.licenseNumber || 'Unknown',
+                        doctorId: doctorDetails._id
+                    };
+                    
+                    // 🔧 CONVERT MONGODB BASE64 SIGNATURE TO BUFFER
+                    if (doctorDetails.signature) {
+                        try {
+                            signatureBuffer = Buffer.from(doctorDetails.signature, 'base64');
+                            console.log('✅ Signature converted from MongoDB base64, size:', signatureBuffer.length, 'bytes');
+                        } catch (signatureError) {
+                            console.error('❌ Error converting signature from base64:', signatureError);
+                            signatureBuffer = null;
+                        }
+                    } else {
+                        console.log('ℹ️ No signature found in MongoDB for doctor');
+                    }
+                } else {
+                    console.warn('⚠️ Doctor details not found for ID:', assignedDoctor._id);
+                }
+            } catch (doctorError) {
+                console.error('❌ Error fetching doctor details:', doctorError);
+            }
+        }
+
+        // 🔧 GET MODALITY AND DESCRIPTION from new structure
+        let modality = study.modality || 'Unknown';
+        let studyDescription = study.description || 'No description available';
+
+        let studyDate = 'Unknown';
+        if (study.studyDate) {
+            studyDate = new Date(study.studyDate).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        let accessionNumber = study.accessionNumber || 'Not available';
+        let labName = study.location || 'Unknown Laboratory';
+        let referringPhysician = study.referringPhysicianName || 'Not specified';
+
+        // 🔧 ENHANCED: Prepare template data matching actual study structure
+        const templateData = {
+            // 🔧 FIXED: Map to exact template field names using actual data
+            PatientName: patientName,
+            Age: patientAge,
+            Sex: patientGender,
+            Modality: modality,
+            Description: studyDescription,
+            DoctorName: doctorInfo.name,
+            LabName: labName,
+            ReportDate: new Date().toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            }),
+            
+            // Additional fields using actual study data
+            PatientID: study.patientId || 'Unknown',
+            DoctorSpecialization: doctorInfo.specialization,
+            DoctorLicenseNumber: doctorInfo.licenseNumber,
+            StudyDate: studyDate,
+            AccessionNumber: accessionNumber,
+            ReferringPhysician: referringPhysician,
+            StudyTime: study.studyTime || 'Unknown',
+            InstitutionName: study.location || 'Unknown',
+            CaseType: study.caseType?.toUpperCase() || 'ROUTINE',
+            Priority: study.priority || 'NORMAL',
+            WorkflowStatus: study.workflowStatus || 'Unknown',
+            SeriesCount: study.series ? study.series.split('/')[0] : '0',
+            InstanceCount: study.series ? study.series.split('/')[1] : '0',
+            OrthancStudyID: study.orthancStudyID || 'Unknown',
+            
+            // 🔧 CRITICAL FIX: Use SignatureImage to match your template
+            SignatureImage: signatureBuffer ? 'SIGNATURE_IMAGE' : 'No signature available',
+            HasSignature: !!signatureBuffer
+        };
+
+        console.log('📋 Template data prepared from actual study:', {
+            ...templateData,
+            SignatureImage: signatureBuffer ? `Buffer(${signatureBuffer.length} bytes)` : 'No signature'
+        });
+
+        // 🔧 ENHANCED: Generate document WITH SIGNATURE from MongoDB
+        const documentBuffer = await DocumentController.generateDocumentWithSignature(
+            'Patient Report.docx', 
+            templateData,
+            signatureBuffer
+        );
+        
+        // Create filename using patient name and study info
+        const safePatientName = patientName.replace(/[^a-zA-Z0-9]/g, '_');
+        const safeModality = modality.replace(/[^a-zA-Z0-9]/g, '_');
+        const timestamp = Date.now();
+        const filename = `Patient_Report_${safePatientName}_${safeModality}_${timestamp}.docx`;
+        
+        // 🔧 UPDATE WORKFLOW STATUS
+        try {
+            await updateWorkflowStatus({
+                studyId: studyId,
+                status: 'report_in_progress',
+                doctorId: doctorInfo.doctorId,
+                note: `Report template generated for ${doctorInfo.name} - Patient: ${patientName}`,
+                user: req.user || null
+            });
+            
+            console.log('✅ Workflow status updated successfully');
+        } catch (workflowError) {
+            console.warn('⚠️ Workflow status update failed:', workflowError.message);
+        }
+        
+        // Set response headers for download
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        
+        // Send the document
+        res.send(documentBuffer);
+        
+        console.log(`✅ Patient report generated successfully with ${signatureBuffer ? 'MongoDB signature' : 'no signature'}: ${filename}`);
+        
+    } catch (error) {
+        console.error('❌ Error generating patient report:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error generating report',
+            error: error.message 
+        });
+    }
+}
+
+// Add this new method to your DocumentController class
+
+// In your controller file (e.g., documentController.js)
+
+static async getInitialReportData(req, res) {
+  console.log("getInitialReportData hit by user:", req.user.id);
+  
+  try {
+      const { studyId } = req.params;
+      const doctorId = req.user.id;
+    
+      // Find the doctor whose userAccount is the current user's id
+      const requestingDoctor = await Doctor.findOne({ userAccount: doctorId })
+          .populate('userAccount', 'fullName');
+      console.log('🔍 Requesting doctor:', requestingDoctor);
+
+      if (!requestingDoctor) {
+           return res.status(403).json({ 
+               success: false, 
+               message: 'No valid doctor profile associated with this user.' 
+           });
+      }
+
+      // 🔧 ENHANCED: Get more study data including fields needed for the Word document
+      const study = await DicomStudy.findById(studyId)
+          .select('patientInfo patient studyDate studyTime accessionNumber examDescription studyDescription modality referringPhysicianName institutionName')
+          .populate('patient', 'firstName lastName patientNameRaw patientID computed ageString gender dateOfBirth');
+
+      if (!study) {
+          return res.status(404).json({ 
+              success: false, 
+              message: 'Study not found' 
+          });
+      }
+
+      console.log('🔍 Study data:', {
+          patientInfo: study.patientInfo,
+          patient: study.patient,
+          studyDate: study.studyDate,
+          accessionNumber: study.accessionNumber,
+          examDescription: study.examDescription,
+          referringPhysicianName: study.referringPhysicianName
+      });
+
+      // 🔧 EXTRACT PATIENT DATA WITH PROPER LOGIC
+      let patientName = 'Unknown Patient';
+      let patientAge = 'Unknown';
+      let patientGender = 'Unknown';
+      let patientID = 'N/A';
+      
+      if (study.patient) {
+          // Handle patient ID
+          patientID = study.patient.patientID || study.patientInfo?.patientID || 'N/A';
+          
+          // Handle patient name
+          if (study.patient.computed?.fullName) {
+              patientName = study.patient.computed.fullName;
+          } else if (study.patient.firstName || study.patient.lastName) {
+              const firstName = study.patient.firstName || '';
+              const lastName = study.patient.lastName || '';
+              patientName = `${firstName} ${lastName}`.trim();
+          } else if (study.patient.patientNameRaw) {
+              const nameParts = study.patient.patientNameRaw.split('^');
+              const lastName = nameParts[0] || '';
+              const firstName = nameParts[1] || '';
+              patientName = `${firstName} ${lastName}`.trim();
+          } else if (study.patient.patientID) {
+              patientName = `Patient ${study.patient.patientID}`;
+          }
+          
+          // 🔧 HANDLE AGE FROM PATIENT MODEL
+          if (study.patient.ageString) {
+              // Parse DICOM age format like "065Y", "045M", "021D"
+              const ageString = study.patient.ageString;
+              const ageNumber = parseInt(ageString.substring(0, 3));
+              const ageUnit = ageString.substring(3);
+              
+              switch(ageUnit) {
+                  case 'Y':
+                      patientAge = `${ageNumber} years`;
+                      break;
+                  case 'M':
+                      patientAge = `${ageNumber} months`;
+                      break;
+                  case 'D':
+                      patientAge = `${ageNumber} days`;
+                      break;
+                  default:
+                      patientAge = ageString;
+              }
+          } else if (study.patient.dateOfBirth) {
+              // Calculate age from date of birth
+              const birthDate = new Date(study.patient.dateOfBirth);
+              const today = new Date();
+              const age = today.getFullYear() - birthDate.getFullYear();
+              const monthDiff = today.getMonth() - birthDate.getMonth();
+              
+              if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                  patientAge = `${age - 1} years`;
+              } else {
+                  patientAge = `${age} years`;
+              }
+          } else if (study.patientInfo?.age) {
+              patientAge = study.patientInfo.age;
+          }
+          
+          // Handle gender
+          if (study.patient.gender) {
+              patientGender = study.patient.gender === 'M' ? 'Male' : 
+                            study.patient.gender === 'F' ? 'Female' : 
+                            study.patient.gender;
+          } else if (study.patientInfo?.gender) {
+              patientGender = study.patientInfo.gender === 'M' ? 'Male' : 
+                             study.patientInfo.gender === 'F' ? 'Female' : 
+                             study.patientInfo.gender;
+          }
+      }
+      
+      // Fallback to patientInfo if patient data is incomplete
+      if (patientName === 'Unknown Patient' && study.patientInfo?.patientName) {
+          patientName = study.patientInfo.patientName;
+      }
+      
+      if (patientID === 'N/A' && study.patientInfo?.patientID) {
+          patientID = study.patientInfo.patientID;
+      }
+
+      // 🔧 EXTRACT DOCTOR NAME AND INFO PROPERLY
+      let doctorName = 'Unknown Doctor';
+      let doctorSpecialization = '';
+      let doctorLicenseNumber = '';
+      
+      // Try from the requesting doctor's user account first
+      if (requestingDoctor.userAccount?.fullName) {
+          doctorName = requestingDoctor.userAccount.fullName;
+      } else if (req.user?.fullName) {
+          doctorName = req.user.fullName;
+      } else if (req.user?.username) {
+          doctorName = req.user.username;
+      }
+      
+      // Get doctor's professional info
+      if (requestingDoctor.specialization) {
+          doctorSpecialization = requestingDoctor.specialization;
+      }
+      
+      if (requestingDoctor.licenseNumber) {
+          doctorLicenseNumber = requestingDoctor.licenseNumber;
+      }
+
+      // 🔧 FORMAT EXAM DATE
+      let examDate = 'N/A';
+      if (study.studyDate) {
+          try {
+              const date = new Date(study.studyDate);
+              examDate = date.toLocaleDateString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric'
+              });
+          } catch (error) {
+              console.warn('Error formatting study date:', error);
+              examDate = study.studyDate.toString();
+          }
+      }
+
+      // 🔧 GET EXAM DESCRIPTION
+      let examDescription = study.examDescription || study.studyDescription || '';
+      if (!examDescription && study.modality) {
+          examDescription = `${study.modality} Examination`;
+      }
+
+      // 🔧 GET REFERRING PHYSICIAN
+      let referredBy = study.referringPhysicianName || 'Dr. -';
+      if (referredBy && !referredBy.startsWith('Dr.') && !referredBy.startsWith('DR.')) {
+          referredBy = `Dr. ${referredBy}`;
+      }
+
+      console.log('📋 Extracted patient data:', {
+          patientName,
+          patientAge,
+          patientGender,
+          patientID,
+          examDate,
+          examDescription,
+          referredBy
+      });
+
+      console.log('👨‍⚕️ Doctor info:', {
+          doctorName,
+          doctorSpecialization,
+          doctorLicenseNumber,
+          hasSignature: !!requestingDoctor.signature,
+          signatureLength: requestingDoctor.signature ? requestingDoctor.signature.length : 0,
+          signatureMimeType: requestingDoctor.signatureMetadata?.mimeType
+      });
+      
+      // 🔧 COMPLETE: Prepare the complete object for the C# launcher
+      const initialData = {
+          studyId: study._id.toString(),
+          patientName: patientName,
+          age: patientAge,
+          sex: patientGender,
+          patientID: patientID,
+          
+          // 🔧 NEW: Additional required fields for C# application
+          accessionNumber: study.accessionNumber || 'N/A',
+          referredBy: referredBy,
+          examDate: examDate,
+          examDescription: examDescription,
+          
+          // 🔧 DOCTOR INFO AND BASE64 SIGNATURE
+          doctorName: doctorName,
+          doctorDegree: '', // Add if you have this field in your doctor model
+          doctorSpecialization: doctorSpecialization,
+          doctorLicenseNumber: doctorLicenseNumber,
+          doctorSignatureBase64: requestingDoctor.signature || null, // Base64 string from MongoDB
+          doctorSignatureMimeType: requestingDoctor.signatureMetadata?.mimeType || 'image/jpeg',
+          
+          // 🔧 OPTIONAL: Add disclaimer if needed
+          disclaimer: 'This is a computer-generated report. Please verify all information before use.'
+      };
+
+      console.log("✅ Sending complete initial data (signature redacted):", { 
+          ...initialData, 
+          doctorSignatureBase64: initialData.doctorSignatureBase64 ? 
+              `[BASE64_DATA_${initialData.doctorSignatureBase64.length}_CHARS]` : null 
+      });
+      
+      res.json(initialData);
+
+  } catch (error) {
+      console.error('❌ Error fetching initial report data:', error);
+      res.status(500).json({ 
+          success: false, 
+          message: 'Server error',
+          error: error.message 
+      });
+  }
+}
+
+  // Generic document generator function (unchanged)
+  static async generateDocument(templateName, data) {
+    try {
+      // Load the template file
+      const templatePath = path.join(__dirname, '../templates', templateName);
+      
+      if (!fs.existsSync(templatePath)) {
+        throw new Error(`Template file not found: ${templateName}`);
+      }
+
+      const content = fs.readFileSync(templatePath, 'binary');
+      
+      // Create a new zip instance
+      const zip = new PizZip(content);
+      
+      // Create docxtemplater instance
+      const doc = new Docxtemplater(zip, {
+        paragraphLoop: true,
+        linebreaks: true,
+      });
+
+      // REPLACE the deprecated .setData() method:
+      // doc.setData(data);
+
+      // WITH the new .render() method that takes data:
+      doc.render(data);
+
+      // Generate the document buffer
+      const buffer = doc.getZip().generate({
+        type: 'nodebuffer',
+        compression: 'DEFLATE',
+      });
+
+      return buffer;
+      
+    } catch (error) {
+      console.error('Error in generateDocument:', error);
+      throw error;
+    }
+  }
+
+  // REMOVE saveDocumentToStudy method since we're not storing generated reports
+
+  // Get report from study (only uploaded reports)
+static async getStudyReport(req, res) {
+  console.log('🔧 Retrieving study report with Wasabi integration...');
+  try {
+    const { studyId, reportIndex } = req.params;
+    
+    const study = await DicomStudy.findById(studyId);
+    
+    if (!study) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Study not found' 
+      });
+    }
+
+    // 🔧 FIXED: Check doctorReports instead of uploadedReports
+    if (!study.doctorReports || study.doctorReports.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No doctor reports found for this study' 
+      });
+    }
+
+    const reportIdx = parseInt(reportIndex);
+    if (reportIdx >= study.doctorReports.length || reportIdx < 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Report not found' 
+      });
+    }
+
+    const reportReference = study.doctorReports[reportIdx];
+    
+    // 🔧 NEW: Fetch the actual Document record using the _id from doctorReports
+    console.log(`📋 Looking up Document record with ID: ${reportReference._id}`);
+    
+    const documentRecord = await Document.findById(reportReference._id);
+    
+    if (!documentRecord) {
+      console.error(`❌ Document record not found for ID: ${reportReference._id}`);
+      return res.status(404).json({
+        success: false,
+        message: 'Document record not found in database'
+      });
+    }
+    
+    console.log(`✅ Document record found: ${documentRecord.fileName}`);
+    console.log(`📥 Wasabi Key: ${documentRecord.wasabiKey}`);
+    console.log(`🪣 Wasabi Bucket: ${documentRecord.wasabiBucket}`);
+    
+    // 🔧 FIXED: Use Document record for Wasabi download
+    let documentBuffer;
+    
+    if (documentRecord.wasabiKey && documentRecord.wasabiBucket) {
+      // Download from Wasabi using Document record details
+      console.log(`📥 Downloading report from Wasabi: ${documentRecord.wasabiKey}`);
+      
+      try {
+        const wasabiResult = await WasabiService.downloadFile(
+          documentRecord.wasabiBucket, 
+          documentRecord.wasabiKey
+        );
+        
+        if (!wasabiResult.success) {
+          console.error('❌ Failed to download from Wasabi:', wasabiResult.error);
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve report from storage',
+            error: wasabiResult.error
+          });
+        }
+        
+        documentBuffer = wasabiResult.data;
+        console.log('✅ Report downloaded from Wasabi successfully');
+        
+      } catch (wasabiError) {
+        console.error('❌ Wasabi download error:', wasabiError);
+        return res.status(500).json({
+          success: false,
+          message: 'Error downloading report from storage',
+          error: wasabiError.message
+        });
+      }
+      
+    } else {
+      // 🔧 FALLBACK: Check if doctorReports has embedded data (legacy)
+      if (reportReference.data) {
+        documentBuffer = Buffer.from(reportReference.data, 'base64');
+        console.log('📥 Using base64 stored report (legacy)');
+      } else {
+        console.error('❌ No valid storage method found');
+        return res.status(404).json({
+          success: false,
+          message: 'Report data not found - no valid storage method available'
+        });
+      }
+    }
+    
+    // Update workflow status based on user role
+    try {
+      let newStatus;
+      let statusNote;
+      
+      // Determine workflow status based on user role
+      if (req.user.role === 'doctor_account') {
+        newStatus = 'report_downloaded_radiologist';
+        statusNote = `Report "${documentRecord.fileName}" downloaded by radiologist: ${req.user.fullName || req.user.email}`;
+      } else if (req.user.role === 'admin' || req.user.role === 'lab_staff') {
+        newStatus = 'final_report_downloaded';
+        statusNote = `Final report "${documentRecord.fileName}" downloaded by ${req.user.role}: ${req.user.fullName || req.user.email}`;
+      } else {
+        // Fallback for other roles
+        newStatus = 'report_downloaded';
+        statusNote = `Report "${documentRecord.fileName}" downloaded by ${req.user.role || 'unknown'}: ${req.user.fullName || req.user.email}`;
+      }
+      
+      await updateWorkflowStatus({
+        studyId: study._id,
+        status: newStatus,
+        note: statusNote,
+        user: req.user
+      });
+      
+      console.log(`✅ Workflow status updated to ${newStatus} for study ${studyId} by ${req.user.role}`);
+    } catch (statusError) {
+      // Log the error but don't fail the download
+      console.error('⚠️ Error updating workflow status:', statusError);
+    }
+    
+    // 🔧 FIXED: Use Document record for response headers
+    res.setHeader('Content-Disposition', `attachment; filename="${documentRecord.fileName}"`);
+    res.setHeader('Content-Type', documentRecord.contentType);
+    res.setHeader('Content-Length', documentBuffer.length);
+    
+    // Send the document
+    res.send(documentBuffer);
+    
+    console.log(`✅ Report "${documentRecord.fileName}" sent successfully to ${req.user.role}`);
+    
+  } catch (error) {
+    console.error('❌ Error retrieving study report:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error retrieving report',
+      error: error.message 
+    });
+  }
+}
+
+
+ 
+
+  // Delete a specific uploaded report
+  static async deleteStudyReport(req, res) {
+    try {
+      const { studyId, reportIndex } = req.params;
+      
+      const study = await DicomStudy.findById(studyId);
+      
+      if (!study) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Study not found' 
+        });
+      }
+
+      const reportIdx = parseInt(reportIndex);
+      if (!study.doctorReports || reportIdx >= study.doctorReports.length || reportIdx < 0) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Report not found' 
+        });
+      }
+
+      const reportReference = study.doctorReports[reportIdx];
+      
+      // 🔧 NEW: Delete from Wasabi and Document collection
+      try {
+        // Get the Document record first
+        const documentRecord = await Document.findById(reportReference._id);
+        
+        if (documentRecord) {
+          // Delete from Wasabi if it exists there
+          if (documentRecord.wasabiKey && documentRecord.wasabiBucket) {
+            console.log(`🗑️ Deleting from Wasabi: ${documentRecord.wasabiKey}`);
+            try {
+              await WasabiService.deleteFile(documentRecord.wasabiBucket, documentRecord.wasabiKey);
+              console.log('✅ File deleted from Wasabi');
+            } catch (wasabiError) {
+              console.warn('⚠️ Failed to delete from Wasabi (continuing):', wasabiError.message);
+            }
+          }
+          
+          // Delete the Document record
+          await Document.findByIdAndDelete(reportReference._id);
+          console.log('✅ Document record deleted');
+        }
+      } catch (deleteError) {
+        console.warn('⚠️ Error during cleanup (continuing with report removal):', deleteError.message);
+      }
+
+      // Remove from doctorReports array
+      study.doctorReports.splice(reportIdx, 1);
+      
+      // Update ReportAvailable flag
+      study.ReportAvailable = study.doctorReports.length > 0;
+      
+      // Update workflow status if no reports left
+      if (study.doctorReports.length === 0) {
+        await updateWorkflowStatus({
+          studyId: studyId,
+          status: 'report_in_progress',
+          note: 'All uploaded reports deleted',
+          user: req.user
+        });
+      }
+      
+      await study.save();
+
+      res.json({ 
+        success: true, 
+        message: 'Report deleted successfully from all storage locations',
+        remainingReports: study.doctorReports.length,
+        reportAvailable: study.ReportAvailable
+      });
+      
+    } catch (error) {
+      console.error('Error deleting study report:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error deleting report',
+        error: error.message 
+      });
+    }
+  }
+
+static async uploadStudyReport(req, res) {
+  console.log(req.body)
+  console.log('🔧 Uploading study report with Wasabi integration...'); 
+  try {
+      const { studyId } = req.params;
+      const { doctorId, reportStatus } = req.body;
+      
+      
+      if (!req.file) {
+        console.log("nofile")
+          return res.status(400).json({ 
+              success: false, 
+              message: 'No file uploaded' 
+          });
+      }
+      
+      const study = await DicomStudy.findById(studyId)
+          .populate('patient', 'patientID firstName lastName')
+          .populate('assignment.assignedTo');
+      
+      if (!study) {
+          return res.status(404).json({ 
+              success: false, 
+              message: 'Study not found' 
+          });
+      }
+      
+      // 🔧 FIXED: Use assigned doctor from study if no doctorId provided
+      let doctor = null;
+      let effectiveDoctorId = doctorId;
+      
+      if (doctorId) {
+          doctor = await Doctor.findById(doctorId).populate('userAccount', 'fullName');
+          if (!doctor) {
+              return res.status(404).json({
+                  success: false,
+                  message: 'Doctor not found'
+              });
+          }
+      } else if (study.assignment?.assignedTo) {
+          // Use the already assigned doctor
+          effectiveDoctorId = study.assignment.assignedTo;
+          doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+      }
+      
+      // Get the file from multer
+      const file = req.file;
+      const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Unknown';
+      
+      console.log(`📤 Uploading ${file.originalname} to Wasabi...`);
+      
+      // 🔧 NEW: Upload to Wasabi first
+      const wasabiResult = await WasabiService.uploadDocument(
+          file.buffer,
+          file.originalname,
+          'clinical', // documentType
+          {
+              patientId: study.patientId,
+              studyId: study.studyInstanceUID,
+              uploadedBy: uploaderName,
+              doctorId: effectiveDoctorId,
+              reportStatus: reportStatus || 'finalized'  // 🆕 NEW: Include report status
+          }
+      );
+      
+      if (!wasabiResult.success) {
+          console.error('❌ Wasabi upload failed:', wasabiResult.error);
+          return res.status(500).json({
+              success: false,
+              message: 'Failed to upload file to storage',
+              error: wasabiResult.error
+          });
+      }
+      
+      console.log('✅ File uploaded to Wasabi:', wasabiResult.key);
+      
+      // 🔧 NEW: Create Document record
+      const documentRecord = new Document({
+          fileName: file.originalname,
+          fileSize: file.size,
+          contentType: file.mimetype,
+          documentType: 'clinical',
+          wasabiKey: wasabiResult.key,
+          wasabiBucket: wasabiResult.bucket,
+          patientId: study.patientId,
+          studyId: study._id,
+          uploadedBy: req.user.id
+      });
+      
+      await documentRecord.save();
+      console.log('✅ Document record created:', documentRecord._id);
+      
+      // 🔧 ENHANCED: Create doctor report object for DicomStudy.doctorReports
+      const doctorReportDocument = {
+          _id: documentRecord._id, // Link to Document collection
+          filename: file.originalname,
+          contentType: file.mimetype,
+          size: file.size,
+          reportType: doctor ? 'doctor-report' : 'radiologist-report',
+          uploadedAt: new Date(),
+          uploadedBy: uploaderName,
+          reportStatus: reportStatus || 'finalized',
+          doctorId: effectiveDoctorId,
+          // 🔧 NEW: Wasabi storage info (for quick access)
+          wasabiKey: wasabiResult.key,
+          wasabiBucket: wasabiResult.bucket,
+          storageType: 'wasabi'
+      };
+      
+      // 🔧 FIXED: Initialize doctorReports array if it doesn't exist
+      if (!study.doctorReports) {
+          study.doctorReports = [];
+      }
+      
+      // Add to doctorReports array
+      study.doctorReports.push(doctorReportDocument);
+      
+      // 🔧 CRITICAL: Set ReportAvailable to true
+      study.ReportAvailable = true;
+      
+      // 🔧 FIXED: Update report-related fields
+      study.reportInfo = study.reportInfo || {};
+      
+      // 🆕 NEW: Handle different report statuses
+      if (reportStatus === 'draft') {
+          study.reportInfo.draftedAt = new Date();
+          console.log('📝 Report uploaded as draft');
+      } else {
+          study.reportInfo.finalizedAt = new Date();
+          console.log('✅ Report uploaded as finalized');
+      }
+      
+      study.reportInfo.reporterName = uploaderName;
+      
+      // 🔧 FIXED: Update timing info
+      if (study.assignment?.assignedAt) {
+          const assignmentToReport = (new Date() - new Date(study.assignment.assignedAt)) / (1000 * 60);
+          study.timingInfo = study.timingInfo || {};
+          study.timingInfo.assignmentToReportMinutes = Math.round(assignmentToReport);
+      }
+      
+      // 🆕 NEW: Determine workflow status based on report status
+      const newWorkflowStatus = reportStatus === 'draft' ? 'report_drafted' : 'report_finalized';
+      const statusNote = reportStatus === 'draft' 
+          ? `Draft report uploaded by ${uploaderName} (Wasabi: ${wasabiResult.key})`
+          : `Finalized report uploaded by ${uploaderName} (Wasabi: ${wasabiResult.key})`;
+      
+      // 🔧 FIXED: UPDATE WORKFLOW STATUS with proper error handling
+      try {
+          await updateWorkflowStatus({
+              studyId: studyId,
+              status: newWorkflowStatus,
+              doctorId: effectiveDoctorId,
+              note: statusNote,
+              user: req.user
+          });
+          
+          console.log(`✅ Workflow status updated to: ${newWorkflowStatus}`);
+      } catch (workflowError) {
+          console.warn('Workflow status update failed:', workflowError.message);
+          // Continue with save even if workflow update fails
+      }
+      
+      await study.save();
+      const freshTAT = calculateSimpleTAT(study.toObject());
+        // await updateStudyTAT(studyId, freshTAT);
+
+        console.log(`✅ TAT recalculated after report upload - Assignment to Report: ${freshTAT.assignmentToReportTATFormatted}`);
+      
+      console.log('✅ Study updated with doctor report');
+      
+      res.json({
+          success: true,
+          message: `Report uploaded successfully to Wasabi storage as ${reportStatus || 'finalized'}`,
+          report: {
+              _id: documentRecord._id,
+              filename: doctorReportDocument.filename,
+              size: doctorReportDocument.size,
+              reportType: doctorReportDocument.reportType,
+              reportStatus: doctorReportDocument.reportStatus,
+              uploadedBy: doctorReportDocument.uploadedBy,
+              uploadedAt: doctorReportDocument.uploadedAt,
+              wasabiKey: wasabiResult.key,
+              storageType: 'wasabi'
+          },
+          workflowStatus: newWorkflowStatus,
+          totalReports: study.doctorReports.length,
+          reportAvailable: study.ReportAvailable,
+          study: {
+              _id: study._id,
+              patientName: study.patientInfo?.patientName || `${study.patient?.firstName || ''} ${study.patient?.lastName || ''}`.trim(),
+              patientId: study.patientInfo?.patientID || study.patient?.patientID
+          }
+      });
+      
+  } catch (error) {
+      console.error('❌ Error uploading study report:', error);
+      res.status(500).json({ 
+          success: false, 
+          message: 'Error uploading report',
+          error: error.message 
+      });
+  }
+}
+
+// static async uploadStudyReport(req, res) {
+//   console.log('🔧 Uploading study report with Wasabi integration...'); 
+//   try {
+//       const { studyId } = req.params;
+//       const { doctorId, reportStatus } = req.body;
+      
+//       // Check if file exists in the request
+//       if (!req.file) {
+//           return res.status(400).json({ 
+//               success: false, 
+//               message: 'No file uploaded' 
+//           });
+//       }
+      
+//       // 🔧 FIX: Check if WasabiService is properly loaded
+//       if (!WasabiService) {
+//           console.error('❌ WasabiService is not properly imported');
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Storage service not available',
+//               error: 'WasabiService not loaded'
+//           });
+//       }
+      
+//       // 🔧 FIX: Check if WasabiService has required methods
+//       if (typeof WasabiService.uploadDocument !== 'function') {
+//           console.error('❌ WasabiService.uploadDocument method not found');
+//           console.log('Available WasabiService methods:', Object.getOwnPropertyNames(WasabiService));
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Storage service method not available',
+//               error: 'uploadDocument method not found'
+//           });
+//       }
+      
+//       const study = await DicomStudy.findById(studyId)
+//           .populate('patient', 'patientID firstName lastName')
+//           .populate('assignment.assignedTo');
+      
+//       if (!study) {
+//           return res.status(404).json({ 
+//               success: false, 
+//               message: 'Study not found' 
+//           });
+//       }
+      
+//       // 🔧 FIXED: Use assigned doctor from study if no doctorId provided
+//       let doctor = null;
+//       let effectiveDoctorId = doctorId;
+      
+//       if (doctorId) {
+//           doctor = await Doctor.findById(doctorId).populate('userAccount', 'fullName');
+//           if (!doctor) {
+//               return res.status(404).json({
+//                   success: false,
+//                   message: 'Doctor not found'
+//               });
+//           }
+//       } else if (study.assignment?.assignedTo) {
+//           // Use the already assigned doctor
+//           effectiveDoctorId = study.assignment.assignedTo;
+//           doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+//       }
+      
+//       // Get the file from multer
+//       const file = req.file;
+//       const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Unknown';
+      
+//       console.log(`📤 Uploading ${file.originalname} to Wasabi...`);
+      
+//       // 🔧 ENHANCED: Upload to Wasabi with better error handling
+//       let wasabiResult;
+//       try {
+//           wasabiResult = await WasabiService.uploadDocument(
+//               file.buffer,
+//               file.originalname,
+//               'clinical', // documentType
+//               {
+//                   patientId: study.patientId,
+//                   studyId: study.studyInstanceUID,
+//                   uploadedBy: uploaderName,
+//                   doctorId: effectiveDoctorId
+//               }
+//           );
+//       } catch (wasabiError) {
+//           console.error('❌ WasabiService.uploadDocument threw error:', wasabiError);
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Failed to upload to storage service',
+//               error: wasabiError.message
+//           });
+//       }
+      
+//       if (!wasabiResult || !wasabiResult.success) {
+//           console.error('❌ Wasabi upload failed:', wasabiResult?.error);
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Failed to upload file to storage',
+//               error: wasabiResult?.error || 'Unknown storage error'
+//           });
+//       }
+      
+//       console.log('✅ File uploaded to Wasabi:', wasabiResult.key);
+      
+//       // 🔧 NEW: Create Document record
+//       const documentRecord = new Document({
+//           fileName: file.originalname,
+//           fileSize: file.size,
+//           contentType: file.mimetype,
+//           documentType: 'clinical',
+//           wasabiKey: wasabiResult.key,
+//           wasabiBucket: wasabiResult.bucket,
+//           patientId: study.patientId,
+//           studyId: study._id,
+//           uploadedBy: req.user.id
+//       });
+      
+//       await documentRecord.save();
+//       console.log('✅ Document record created:', documentRecord._id);
+      
+//       // 🔧 ENHANCED: Create doctor report object for DicomStudy.doctorReports
+//       const doctorReportDocument = {
+//           _id: documentRecord._id, // Link to Document collection
+//           filename: file.originalname,
+//           contentType: file.mimetype,
+//           size: file.size,
+//           reportType: doctor ? 'doctor-report' : 'radiologist-report',
+//           uploadedAt: new Date(),
+//           uploadedBy: uploaderName,
+//           reportStatus: reportStatus || 'finalized',
+//           doctorId: effectiveDoctorId,
+//           // 🔧 NEW: Wasabi storage info (for quick access)
+//           wasabiKey: wasabiResult.key,
+//           wasabiBucket: wasabiResult.bucket,
+//           storageType: 'wasabi'
+//       };
+      
+//       // 🔧 FIXED: Initialize doctorReports array if it doesn't exist
+//       if (!study.doctorReports) {
+//           study.doctorReports = [];
+//       }
+      
+//       // Add to doctorReports array
+//       study.doctorReports.push(doctorReportDocument);
+      
+//       // 🔧 CRITICAL: Set ReportAvailable to true
+//       study.ReportAvailable = true;
+      
+//       // 🔧 FIXED: Update report-related fields
+//       study.reportInfo = study.reportInfo || {};
+//       study.reportInfo.finalizedAt = new Date();
+//       study.reportInfo.reporterName = uploaderName;
+      
+//       // 🔧 FIXED: Update timing info
+//       if (study.assignment?.assignedAt) {
+//           const assignmentToReport = (new Date() - new Date(study.assignment.assignedAt)) / (1000 * 60);
+//           study.timingInfo = study.timingInfo || {};
+//           study.timingInfo.assignmentToReportMinutes = Math.round(assignmentToReport);
+//       }
+      
+//       // 🔧 FIXED: UPDATE WORKFLOW STATUS with proper error handling
+//       try {
+//           await updateWorkflowStatus({
+//               studyId: studyId,
+//               status: 'report_finalized',
+//               doctorId: effectiveDoctorId,
+//               note: `Report uploaded by ${uploaderName} (Wasabi: ${wasabiResult.key})`,
+//               user: req.user
+//           });
+//       } catch (workflowError) {
+//           console.warn('Workflow status update failed:', workflowError.message);
+//           // Continue with save even if workflow update fails
+//       }
+      
+//       await study.save();
+      
+//       console.log('✅ Study updated with doctor report');
+      
+//       res.json({
+//           success: true,
+//           message: 'Report uploaded successfully to Wasabi storage',
+//           report: {
+//               _id: documentRecord._id,
+//               filename: doctorReportDocument.filename,
+//               size: doctorReportDocument.size,
+//               reportType: doctorReportDocument.reportType,
+//               reportStatus: doctorReportDocument.reportStatus,
+//               uploadedBy: doctorReportDocument.uploadedBy,
+//               uploadedAt: doctorReportDocument.uploadedAt,
+//               wasabiKey: wasabiResult.key,
+//               storageType: 'wasabi'
+//           },
+//           workflowStatus: 'report_finalized',
+//           totalReports: study.doctorReports.length,
+//           reportAvailable: study.ReportAvailable,
+//           study: {
+//               _id: study._id,
+//               patientName: study.patientInfo?.patientName || `${study.patient?.firstName || ''} ${study.patient?.lastName || ''}`.trim(),
+//               patientId: study.patientInfo?.patientID || study.patient?.patientID
+//           }
+//       });
+      
+//   } catch (error) {
+//       console.error('❌ Error uploading study report:', error);
+//       res.status(500).json({ 
+//           success: false, 
+//           message: 'Error uploading report',
+//           error: error.message 
+//       });
+//   }
+// }
+
+
+static async getStudyReports(req, res) {
+  console.log('📋 Fetching study reports from doctorReports...');
+  try {
+      const { studyId } = req.params;
+      
+      // Corrected Population Strategy:
+      // 1. Populate the 'assignment' array itself.
+      // 2. Within each 'assignment' object, populate the 'assignedTo' field.
+      // 3. Since 'assignedTo' directly references the 'User' model,
+      //    directly select 'fullName' from the User document
+      const study = await DicomStudy.findById(studyId)
+          .select('doctorReports workflowStatus reportInfo ReportAvailable assignment') // Ensure 'assignment' is selected
+          .populate({
+              path: 'assignment', // Populates the 'assignment' array
+              populate: {
+                  path: 'assignedTo', // Populates the 'assignedTo' field within each assignment object
+                  select: 'fullName' // Directly select 'fullName' from the User document
+              }
+          });
+      
+      if (!study) {
+          return res.status(404).json({ 
+              success: false, 
+              message: 'Study not found' 
+          });
+      }
+
+      const reportsMetadata = study.doctorReports?.map((report, index) => ({
+          index: index,
+          _id: report._id,
+          filename: report.filename,
+          contentType: report.contentType,
+          size: report.size,
+          reportType: report.reportType,
+          reportStatus: report.reportStatus,
+          uploadedAt: report.uploadedAt,
+          uploadedBy: report.uploadedBy,
+          doctorId: report.doctorId,
+          storageType: report.storageType || 'wasabi',
+          // Additional metadata for UI
+          formattedSize: (report.size / 1024 / 1024).toFixed(2) + ' MB',
+          formattedDate: new Date(report.uploadedAt).toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+          }),
+          // Status indicators
+          isDraft: report.reportStatus === 'draft',
+          isFinalized: report.reportStatus === 'finalized',
+          canDownload: true // All Wasabi reports are downloadable
+      })) || [];
+
+      // Determine the assigned doctor from the 'assignment' array
+      let assignedDoctor = null;
+      if (study.assignment && study.assignment.length > 0) {
+          // Sort by 'assignedAt' to get the latest assignment, assuming 'assignedAt' exists
+          const sortedAssignments = [...study.assignment].sort((a, b) => {
+              const dateA = a.assignedAt ? new Date(a.assignedAt) : 0;
+              const dateB = b.assignedAt ? new Date(b.assignedAt) : 0;
+              return dateA - dateB;
+          });
+          const latestAssignment = sortedAssignments[sortedAssignments.length - 1];
+          
+          // Now, `latestAssignment.assignedTo` is the populated User document
+          if (latestAssignment && latestAssignment.assignedTo) {
+              assignedDoctor = {
+                  _id: latestAssignment.assignedTo._id,
+                  fullName: latestAssignment.assignedTo.fullName || 'Unknown', // Directly access fullName from the User model
+              };
+          }
+      }
+      
+      res.json({ 
+          success: true, 
+          reports: reportsMetadata,
+          totalReports: reportsMetadata.length,
+          workflowStatus: study.workflowStatus,
+          reportAvailable: study.ReportAvailable,
+          // Enhanced response data
+          studyInfo: {
+              _id: study._id,
+              hasReports: reportsMetadata.length > 0,
+              hasDraftReports: reportsMetadata.some(r => r.isDraft),
+              hasFinalizedReports: reportsMetadata.some(r => r.isFinalized),
+              latestReportDate: reportsMetadata.length > 0 ? 
+                  reportsMetadata[reportsMetadata.length - 1].uploadedAt : null,
+              assignedDoctor: assignedDoctor, // This now contains the latest assigned doctor's info
+              reportInfo: study.reportInfo
+          }
+      });
+      
+      console.log(`✅ Found ${reportsMetadata.length} reports in doctorReports array`);
+      
+  } catch (error) {
+      console.error('❌ Error fetching study reports:', error);
+      res.status(500).json({ 
+          success: false, 
+          message: 'Error fetching reports',
+          error: error.message 
+      });
+  }
+}
+
+  // Generate lab report (unchanged)
+  static async generateLabReport(req, res) {
+    try {
+      const { labId } = req.params;
+      
+      // Fetch lab data using your Lab model
+      const lab = await Lab.findById(labId);
+      
+      if (!lab) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Lab not found' 
+        });
+      }
+
+      // Get recent studies for this lab
+      const recentStudies = await DicomStudy.find({ sourceLab: labId })
+        .populate('patient', 'firstName lastName patientNameRaw')
+        .populate({
+          path: 'lastAssignedDoctor',
+          populate: {
+            path: 'userAccount',
+            select: 'fullName'
+          }
+        })
+        .sort({ createdAt: -1 })
+        .limit(10);
+
+      const templateData = {
+        LabName: lab.name,
+        LabIdentifier: lab.identifier,
+        ContactPerson: lab.contactPerson || 'N/A',
+        ContactEmail: lab.contactEmail || 'N/A',
+        ContactPhone: lab.contactPhone || 'N/A',
+        ReportDate: new Date().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }),
+        TotalStudies: recentStudies.length,
+        Studies: recentStudies.map(study => {
+          // Handle patient name
+          let patientName = 'N/A';
+          if (study.patient) {
+            if (study.patient.firstName && study.patient.lastName) {
+              patientName = `${study.patient.firstName} ${study.patient.lastName}`;
+            } else if (study.patient.patientNameRaw) {
+              const nameParts = study.patient.patientNameRaw.split('^');
+              const lastName = nameParts[0] || '';
+              const firstName = nameParts[1] || '';
+              patientName = `${firstName} ${lastName}`.trim() || 'N/A';
+            }
+          }
+
+          return {
+            PatientName: patientName,
+            DoctorName: study.lastAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
+            StudyDate: study.studyDate || 'N/A',
+            Modality: study.modalitiesInStudy?.join(', ') || 'N/A'
+          };
+        })
+      };
+
+      const document = await DocumentController.generateDocument('lab-report-template.docx', templateData);
+      
+      const filename = `Lab_Report_${lab.name.replace(/\s+/g, '_')}_${Date.now()}.docx`;
+      
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      
+      res.send(document);
+      
+    } catch (error) {
+      console.error('Error generating lab report:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error generating lab report',
+        error: error.message 
+      });
+    }
+  }
+
+  // List available templates (unchanged)
+  static async getAvailableTemplates(req, res) {
+    try {
+      const templatesDir = path.join(__dirname, '../templates');
+      
+      if (!fs.existsSync(templatesDir)) {
+        return res.json({ 
+          success: true, 
+          templates: [],
+          message: 'Templates directory not found'
+        });
+      }
+
+      const files = fs.readdirSync(templatesDir)
+        .filter(file => file.endsWith('.docx'))
+        .map(file => ({
+          name: file,
+          displayName: file.replace('.docx', '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        }));
+
+      res.json({ 
+        success: true, 
+        templates: files 
+      });
+      
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Error fetching templates',
+        error: error.message 
+      });
+    }
+  }
+
+  // Add this new method to your DocumentController class
+
+static async generateDocumentWithSignature(templateName, templateData, signatureBuffer = null) {
+    try {
+        console.log('📄 Generating document with signature support:', templateName);
+        
+        const templatePath = path.join(TEMPLATES_DIR, templateName);
+        
+        if (!fs.existsSync(templatePath)) {
+            throw new Error(`Template not found: ${templateName}`);
+        }
+
+        // Read template
+        const templateBuffer = fs.readFileSync(templatePath);
+        
+        // 🔧 ENHANCED: Check if image module is available
+        let ImageModule;
+        try {
+            const imageModuleImport = await import('docxtemplater-image-module-free');
+            ImageModule = imageModuleImport.default;
+            console.log('✅ Using docxtemplater-image-module-free');
+        } catch (importError) {
+            console.warn('⚠️ No image module available for signatures');
+            console.warn('Install with: npm install docxtemplater-image-module-free');
+            
+            // Fallback without image module
+            return await DocumentController.generateDocument(templateName, {
+                ...templateData,
+                SignatureImage: signatureBuffer ? '[Digital Signature Available - Image Module Required]' : '[No Signature Available]',
+                HasSignature: !!signatureBuffer
+            });
+        }
+        
+        // Create PizZip instance
+        const zip = new PizZip(templateBuffer);
+        
+        // 🔧 FIXED: Configure image module for SignatureImage tag
+        const modules = [];
+        
+        if (ImageModule && signatureBuffer) {
+            console.log('🖼️ Adding image module for signature processing');
+            console.log('🖼️ Signature buffer size:', signatureBuffer.length, 'bytes');
+            
+            modules.push(new ImageModule({
+                centered: false,
+                fileType: "docx",
+                getImage: function(tagValue, tagName) {
+                    console.log('🖼️ Image module getImage called:', {
+                        tagName: tagName,
+                        tagValue: tagValue,
+                        signatureBufferExists: !!signatureBuffer,
+                        signatureBufferSize: signatureBuffer ? signatureBuffer.length : 0
+                    });
+                    
+                    // 🔧 CRITICAL FIX: Match your template's SignatureImage tag
+                    if (tagName === 'SignatureImage') {
+                        if (signatureBuffer && Buffer.isBuffer(signatureBuffer)) {
+                            console.log('✅ Returning signature buffer for SignatureImage tag');
+                            return signatureBuffer;
+                        } else {
+                            console.error('❌ Signature buffer is not valid:', typeof signatureBuffer);
+                            return null;
+                        }
+                    }
+                    
+                    console.log('ℹ️ Tag not matched:', tagName, '- Expected: SignatureImage');
+                    return null;
+                },
+                getSize: function(img, tagValue, tagName) {
+                    console.log('📏 Image module getSize called for:', tagName);
+                    
+                    if (tagName === 'SignatureImage') {
+                        console.log('📏 Setting signature size: 200x100');
+                        return [200, 100]; // Width: 200px, Height: 100px
+                    }
+                    
+                    return [150, 150];
+                },
+                getProps: function(img, tagValue, tagName) {
+                    console.log('🔧 Image module getProps called for:', tagName);
+                    
+                    return {
+                        centered: false,
+                        fileType: "png"
+                    };
+                }
+            }));
+            
+            console.log('✅ Image module configured successfully');
+        }
+        
+        const doc = new Docxtemplater(zip, {
+            paragraphLoop: true,
+            linebreaks: true,
+            modules: modules,
+            delimiters: {
+                start: '{',
+                end: '}'
+            }
+        });
+
+        // 🔧 CRITICAL FIX: Use SignatureImage to match your template
+        const processedData = { ...templateData };
+        
+        if (signatureBuffer && ImageModule) {
+            // 🔧 KEY CHANGE: Use empty string to trigger image replacement
+            processedData.SignatureImage = '';
+            processedData.HasSignatureImage = true;
+            processedData.SignatureText = '';
+            console.log('🖼️ Set SignatureImage to empty string for image processing');
+        } else if (signatureBuffer) {
+            processedData.SignatureImage = '[Digital Signature Available - Image Module Required]';
+            processedData.HasSignatureImage = false;
+            processedData.SignatureText = 'Digital signature captured but image module not available';
+        } else {
+            processedData.SignatureImage = '[No Digital Signature Available]';
+            processedData.HasSignatureImage = false;
+            processedData.SignatureText = 'No digital signature provided';
+        }
+
+        console.log('📋 Final template data for processing:', {
+            ...processedData,
+            SignatureImage: signatureBuffer && ImageModule ? '[EMPTY_STRING_FOR_IMAGE]' : processedData.SignatureImage
+        });
+
+        // 🔧 RENDER: Process the document
+        try {
+            doc.render(processedData);
+            console.log('✅ Document template rendered successfully');
+        } catch (renderError) {
+            console.error('❌ Error rendering document template:', renderError);
+            
+            // Try fallback without signature
+            console.log('🔄 Retrying without signature...');
+            processedData.SignatureImage = signatureBuffer ? 
+                '[Digital Signature Processing Error]' : 
+                '[No Digital Signature]';
+            processedData.HasSignatureImage = false;
+            
+            doc.render(processedData);
+        }
+
+        // Generate buffer
+        const buffer = doc.getZip().generate({
+            type: 'nodebuffer',
+            compression: 'DEFLATE',
+            compressionOptions: {
+                level: 9
+            }
+        });
+
+        console.log('✅ Document generated successfully with signature support');
+        return buffer;
 
     } catch (error) {
-        console.error('❌ Error finalizing report with DOCX service:', error);
+        console.error('❌ Error generating document with signature:', error);
         
-        if (error.response?.data?.message) {
-          toast.error(`Failed to finalize report: ${error.response.data.message}`);
-        } else {
-          toast.error('Failed to finalize report. Please try again.');
+        // Fallback to basic document generation
+        try {
+            console.log('🔄 Generating fallback document without signature...');
+            return await DocumentController.generateDocument(templateName, {
+                ...templateData,
+                SignatureImage: signatureBuffer ? 
+                    '[Digital Signature Captured - Processing Error]' : 
+                    '[No Digital Signature]',
+                HasSignature: !!signatureBuffer
+            });
+        } catch (fallbackError) {
+            console.error('❌ Fallback document generation also failed:', fallbackError);
+            throw new Error(`Document generation failed: ${error.message}`);
         }
-    } finally {
-        setFinalizing(false);
     }
-  };
+}
 
-  // Replace the existing processMultiPageContent function:
-const processMultiPageContent = (htmlContent, patientData, studyData) => {
-  // Create ultra-compact patient table template for headers
-  const patientTableTemplate = `
-    <table style="table-layout: fixed; width: 100%; border-collapse: collapse; margin: 0; padding: 0; line-height: 0.8;">
-      <tr style="height: 12px; margin: 0; padding: 0; line-height: 0.8;">
-        <td style="width: 20%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;"><strong>Name:</strong></td>
-        <td style="width: 30%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;">${patientData?.fullName || patientData?.patientName || '[Patient Name]'}</td>
-        <td style="width: 20%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;"><strong>Patient&nbsp;ID:</strong></td>
-        <td style="width: 30%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;">${patientData?.patientId || patientData?.patientID || '[Patient ID]'}</td>
-      </tr>
-      <tr style="height: 12px; margin: 0; padding: 0; line-height: 0.8;">
-        <td style="width: 20%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;"><strong>Accession&nbsp;No:</strong></td>
-        <td style="width: 30%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;">${studyData?.accessionNumber || 'N/A'}</td>
-        <td style="width: 20%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;"><strong>Age/Gender:</strong></td>
-        <td style="width: 30%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;">${patientData?.age || 'N/A'} / ${patientData?.gender || 'F'}</td>
-      </tr>
-      <tr style="height: 12px; margin: 0; padding: 0; line-height: 0.8;">
-        <td style="width: 20%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;"><strong>Referred&nbsp;By:</strong></td>
-        <td style="width: 30%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;">N/A</td>
-        <td style="width: 20%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;"><strong>Date:</strong></td>
-        <td style="width: 30%; padding: 1px 2px 0px 2px; margin: 0; border: 1px solid black; white-space: nowrap; line-height: 0.8; vertical-align: top; font-size: 9pt;">${studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString()}</td>
-      </tr>
-    </table>
-  `;
+  // 🔧 UTILITY: Check if image module is available
+  static async ensureImageModuleInstalled() {
+      try {
+          await import('docxtemplater-image-module-free');
+          return true;
+      } catch (error) {
+          console.error('❌ docxtemplater-image-module-free not installed. Install with:');
+          console.error('npm install docxtemplater-image-module-free');
+          return false;
+      }
+  }
 
-  // Clean the HTML content first
-  const cleanedContent = htmlContent.replace(/^\s+|\s+$/g, '');
-  
-  // Split content into paragraphs and sections for better control
-  const contentParts = cleanedContent.split(/(?=<p[^>]*><strong><u>)|(?=<h[1-6])|(?=<div[^>]*class="section)/);
-  
-  let processedContent = '';
-  let currentPageContent = '';
-  let pageNumber = 1;
-  
-  // Approximate content limits (based on A4 page size)
-  const MAX_CHARS_PER_PAGE = 2400; // Characters per page
-  const MAX_ELEMENTS_PER_PAGE = 15; // Number of elements per page
-  
-  let currentCharCount = 0;
-  let currentElementCount = 0;
 
-  contentParts.forEach((part, index) => {
-    if (!part.trim()) return;
+
+
+
+// Add this new method to DocumentController class
+static async convertAndUploadReport(req, res) {
+  console.log('🔄 Converting HTML report and uploading...');
+  console.log('Request body:', req.body); // Debug: Log the entire request body
+  
+  try {
+    const { studyId } = req.params;
+    const { 
+      htmlContent, 
+      format, 
+      reportData, 
+      templateInfo, 
+      reportStatus = 'finalized',
+      reportType = 'final-medical-report' 
+    } = req.body;
+
+    // Validate inputs
+    if (!htmlContent || !htmlContent.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'HTML content is required'
+      });
+    }
+
+    if (!format || !['pdf', 'docx'].includes(format.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Format must be either "pdf" or "docx"'
+      });
+    }
+
+    // Get study data
+    const study = await DicomStudy.findById(studyId)
+      .populate('patient', 'patientID firstName lastName')
+      .populate('assignment.assignedTo');
+
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // Get doctor info
+    let doctor = null;
+    let effectiveDoctorId = null;
     
-    const partCharCount = part.replace(/<[^>]*>/g, '').length;
-    const isNewSection = part.includes('<strong><u>') || part.includes('<h');
-    
-    // Check if we need a new page
-    const shouldBreakPage = (
-      currentCharCount > 0 && (
-        currentCharCount + partCharCount > MAX_CHARS_PER_PAGE ||
-        currentElementCount >= MAX_ELEMENTS_PER_PAGE ||
-        (isNewSection && currentCharCount > 1500) // Break on new sections if page is getting full
-      )
-    );
+    if (study.assignment?.assignedTo) {
+      effectiveDoctorId = study.assignment.assignedTo;
+      doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+    }
 
-    if (shouldBreakPage) {
-      // Close current page
-      processedContent += `
-        <div class="report-page" data-page="${pageNumber}">
-          ${patientTableTemplate}
-          <div class="content-flow-area">
-            ${currentPageContent}
-          </div>
-        </div>
-      `;
+    const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Online System';
+
+    // Prepare enhanced HTML with proper styling
+    const styledHtml = DocumentController.prepareStyledHTML(htmlContent, reportData);
+    
+    let convertedBuffer;
+    let fileName;
+    let contentType;
+
+    if (format.toLowerCase() === 'pdf') {
+      // Convert to PDF
+      const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
+      convertedBuffer = pdfResult.buffer;
+      fileName = `final_report_${reportData?.patientName?.replace(/[^a-zA-Z0-9]/g, '_') || 'patient'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      contentType = 'application/pdf';
       
-      // Start new page
-      pageNumber++;
-      currentPageContent = part;
-      currentCharCount = partCharCount;
-      currentElementCount = 1;
-    } else {
-      currentPageContent += part;
-      currentCharCount += partCharCount;
-      currentElementCount++;
+    } else if (format.toLowerCase() === 'docx') {
+      // For DOCX: Use the NEW method to inject inline styles into the raw HTML.
+      console.log('Preparing HTML for DOCX conversion...');
+      const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
+      const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
+      
+      convertedBuffer = docxResult.buffer;
+      fileName = `final_report_${reportData?.patientName?.replace(/[^a-zA-Z0-9]/g, '_') || 'patient'}_${new Date().toISOString().split('T')[0]}.docx`;
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     }
-  });
 
-  // Add final page if there's content
-  if (currentPageContent.trim()) {
-    processedContent += `
-      <div class="report-page" data-page="${pageNumber}">
-        ${patientTableTemplate}
-        <div class="content-flow-area">
-          ${currentPageContent}
-        </div>
-      </div>
-    `;
-  }
+    console.log(`✅ Report converted to ${format.toUpperCase()}, size: ${convertedBuffer.length} bytes`);
 
-  console.log(`✅ Content split into ${pageNumber} pages with ultra-compact tables`);
-  return processedContent;
-};
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading Reporting System...</p>
-        </div>
-      </div>
+    // Upload to Wasabi
+    const wasabiResult = await WasabiService.uploadDocument(
+      convertedBuffer,
+      fileName,
+      'clinical',
+      {
+        patientId: study.patientId,
+        studyId: study.studyInstanceUID,
+        uploadedBy: uploaderName,
+        doctorId: effectiveDoctorId,
+        reportStatus: reportStatus,
+        format: format.toUpperCase(),
+        convertedFromHTML: true
+      }
     );
+
+    if (!wasabiResult.success) {
+      console.error('❌ Wasabi upload failed:', wasabiResult.error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to upload converted report to storage',
+        error: wasabiResult.error
+      });
+    }
+
+    console.log('✅ Converted report uploaded to Wasabi:', wasabiResult.key);
+
+    // Create Document record
+    const documentRecord = new Document({
+      fileName: fileName,
+      fileSize: convertedBuffer.length,
+      contentType: contentType,
+      documentType: 'clinical',
+      wasabiKey: wasabiResult.key,
+      wasabiBucket: wasabiResult.bucket,
+      patientId: study.patientId,
+      studyId: study._id,
+      uploadedBy: req.user.id
+    });
+
+    await documentRecord.save();
+
+    // Add to study's doctorReports
+    const doctorReportDocument = {
+      _id: documentRecord._id,
+      filename: fileName,
+      contentType: contentType,
+      size: convertedBuffer.length,
+      reportType: doctor ? 'doctor-report' : 'radiologist-report',
+      uploadedAt: new Date(),
+      uploadedBy: uploaderName,
+      reportStatus: reportStatus,
+      doctorId: effectiveDoctorId,
+      wasabiKey: wasabiResult.key,
+      wasabiBucket: wasabiResult.bucket,
+      storageType: 'wasabi',
+      // Add conversion metadata
+      convertedFromHTML: true,
+      originalFormat: 'html',
+      convertedFormat: format.toUpperCase(),
+      templateUsed: templateInfo?.templateName || 'Online Editor'
+    };
+
+    if (!study.doctorReports) {
+      study.doctorReports = [];
+    }
+
+    study.doctorReports.push(doctorReportDocument);
+    study.ReportAvailable = true;
+
+    // Update report info
+    study.reportInfo = study.reportInfo || {};
+    study.reportInfo.finalizedAt = new Date();
+    study.reportInfo.reporterName = uploaderName;
+
+    // Update workflow status
+    try {
+      await updateWorkflowStatus({
+        studyId: studyId,
+        status: 'report_finalized',
+        doctorId: effectiveDoctorId,
+        note: `HTML report converted to ${format.toUpperCase()} and uploaded by ${uploaderName}`,
+        user: req.user
+      });
+    } catch (workflowError) {
+      console.warn('Workflow status update failed:', workflowError.message);
+    }
+
+    await study.save();
+
+    // Generate download URL (optional)
+    const downloadUrl = `/api/documents/study/${studyId}/reports/${study.doctorReports.length - 1}/download`;
+
+    res.json({
+      success: true,
+      message: `Report successfully converted to ${format.toUpperCase()} and uploaded`,
+      report: {
+        _id: documentRecord._id,
+        filename: fileName,
+        size: convertedBuffer.length,
+        format: format.toUpperCase(),
+        reportType: doctorReportDocument.reportType,
+        reportStatus: reportStatus,
+        uploadedBy: uploaderName,
+        uploadedAt: doctorReportDocument.uploadedAt,
+        wasabiKey: wasabiResult.key,
+        storageType: 'wasabi',
+        convertedFromHTML: true
+      },
+      downloadUrl: downloadUrl,
+      workflowStatus: 'report_finalized',
+      study: {
+        _id: study._id,
+        patientName: reportData?.patientName || 'Unknown Patient'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error converting and uploading report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error converting and uploading report',
+      error: error.message
+    });
   }
+}
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">Online Reporting System</h1>
-              <p className="text-sm text-gray-600">
-                {patientData?.fullName} • {patientData?.patientId} • {studyData?.modality}
-              </p>
-            </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => navigate('/admin/worklist')}
-                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                </svg>
-                <span>Back to Worklist</span>
-              </button>
-              
-              {/* 🔧 SIMPLIFIED: Save Draft button */}
-              <button
-                onClick={handleSaveDraft}
-                disabled={saving || !reportContent.trim()}
-                className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title={!reportContent.trim() ? 'Enter report content to save draft' : 'Save as draft'}
-              >
-                {saving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    <span>Save Draft</span>
-                  </>
-                )}
-              </button>
-              
-              {/* 🔧 UPDATED: Finalize Report button with new function */}
-              <button
-                onClick={handleFinalizeWithDocxService}
-                disabled={finalizing || !reportContent.trim()}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title={!reportContent.trim() ? 'Enter report content to finalize' : 'Finalize report using DOCX template'}
-              >
-                {finalizing ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                    <span>Finalizing...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span>Finalize Report</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex h-screen-minus-header">
-        {/* Left Sidebar - Templates */}
-        <div className="w-80 bg-white border-r overflow-y-auto">
-          <div className="p-4 border-b">
-            <h2 className="font-semibold text-gray-900">HTML Report Templates</h2>
-            <p className="text-sm text-gray-600">Select a template to get started</p>
-          </div>
-          <TemplateTreeView
-            templates={templates}
-            selectedTemplate={selectedTemplate}
-            onTemplateSelect={handleTemplateSelect}
-            studyModality={studyData?.modality}
-          />
-        </div>
-
-        {/* Center - Report Editor */}
-        <div className="flex-1 flex flex-col">
-          <ReportEditor
-            content={reportContent}
-            onChange={setReportContent}
-            template={selectedTemplate}
-            reportData={reportData}
-            onReportDataChange={setReportData}
-          />
-        </div>
-
-        {/* Right Sidebar - Patient Info */}
-        <div className="w-80 bg-white border-l overflow-y-auto">
-          <PatientInfoPanel
-            patientData={patientData}
-            studyData={studyData}
-            reportData={reportData}
-          />
-        </div>
-      </div>
-
-      {/* 🔧 REMOVED: All modal components - no longer needed */}
-    </div>
-  );
-};
-
-export default OnlineReportingSystem;
-
-// 🔧 KEEP: Document styles for display (unchanged)
-const documentStyles = `
-  /* Base editor styles */
-  .report-editor {
-    font-family: Arial, sans-serif;
-    line-height: 1.4;
-    color: #000;
-    font-size: 11pt;
-    background: white;
-    outline: none;
-    box-sizing: border-box;
-  }
+static prepareStyledHTML(htmlContent, reportData) {
+  const styledHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {
+                size: A4;
+                margin: 1cm;
+            }
+            
+            body {
+                font-family: Arial, sans-serif;
+                line-height: 1.4;
+                margin: 0;
+                color: #000;
+                font-size: 11pt;
+            }
+            
+            .multi-page-report {
+                max-width: 100%;
+                margin: 0;
+                counter-reset: page;
+            }
+            
+            .report-page {
+                page-break-after: always;
+                counter-increment: page;
+                min-height: calc(100vh - 2cm);
+                position: relative;
+            }
+            
+            .report-page:last-child {
+                page-break-after: auto;
+            }
+            
+            .page-header-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 20px;
+                font-size: 10pt;
+            }
+            
+            .page-header-table td {
+                padding: 6px 8px;
+                border: 1px solid #000;
+                vertical-align: top;
+            }
+            
+            .page-header-table td:first-child, 
+            .page-header-table td:nth-child(3) {
+                background-color: #b2dfdb;
+                font-weight: bold;
+                width: 20%;
+            }
+            
+            .page-header-table td:nth-child(2),
+            .page-header-table td:nth-child(4) {
+                background-color: #ffffff;
+                width: 30%;
+            }
+            
+            .content-flow-area {
+                margin-bottom: 40px;
+            }
+            
+            .floating-signature {
+                margin-top: 40px;
+                text-align: left;
+                font-size: 10pt;
+                line-height: 1.1;
+                page-break-inside: avoid;
+            }
+            
+            .doctor-name {
+                font-weight: bold;
+                margin-bottom: 1px;
+                font-size: 11pt;
+            }
+            
+            .doctor-specialization, .doctor-license {
+                margin: 1px 0;
+                font-size: 11pt;
+            }
+            
+            .signature-image {
+                width: 80px;
+                height: 40px;
+                margin: 5px 0;
+            }
+            
+            .disclaimer {
+                font-style: italic;
+                color: #666;
+                font-size: 8pt;
+                margin-top: 10px;
+                line-height: 1.0;
+            }
+            
+            /* Section styling */
+            .report-title, h1, h2, h3, .section-heading {
+                font-weight: bold;
+                text-decoration: underline;
+                page-break-after: avoid;
+            }
+            
+            .report-title, h1 {
+                font-size: 14pt;
+                text-align: center;
+                margin: 20px 0 15px 0;
+            }
+            
+            h2 {
+                font-size: 12pt;
+                text-align: center;
+                margin: 15px 0 10px 0;
+            }
+            
+            h3, .section-heading {
+                font-size: 11pt;
+                margin: 15px 0 8px 0;
+            }
+            
+            p {
+                margin: 4px 0;
+                font-size: 11pt;
+                line-height: 1.4;
+                orphans: 2;
+                widows: 2;
+            }
+            
+            ul, ol {
+                margin: 8px 0;
+                padding-left: 25px;
+            }
+            
+            li {
+                margin: 3px 0;
+                font-size: 11pt;
+            }
+            
+            strong { font-weight: bold; }
+            u { text-decoration: underline; }
+        </style>
+    </head>
+    <body>
+        ${htmlContent}
+    </body>
+    </html>
+  `;
   
-  /* Preview container with proper centering */
-  .preview-container {
-    background: #f5f5f5;
-    padding: 20px;
-    min-height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-  }
+  return styledHtml;
+}
 
-  /* Multi-page preview with consistent spacing */
-  .multi-page-preview {
-    width: 21cm;
-    max-width: 21cm;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 30px;
-  }
-
-  /* Page styling with better space management */
-  .report-page, .report-page-preview {
-    background: white;
-    width: 21cm;
-    min-height: 29.7cm;
-    padding: 0;
-    margin: 0;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
-    box-sizing: border-box;
-    position: relative;
-    page-break-after: always;
-    display: block;
-    font-family: Arial, sans-serif;
-    font-size: 11pt;
-    line-height: 1.4;
-    color: #000;
-    border: 1px solid #ccc;
-  }
-
-  .report-page:last-child, .report-page-preview:last-child {
-    page-break-after: auto;
-  }
-
-  /* Table styling for display */
-  .report-page table, 
-  .report-page-preview table,
-  .report-editor table {
-    width: calc(100% - 2.5cm);
-    border-collapse: collapse;
-    margin: 3rem 1.25cm 1rem 1.25cm;
-    font-size: 10pt;
-  }
-
-  .report-page table td, 
-  .report-page-preview table td,
-  .report-editor table td {
-    border: 1px solid #000;
-    padding: 8px 10px;
-    vertical-align: top;
-  }
-
-  .report-page table td:nth-child(1),
-  .report-page table td:nth-child(3),
-  .report-page-preview table td:nth-child(1),
-  .report-page-preview table td:nth-child(3),
-  .report-editor table td:nth-child(1),
-  .report-editor table td:nth-child(3) {
-    background-color: #b2dfdb;
-    font-weight: bold;
-    width: 22%;
-  }
-
-  .report-page table td:nth-child(2),
-  .report-page table td:nth-child(4),
-  .report-page-preview table td:nth-child(2),
-  .report-page-preview table td:nth-child(4),
-  .report-editor table td:nth-child(2),
-  .report-editor table td:nth-child(4) {
-    background-color: #ffffff;
-    width: 28%;
-  }
-
-  /* Content area with maximum space utilization */
-  .content-flow-area {
-    margin: 0 1.25cm;
-    padding: 0;
-    max-height: none;
-    overflow: visible;
-  }
-
-  /* Signature section with proper positioning */
-  .signature-section {
-    margin: 1.5rem 1.25cm 1.25cm 1.25cm;
-    text-align: left;
-    font-size: 10pt;
-    line-height: 1.3;
-    border-top: 1px solid #bbb;
-    padding-top: 1rem;
-    page-break-inside: avoid;
-  }
-
-  .doctor-name {
-    font-weight: bold;
-    margin-bottom: 3px;
-    font-size: 12pt;
-  }
-
-  .doctor-specialization,
-  .doctor-license {
-    margin: 3px 0;
-    font-size: 11pt;
-  }
-
-  .signature-image {
-    width: 90px;
-    height: 45px;
-    margin: 8px 0;
-    object-fit: contain;
-  }
-
-  .signature-placeholder {
-    height: 45px;
-    width: 150px;
-    margin: 8px 0;
-    font-size: 9pt;
-    color: #999;
-    border: 1px dashed #ccc;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #fafafa;
-  }
-
-  .disclaimer {
-    font-style: italic;
-    color: #666;
-    font-size: 9pt;
-    margin-top: 10px;
-    line-height: 1.2;
-  }
-
-  /* Template placeholder */
-  .template-placeholder {
-    text-align: center;
-    padding: 30px 20px;
-    color: #666;
-    font-style: italic;
-    border: 2px dashed #ddd;
-    margin: 15px 0;
-    background: #f9f9f9;
-    border-radius: 4px;
-  }
-
-  /* Text styles with better spacing */
-  p { 
-    margin: 6px 0; 
-    font-size: 11pt;
-    line-height: 1.5;
-  }
+// Helper method to convert HTML to PDF using Puppeteer
+static async convertHTMLToPDF(htmlContent, reportData) {
+  let browser = null;
   
-  h1, h2, h3 { 
-    font-weight: bold; 
-    text-decoration: underline; 
-    margin: 15px 0 8px 0; 
-    page-break-after: avoid;
-  }
-  h1 { font-size: 14pt; line-height: 1.3; }
-  h2 { font-size: 12pt; line-height: 1.3; }
-  h3 { font-size: 11pt; line-height: 1.3; }
-  
-  ul, ol { 
-    padding-left: 22px; 
-    margin: 8px 0; 
-  }
-  li { 
-    margin: 3px 0; 
-    font-size: 11pt;
-    line-height: 1.4;
-  }
-  strong { font-weight: bold; }
-  u { text-decoration: underline; }
-
-  /* Page break indicators */
-  div[style*="page-break-after: always"] {
-    height: 3px;
-    margin: 25px 1.25cm;
-    border-top: 2px dashed #0066cc;
-    background: linear-gradient(90deg, transparent 0%, #0066cc 50%, transparent 100%);
-    position: relative;
-  }
-
-  div[style*="page-break-after: always"]:after {
-    content: "PAGE BREAK";
-    position: absolute;
-    top: -10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #0066cc;
-    color: white;
-    font-size: 9pt;
-    padding: 3px 8px;
-    border-radius: 3px;
-    font-weight: bold;
-  }
-
-  /* Page numbering and labels */
-  .report-page::after, .report-page-preview::after {
-    content: "Page " attr(data-page);
-    position: absolute;
-    bottom: 0.75cm;
-    right: 1.25cm;
-    font-size: 10pt;
-    color: #555;
-    font-weight: normal;
-  }
-
-  .report-page::before, .report-page-preview::before {
-    content: "Page " attr(data-page);
-    position: absolute;
-    top: -30px;
-    left: 0;
-    font-size: 12px;
-    color: #444;
-    background: #e8f4fd;
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-weight: bold;
-    border: 1px solid #1976d2;
-  }
-
-  /* Editor mode alignment */
-  .report-editor.bg-white {
-    margin: 0 auto;
-  }
-
-  @media print {
-    .preview-container { 
-      background: white; 
-      padding: 0; 
-    }
+  try {
+    console.log('🔄 Launching Puppeteer for PDF conversion...');
     
-    .multi-page-preview {
-      gap: 0;
-    }
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    const page = await browser.newPage();
     
-    .report-page, .report-page-preview { 
-      margin: 0; 
-      box-shadow: none; 
-      page-break-after: always;
-      border: none;
-    }
+    // Set content
+    await page.setContent(htmlContent, {
+      waitUntil: 'networkidle0'
+    });
+
+    // Generate PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: {
+        top: '1cm',
+        right: '1cm',
+        bottom: '1cm',
+        left: '1cm'
+      },
+      printBackground: true
+    });
+
+    console.log('✅ PDF generated successfully, size:', pdfBuffer.length, 'bytes');
     
-    .report-page:last-child, .report-page-preview:last-child { 
-      page-break-after: auto; 
-    }
-    
-    .report-page::before, .report-page-preview::before {
-      display: none;
-    }
-    
-    div[style*="page-break-after: always"] {
-      page-break-after: always;
-      border: none;
-      height: 0;
-      margin: 0;
-      background: none;
-    }
-    
-    div[style*="page-break-after: always"]:after {
-      display: none;
+    return {
+      buffer: pdfBuffer,
+      success: true
+    };
+
+  } catch (error) {
+    console.error('❌ PDF conversion error:', error);
+    throw new Error(`PDF conversion failed: ${error.message}`);
+  } finally {
+    if (browser) {
+      await browser.close();
     }
   }
-`;
+}
 
 
+// static prepareDocxCompatibleHTML(htmlContent) {
+//     console.log('✨ Preparing DOCX-compatible HTML with refined inline styles...');
+    
+//     const $ = cheerio.load(htmlContent);
+
+//     // --- 1. Style the Patient Info Table ---
+//     const patientTable = $('table').first();
+//     patientTable.css({
+//         'width': '100%',
+//         'border-collapse': 'collapse',
+//         'font-family': 'Arial, sans-serif',
+//         'font-size': '11pt',
+//         'margin-bottom': '20px'
+//     });
+
+
+
+//     // --- FIX: Make borders thinner (using 'pt' is often better for Word) ---
+//     patientTable.find('td').css({
+//         'border': '0.5pt solid black', 
+//         'padding': '5px',
+//         'vertical-align': 'top'
+//     });
+
+//     // --- FIX: Ensure background color is applied to header cells ---
+//     patientTable.find('tr').each((i, row) => {
+//         $(row).find('td:nth-child(1)').css({
+//             'background-color': '#f0f0f0',
+//             'font-weight': 'bold'
+//         });
+//         $(row).find('td:nth-child(3)').css({
+//             'background-color': '#f0f0f0',
+//             'font-weight': 'bold'
+//         });
+//     });
+
+//     // Style all standard paragraphs and list items
+//     $('p, li').css({
+//         'font-family': 'Arial, sans-serif',
+//         'font-size': '11pt',
+//         'margin': '8px 0'
+//     });
+
+//     // --- FIX: Make headings larger and bolder using a more robust selector ---
+//     // This finds paragraphs that contain both <strong> and <u> tags
+//     $('p:has(strong):has(u)').css({
+//         'font-size': '12pt', // Increased from 11pt
+//         'font-weight': 'bold'
+//     });
+    
+//     // --- FIX: Resize signature image to be smaller ---
+//     // This targets all images. If you have multiple, you might need a more specific selector.
+//     $('img').css({
+//         'width': '100px', // Set a fixed width
+//         'height': 'auto'  // Adjust height automatically
+//     });
+
+//     // Style the disclaimer text
+//     $('p:contains("Disclaimer")').css({
+//         'font-size': '9pt',
+//         'font-style': 'italic'
+//     });
+
+//     return $.html();
+// }
+
+
+
+// In DocumentController class
+// Don't forget: import * as cheerio from 'cheerio';
+
+
+
+// In your DocumentController class
+
+static prepareDocxCompatibleHTML(htmlContent) {
+    console.log('✨ Applying a robust, table-based layout for DOCX compatibility...');
+    
+    const $ = cheerio.load(htmlContent);
+
+    // --- Core Strategy: Wrap everything in a master layout table ---
+    // This is the most reliable way to control the overall width in Word.
+    const originalBodyContent = $('body').html();
+    $('body').html(`
+        <table style="width: 100%; max-width: 680px; margin: 0 auto; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 0;">
+                    ${originalBodyContent}
+                </td>
+            </tr>
+        </table>
+    `);
+
+    // --- 1. Style the Patient Info Table ---
+    const patientTable = $('table').first(); // This now selects the patient info table inside our master table
+    patientTable.css({
+        'width': '100%',
+        'border-collapse': 'collapse',
+        'font-family': 'Arial, sans-serif',
+        'font-size': '10pt', // Use points (pt) for Word
+        'margin-bottom': '20px'
+    });
+
+    patientTable.find('td').css({
+        'border': '1pt solid #cccccc', // Use a slightly thicker, gray border
+        'padding': '5pt',
+        'vertical-align': 'top'
+    });
+
+    // Apply specific styles to header/value cells
+    patientTable.find('tr').each((i, row) => {
+        $(row).find('td:nth-child(1), td:nth-child(3)').css({
+            'background-color': '#F2F2F2', // A light gray is safer across Word versions
+            'font-weight': 'bold',
+            'width': '20%' // Set explicit widths
+        });
+        $(row).find('td:nth-child(2), td:nth-child(4)').css({
+            'width': '30%'
+        });
+    });
+
+    // --- 2. Style Headings and Paragraphs ---
+    // Make headings bold and underlined
+    $('h2, p:has(strong):has(u)').css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '12pt',
+        'font-weight': 'bold',
+        'text-decoration': 'underline',
+        'margin-top': '15px',
+        'margin-bottom': '10px'
+    });
+    
+    // Style all other paragraphs and list items for consistency
+    $('p:not(:has(strong):has(u)), li').css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '11pt',
+        'line-height': '1.4',
+        'margin': '5px 0'
+    });
+
+    // --- 3. Style the Signature Block ---
+    // Find the signature image and apply styles to it and its surrounding text
+    $('img').css({
+        'width': '120px', // A reasonable fixed width for a signature
+        'height': 'auto'
+    });
+    
+    // Style the text lines in the signature block
+    const signatureParagraphs = $('img').parent().children('p, div');
+    signatureParagraphs.css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '11pt',
+        'margin': '2px 0', // Tighter spacing for the signature block
+        'line-height': '1.2'
+    });
+
+    // --- 4. Style the Disclaimer ---
+    $('p:contains("Disclaimer:")').css({
+        'font-family': 'Arial, sans-serif',
+        'font-size': '9pt',
+        'font-style': 'italic',
+        'color': '#595959',
+        'margin-top': '25px'
+    });
+
+    // Return the full HTML document string
+    return $.html();
+}
+
+
+static async convertHTMLToDOCX(htmlContent, reportData) {
+  try {
+    console.log('🔄 Converting HTML to DOCX...');
+    console.log(htmlContent);
+    
+    // For DOCX conversion, you'll need a library like 'html-docx-js' or 'html-to-docx'
+    // Install: npm install html-to-docx
+    
+    const HTMLtoDOCX = await import('html-to-docx');
+    
+    const docxBuffer = await HTMLtoDOCX.default(htmlContent, null, {
+      table: { row: { cantSplit: true } },
+      footer: true,
+      pageNumber: true,
+      font: 'Arial'
+    });
+
+    console.log('✅ DOCX generated successfully, size:', docxBuffer.length, 'bytes');
+    
+    return {
+      buffer: docxBuffer,
+      success: true
+    };
+
+  } catch (error) {
+    console.error('❌ DOCX conversion error:', error);
+    throw new Error(`DOCX conversion failed: ${error.message}`);
+  }
+}
+
+  // 🔧 NEW: LibreOffice conversion method
+  static async convertPDFToDocxViaLibreOffice(pdfBuffer) {
+    try {
+      console.log('🔄 Converting PDF to DOCX using LibreOffice service...');
+      console.log('📊 PDF buffer size:', pdfBuffer.length, 'bytes');
+      
+      // Create form data for multipart upload
+      const formData = new FormData();
+      
+      // Create a readable stream from the PDF buffer
+      const pdfStream = Readable.from(pdfBuffer);
+      
+      // Append the PDF file to form data
+      formData.append('file', pdfStream, {
+        filename: `temp_${Date.now()}.pdf`,
+        contentType: 'application/pdf'
+      });
+
+      console.log('📤 Sending PDF to LibreOffice service:', LIBREOFFICE_SERVICE_URL);
+      
+      // Make request to LibreOffice service
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/convert`, {
+        method: 'POST',
+        body: formData,
+        headers: formData.getHeaders(),
+        timeout: 30000 // 30 seconds timeout
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ LibreOffice service error:', response.status, errorText);
+        throw new Error(`LibreOffice conversion failed: ${response.status} - ${errorText}`);
+      }
+
+      // Get the DOCX buffer
+      const docxBuffer = await response.buffer();
+      
+      console.log('✅ LibreOffice conversion successful, DOCX size:', docxBuffer.length, 'bytes');
+      
+      return {
+        buffer: docxBuffer,
+        success: true
+      };
+
+    } catch (error) {
+      console.error('❌ LibreOffice conversion error:', error);
+      throw new Error(`LibreOffice PDF to DOCX conversion failed: ${error.message}`);
+    }
+  }
+
+  // 🔧 NEW: Check LibreOffice service health
+  static async checkLibreOfficeService() {
+    try {
+      console.log('🔍 Checking LibreOffice service health...');
+      
+      const response = await fetch(`${LIBREOFFICE_SERVICE_URL}/`, {
+        method: 'GET',
+        timeout: 5000
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ LibreOffice service is healthy:', result);
+        return true;
+      } else {
+        console.warn('⚠️ LibreOffice service unhealthy:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ LibreOffice service unreachable:', error.message);
+      return false;
+    }
+  }
+
+ 
+static async convertAndUploadReportViaPandocService(req, res) {
+    console.log('🔄 Calling Pandoc microservice for conversion...');
+
+    try {
+        const { studyId } = req.params;
+        const { htmlContent, reportData, reportStatus = 'finalized' } = req.body;
+
+        if (!htmlContent) {
+            return res.status(400).json({ success: false, message: 'HTML content is required' });
+        }
+
+        const study = await DicomStudy.findById(studyId).populate('patient');
+        if (!study) {
+            return res.status(404).json({ success: false, message: 'Study not found' });
+        }
+
+        // --- 1. Prepare the request to the Pandoc Service ---
+        const formData = new FormData();
+        // Convert the HTML string into a buffer to send as a file
+        const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
+        formData.append('file', htmlBuffer, { filename: 'report.html' });
+
+        // --- 2. Call the Pandoc Microservice ---
+        console.log(`📤 Sending HTML to Pandoc service at ${PANDOC_SERVICE_URL}/convert`);
+        const pandocResponse = await fetch(`${PANDOC_SERVICE_URL}/convert`, {
+            method: 'POST',
+            body: formData,
+            headers: formData.getHeaders(),
+        });
+
+        if (!pandocResponse.ok) {
+            const errorText = await pandocResponse.text();
+            throw new Error(`Pandoc service failed: ${errorText}`);
+        }
+
+        // --- 3. Get the converted DOCX file back as a buffer ---
+        const docxBuffer = await pandocResponse.buffer();
+        console.log(`✅ Received converted DOCX from Pandoc service, size: ${docxBuffer.length} bytes`);
+
+        // --- 4. Continue with your existing logic using the new buffer ---
+        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const uploaderName = req.user?.fullName || 'Online System';
+        
+        // Upload the DOCX buffer received from Pandoc to Wasabi
+        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'clinical', { studyId });
+        
+        if (!wasabiResult.success) {
+            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+        }
+        
+        // Create the Document record
+        const documentRecord = new Document({
+            studyId: study._id,
+            patientId: study.patient?._id,
+            fileName: fileName,
+            fileSize: docxBuffer.length,
+            contentType: contentType,
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            documentType: 'clinical',
+            uploadedBy: req.user._id
+        });
+        await documentRecord.save();
+
+        // Update the study's report array
+        const doctorReportEntry = {
+            _id: documentRecord._id,
+            filename: fileName,
+            contentType: contentType,
+            size: docxBuffer.length,
+            reportType: 'doctor-report',
+            reportStatus: reportStatus,
+            uploadedAt: new Date(),
+            uploadedBy: uploaderName,
+            storageType: 'wasabi'
+        };
+
+        if (!study.doctorReports) {
+            study.doctorReports = [];
+        }
+        study.doctorReports.push(doctorReportEntry);
+        study.ReportAvailable = true;
+        study.workflowStatus = 'report_finalized';
+        await study.save();
+        
+        console.log('✅ Report uploaded to Wasabi successfully.');
+        res.status(201).json({
+            success: true,
+            message: 'Report converted via Pandoc service and uploaded successfully',
+            data: {
+                documentId: documentRecord._id,
+                filename: fileName,
+                wasabiKey: wasabiResult.key,
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in Pandoc service workflow:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to convert and upload report via Pandoc service',
+            error: error.message
+        });
+    }
+}
+
+static async generateReportWithDocxService(req, res) {
+    console.log('🔄 Received request to generate report via C# DOCX Service...');
+
+    try {
+        const { studyId } = req.params;
+        // The frontend will now send templateName and placeholders directly
+        const { templateName, placeholders } = req.body;
+        console.log('Request body:', req.body); // Debug: Log the entire request body
+
+        if (!templateName || !placeholders) {
+            return res.status(400).json({ success: false, message: 'templateName and placeholders are required.' });
+        }
+        
+        const study = await DicomStudy.findById(studyId).populate('patient');
+        if (!study) {
+            return res.status(404).json({ success: false, message: 'Study not found' });
+        }
+
+        // --- Step 1: Call the C# DOCX Generation Service ---
+        console.log(`📞 Calling C# service with template: ${templateName}`);
+        
+        const docxResponse = await axios.post(DOCX_SERVICE_URL, {
+            templateName: templateName,
+            placeholders: placeholders
+        }, {
+            // CRITICAL: We expect a binary file back, so we use 'arraybuffer'
+            responseType: 'arraybuffer' 
+        });
+
+        const docxBuffer = Buffer.from(docxResponse.data);
+        console.log(`✅ Received generated DOCX from C# service, size: ${docxBuffer.length} bytes`);
+
+        // --- Step 2: Upload the generated DOCX to Wasabi ---
+        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'final-reports', { studyId });
+        
+        if (!wasabiResult.success) {
+            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+        }
+        console.log('✅ Report uploaded to Wasabi successfully.');
+
+        // --- Step 3: Save the document record to your database (reusing your old logic) ---
+        const documentRecord = new Document({
+            studyId: study._id,
+            patientId: study.patient?._id,
+            fileName: fileName,
+            fileSize: docxBuffer.length,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            documentType: 'clinical',
+            uploadedBy: req.user._id
+        });
+        await documentRecord.save();
+        
+        // Update the study record
+        study.ReportAvailable = true;
+        study.workflowStatus = 'report_finalized';
+        await study.save();
+
+        console.log('✅ Database updated successfully.');
+        
+        res.status(201).json({
+            success: true,
+            message: 'Report generated and uploaded successfully',
+            data: {
+                documentId: documentRecord._id,
+                filename: fileName,
+                downloadUrl: wasabiResult.url // Or however you get the URL
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in new DOCX service workflow:', error.message);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate report',
+            error: error.message
+        });
+    }
+}
+
+
+}
+
+export default DocumentController;
