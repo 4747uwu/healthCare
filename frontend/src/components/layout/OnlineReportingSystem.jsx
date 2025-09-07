@@ -320,7 +320,7 @@ const handleTemplateSelect = async (templateId) => {
     
     try {
       // Simple draft save - you can keep this or modify as needed
-      const response = await api.post(`/study/${studyId}/save-draft`, {
+      const response = await api.post(`/study/${studyId}/generate-report`, {
         reportContent: reportContent,
         reportData: reportData,
         templateInfo: selectedTemplate ? {
@@ -363,7 +363,8 @@ const handleTemplateSelect = async (templateId) => {
         
         // 1. Define the template name based on the doctor's email
         // Example: 'doctor@example.com' becomes 'doctor@example.com.docx'
-        const templateName = currentUser.email + '.docx';
+        // const templateName = currentUser.email + '.docx';
+        const templateName =  'MyReport.docx';
 
         // 2. Prepare the placeholders object for our C# service
         const placeholders = {

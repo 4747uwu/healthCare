@@ -2318,6 +2318,7 @@ static async generateReportWithDocxService(req, res) {
         const { studyId } = req.params;
         // The frontend will now send templateName and placeholders directly
         const { templateName, placeholders } = req.body;
+        console.log('Request body:', req.body); // Debug: Log the entire request body
 
         if (!templateName || !placeholders) {
             return res.status(400).json({ success: false, message: 'templateName and placeholders are required.' });
