@@ -39,6 +39,10 @@ router.use(protect);
 
 // Get initial report data
 router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
+router.post('/study/:studyId/generate-report', DocumentController.generateReportWithDocxService);
+
+router.post('/study/:studyId/generate-draft-report', DocumentController.generateReportWithDocxServiceDraft);
+
 
 // Generate patient report (NO STORAGE - direct download)
 router.get('/study/:studyId/generate-patient-report', 
@@ -83,5 +87,4 @@ router.delete('/study/:studyId/reports/:reportIndex',
 );
 
 // In your routes file (e.g., documents.js)
-router.post('/study/:studyId/generate-report', DocumentController.generateReportWithDocxService);
 export default router;

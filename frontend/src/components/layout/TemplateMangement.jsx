@@ -109,14 +109,14 @@ const TemplateManager = () => {
     const colors = {
       'General': 'bg-blue-50 border-blue-200 text-blue-800',
       'CT': 'bg-purple-50 border-purple-200 text-purple-800',
-      'MRI': 'bg-green-50 border-green-200 text-green-800',
-      'X-Ray': 'bg-yellow-50 border-yellow-200 text-yellow-800',
-      'Ultrasound': 'bg-cyan-50 border-cyan-200 text-cyan-800',
-      'Cardiology': 'bg-red-50 border-red-200 text-red-800',
-      'Neurology': 'bg-indigo-50 border-indigo-200 text-indigo-800',
-      'Oncology': 'bg-orange-50 border-orange-200 text-orange-800',
-      'Pediatric': 'bg-pink-50 border-pink-200 text-pink-800',
-      'Emergency': 'bg-gray-50 border-gray-200 text-gray-800',
+      'CR': 'bg-green-50 border-green-200 text-green-800',
+      'CT SCREENING FORMAT': 'bg-yellow-50 border-yellow-200 text-yellow-800',
+      'ECHO': 'bg-cyan-50 border-cyan-200 text-cyan-800',
+      'EEG-TMT-NCS': 'bg-red-50 border-red-200 text-red-800',
+      'MR': 'bg-indigo-50 border-indigo-200 text-indigo-800',
+      'MRI SCREENING FORMAT': 'bg-orange-50 border-orange-200 text-orange-800',
+      'PT': 'bg-pink-50 border-pink-200 text-pink-800',
+      'US': 'bg-gray-50 border-gray-200 text-gray-800',
       'Other': 'bg-slate-50 border-slate-200 text-slate-800'
     };
     return colors[category] || 'bg-gray-50 border-gray-200 text-gray-800';

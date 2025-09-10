@@ -2190,128 +2190,6 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
 
 
 
-static async convertAndUploadReportViaPandocService(req, res) {
-        console.log('🔄 Calling Pandoc microservice for conversion (Table Test)...');
-
-        try {
-            const { studyId } = req.params;
-            const { htmlContent } = req.body;
-            console.log('Request body:', htmlContent); // Debug: Log the entire request body
-
-            if (!htmlContent) {
-                return res.status(400).json({ success: false, message: 'HTML content is required' });
-            }
-
-            const study = await DicomStudy.findById(studyId).populate('patient');
-            if (!study) {
-                return res.status(404).json({ success: false, message: 'Study not found' });
-            }
-
-            // --- Step 1: Enhance HTML with Content (the signature) ---
-            let assignedDoctor = null;
-            if (study.assignment?.assignedTo) {
-                // This assumes assignment.assignedTo holds the Doctor's ObjectId
-                assignedDoctor = await Doctor.findById(study.assignment.assignedTo);
-            }
-
-            if (assignedDoctor && assignedDoctor.signature) {
-                console.log('🖋️ Embedding doctor signature into HTML as Base64...');
-                const $ = cheerio.load(htmlContent);
-                const signatureBase64 = assignedDoctor.signature; // Your Base64 string from the DB
-                
-                // Find the first image tag and set its src to the Base64 Data URI
-                $('img').first().attr('src', `data:image/png;base64,${signatureBase64}`);
-                
-                htmlContent = $.html(); // Update htmlContent with the embedded image
-            } else {
-                console.warn('⚠️ No signature found for the assigned doctor.');
-            }
-
-            // --- Signature-embedding logic is temporarily removed to focus on table styling ---
-
-            // --- Prepare and send the HTML directly to the Pandoc Service ---
-            const formData = new FormData();
-            const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
-            formData.append('file', htmlBuffer, { filename: 'report.html' });
-
-            const pandocResponse = await fetch(`${PANDOC_SERVICE_URL}/convert`, {
-                method: 'POST',
-                body: formData,
-                headers: formData.getHeaders(),
-            });
-
-            if (!pandocResponse.ok) {
-                const errorText = await pandocResponse.text();
-                throw new Error(`Pandoc service failed: ${errorText}`);
-            }
-
-            // --- Get the converted DOCX buffer back ---
-            const docxArrayBuffer = await pandocResponse.arrayBuffer();
-            const docxBuffer = Buffer.from(docxArrayBuffer);
-            console.log(`✅ Received converted DOCX from Pandoc, size: ${docxBuffer.length} bytes`);
-
-            // --- Upload to Wasabi and save to database ---
-            const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
-            const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'clinical', { studyId });
-            
-            if (!wasabiResult.success) {
-                throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
-            }
-            
-            const documentRecord = new Document({
-                studyId: study._id,
-                patientId: study.patient?._id,
-                fileName: fileName,
-                fileSize: docxBuffer.length,
-                contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                wasabiKey: wasabiResult.key,
-                wasabiBucket: wasabiResult.bucket,
-                documentType: 'clinical',
-                uploadedBy: req.user._id
-            });
-            await documentRecord.save();
-
-            const doctorReportEntry = {
-                _id: documentRecord._id,
-                filename: fileName,
-                contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                size: docxBuffer.length,
-                reportType: 'doctor-report',
-                reportStatus: 'finalized',
-                uploadedAt: new Date(),
-                uploadedBy: req.user?.fullName || 'Online System',
-                storageType: 'wasabi'
-            };
-
-            if (!study.doctorReports) {
-                study.doctorReports = [];
-            }
-            study.doctorReports.push(doctorReportEntry);
-            study.ReportAvailable = true;
-            study.workflowStatus = 'report_finalized';
-            await study.save();
-
-            console.log('✅ Report uploaded to Wasabi successfully.');
-            res.status(201).json({
-                success: true,
-                message: 'Report converted and uploaded successfully',
-                data: {
-                    documentId: documentRecord._id,
-                    filename: fileName,
-                    wasabiKey: wasabiResult.key,
-                }
-            });
-
-        } catch (error) {
-            console.error('❌ Error in Pandoc service workflow:', error);
-            res.status(500).json({
-                success: false,
-                message: 'Failed to convert report',
-                error: error.message
-            });
-        }
-    }
-
 static async generateReportWithDocxService(req, res) {
     console.log('🔄 Received request to generate report via C# DOCX Service...');
 
@@ -2423,6 +2301,116 @@ static async generateReportWithDocxService(req, res) {
     }
 }
 
+static async generateReportWithDocxServiceDraft(req, res) {
+    console.log('🔄 Received request to generate report via C# DOCX Service...');
+
+    try {
+        const { studyId } = req.params;
+        const { templateName, placeholders } = req.body;
+
+        if (!templateName || !placeholders) {
+            return res.status(400).json({ success: false, message: 'templateName and placeholders are required.' });
+        }
+        
+        const study = await DicomStudy.findById(studyId).populate('patient').populate('assignment.assignedTo');
+        if (!study) {
+            return res.status(404).json({ success: false, message: 'Study not found' });
+        }
+
+        // --- Step 1: Call the C# DOCX Generation Service ---
+        console.log(`📞 Calling C# service with template: ${templateName}`);
+        
+        const docxResponse = await axios.post(DOCX_SERVICE_URL, {
+            templateName: templateName,
+            placeholders: placeholders
+        }, {
+            responseType: 'arraybuffer' 
+        });
+
+        const docxBuffer = Buffer.from(docxResponse.data);
+        console.log(`✅ Received generated DOCX from C# service, size: ${docxBuffer.length} bytes`);
+
+        // --- Step 2: Upload the generated DOCX to Wasabi ---
+        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'final-reports', { studyId });
+        
+        if (!wasabiResult.success) {
+            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+        }
+        console.log('✅ Report uploaded to Wasabi successfully.');
+
+        // --- MERGED LOGIC: Get Doctor Info and Uploader Name ---
+        let doctor = study.assignment?.assignedTo;
+        const uploaderName = doctor?.fullName || req.user?.fullName || 'Online System';
+
+        // --- MERGED LOGIC: Create the main Document record ---
+        const documentRecord = new Document({
+            studyId: study._id,
+            patientId: study.patient?._id,
+            fileName: fileName,
+            fileSize: docxBuffer.length,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            documentType: 'clinical', // Matching your old 'clinical' type
+            uploadedBy: req.user._id
+        });
+        await documentRecord.save();
+
+        // --- MERGED LOGIC: Create the detailed doctorReports sub-document ---
+        const doctorReportDocument = {
+            _id: documentRecord._id,
+            filename: fileName,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            size: docxBuffer.length,
+            reportType: doctor ? 'doctor-report' : 'radiologist-report',
+            uploadedAt: new Date(),
+            uploadedBy: uploaderName,
+            reportStatus: 'draft',
+            doctorId: doctor?._id,
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            storageType: 'wasabi',
+            templateUsed: templateName // Use the templateName from the request
+        };
+
+        // --- MERGED LOGIC: Update the Study with the new report ---
+        if (!study.doctorReports) {
+            study.doctorReports = [];
+        }
+        study.doctorReports.push(doctorReportDocument);
+        study.ReportAvailable = true;
+
+        // Update other study fields as per your old logic
+        study.reportInfo = study.reportInfo || {};
+        study.reportInfo.finalizedAt = new Date();
+        study.reportInfo.reporterName = uploaderName;
+        study.workflowStatus = 'report_drafted'; // Or call your updateWorkflowStatus function
+        
+        await study.save();
+        console.log('✅ Database updated successfully with detailed report info.');
+        
+        const downloadUrl = wasabiResult.url; // Assuming wasabi service returns the final URL
+
+        res.status(201).json({
+            success: true,
+            message: 'Report generated and uploaded successfully',
+            data: {
+                documentId: documentRecord._id,
+                filename: fileName,
+                downloadUrl: downloadUrl
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in new DOCX service workflow:', error.message);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate report',
+            error: error.message
+        });
+    }
+}
  
 }
 

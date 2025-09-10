@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 const TemplateTreeView = ({ templates, selectedTemplate, onTemplateSelect, studyModality }) => {
   const [expandedCategories, setExpandedCategories] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hoveredTemplate, setHoveredTemplate] = useState(null);
 
   // Auto-expand categories when templates load
   useEffect(() => {
@@ -16,6 +18,36 @@ const TemplateTreeView = ({ templates, selectedTemplate, onTemplateSelect, study
     }
   }, [templates]);
 
+  // Filter templates based on search query
+  const filteredTemplates = useMemo(() => {
+    if (!templates || !searchQuery.trim()) return templates;
+    
+    const filtered = {};
+    Object.entries(templates).forEach(([category, categoryTemplates]) => {
+      if (Array.isArray(categoryTemplates)) {
+        const matchingTemplates = categoryTemplates.filter(template =>
+          template.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          category.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+        if (matchingTemplates.length > 0) {
+          filtered[category] = matchingTemplates;
+        }
+      }
+    });
+    return filtered;
+  }, [templates, searchQuery]);
+
+  // Auto-expand categories when searching
+  useEffect(() => {
+    if (searchQuery.trim() && filteredTemplates) {
+      const categoriesToExpand = {};
+      Object.keys(filteredTemplates).forEach(category => {
+        categoriesToExpand[category] = true;
+      });
+      setExpandedCategories(categoriesToExpand);
+    }
+  }, [searchQuery, filteredTemplates]);
+
   const toggleCategory = (category) => {
     setExpandedCategories(prev => ({
       ...prev,
@@ -23,129 +55,173 @@ const TemplateTreeView = ({ templates, selectedTemplate, onTemplateSelect, study
     }));
   };
 
-  const getCategoryIcon = (category) => {
-    const icons = {
-      'General': '📋',
-      'Cardiology': '❤️',
-      'Neurology': '🧠',
-      'Oncology': '🎗️',
-      'Pediatric': '👶',
-      'CT': '🔵',
-      'MRI': '🟣',
-      'X-Ray': '⚪',
-      'Ultrasound': '🟡',
-      'Emergency': '🚨',
-      'Other': '📁'
-    };
-    return icons[category] || '📁';
+  const getTotalTemplatesCount = () => {
+    if (!filteredTemplates) return 0;
+    return Object.values(filteredTemplates).reduce((total, categoryTemplates) => {
+      return total + (Array.isArray(categoryTemplates) ? categoryTemplates.length : 0);
+    }, 0);
   };
-
-  // Debug logging
-  console.log('🔍 TemplateTreeView render - templates:', templates);
-  console.log('🔍 TemplateTreeView render - templates type:', typeof templates);
-  console.log('🔍 TemplateTreeView render - templates keys:', Object.keys(templates || {}));
 
   // Better empty state check
   if (!templates || typeof templates !== 'object' || Object.keys(templates).length === 0) {
-    console.log('⚠️ No templates available, showing empty state');
     return (
-      <div className="p-4 text-center">
-        <div className="text-gray-400 mb-2">
-          <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      <div className="flex flex-col items-center justify-center p-4 text-center h-full bg-white">
+        <div className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center mb-2">
+          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         </div>
-        <p className="text-gray-500">No templates available</p>
-        <p className="text-xs text-gray-400 mt-1">
-          {templates === null ? 'Loading templates...' : 'Contact admin to add templates'}
+        <p className="text-xs text-gray-500">
+          {templates === null ? 'Loading...' : 'No templates'}
         </p>
       </div>
     );
   }
 
-  console.log('✅ Rendering templates tree');
-
   return (
-    <div className="h-full">
-      {/* Header */}
-      <div className="p-3 bg-gray-50 border-b">
-        <h3 className="font-medium text-gray-900 text-sm">HTML Templates</h3>
-        <p className="text-xs text-gray-600">Select a template to insert into your report</p>
-      </div>
-
-      {/* Templates Tree */}
-      <div className="p-2 overflow-y-auto">
-        {Object.entries(templates).map(([category, categoryTemplates]) => (
-          <div key={category} className="mb-4">
+    <div className="h-full flex flex-col bg-white">
+      {/* Ultra Compact Header */}
+      <div className="px-2 py-1.5 bg-black flex items-center gap-2">
+        {/* Compact Search */}
+        <div className="relative flex-1">
+          <svg className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3 w-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-6 pr-6 py-1 text-xs bg-white border-0 rounded focus:outline-none focus:ring-1 focus:ring-gray-300"
+          />
+          {searchQuery && (
             <button
-              onClick={() => toggleCategory(category)}
-              className="flex items-center justify-between w-full p-3 text-left bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 top-1/2 transform -translate-y-1/2"
             >
-              <div className="flex items-center space-x-2">
-                <span className="text-lg">{getCategoryIcon(category)}</span>
-                <span className="font-medium text-gray-700">{category}</span>
-                <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">
-                  {Array.isArray(categoryTemplates) ? categoryTemplates.length : 0}
-                </span>
-              </div>
-              <svg 
-                className={`w-5 h-5 text-gray-500 transition-transform ${
-                  expandedCategories[category] ? 'rotate-90' : ''
-                }`} 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+              <svg className="h-2.5 w-2.5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-            
-            {expandedCategories[category] && Array.isArray(categoryTemplates) && (
-              <div className="mt-2 space-y-1">
-                {categoryTemplates.map(template => (
-                  <button
-                    key={template.id}
-                    onClick={() => onTemplateSelect(template.id)}
-                    className={`w-full text-left p-3 rounded-lg border transition-all ${
-                      selectedTemplate?._id === template.id || selectedTemplate?.id === template.id
-                        ? 'bg-blue-50 border-blue-200 text-blue-700'
-                        : 'bg-white border-gray-200 hover:border-blue-200 hover:bg-blue-50'
-                    }`}
-                  >
-                    <div className="font-medium text-sm mb-1">{template.title}</div>
-                    <div className="text-xs text-gray-500 line-clamp-2">
-                      {template.htmlContent 
-                        ? template.htmlContent.replace(/<[^>]*>/g, '').substring(0, 100) + '...' 
-                        : 'HTML Template'
-                      }
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded">
-                        HTML
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {template.htmlContent ? Math.ceil(template.htmlContent.length / 1000) : 0}K chars
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+          )}
+        </div>
 
-      {/* Footer Info */}
-      <div className="p-3 border-t bg-gray-50 text-xs text-gray-500">
-        <div className="flex justify-between">
-          <span>
-            {Object.values(templates).reduce((total, categoryTemplates) => {
-              return total + (Array.isArray(categoryTemplates) ? categoryTemplates.length : 0);
-            }, 0)} templates available
-          </span>
-          <span className="text-green-600">HTML Format</span>
+        {/* Count Badge */}
+        <div className="bg-white px-2 py-0.5 rounded-full">
+          <span className="text-xs font-medium text-black">{getTotalTemplatesCount()}</span>
         </div>
       </div>
+
+      {/* Tree Content */}
+      <div className="flex-1 overflow-y-auto">
+        {searchQuery && Object.keys(filteredTemplates).length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-4 text-center">
+            <svg className="w-4 h-4 text-gray-300 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <p className="text-xs text-gray-400">No results</p>
+          </div>
+        ) : (
+          <div className="py-0.5">
+            {Object.entries(filteredTemplates).map(([category, categoryTemplates], categoryIndex) => (
+              <div key={category}>
+                {/* Category Header */}
+                <button
+                  onClick={() => toggleCategory(category)}
+                  className="flex items-center w-full px-2 py-1.5 text-left hover:bg-gray-50 transition-colors duration-100"
+                >
+                  <div className="flex items-center flex-1 min-w-0">
+                    {/* Expand Arrow */}
+                    <div className="w-3 h-3 mr-2 flex items-center justify-center">
+                      <svg 
+                        className={`w-2.5 h-2.5 text-gray-500 transition-transform duration-150 ${
+                          expandedCategories[category] ? 'rotate-90' : ''
+                        }`} 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                    
+                    {/* Category Name & Count */}
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xs font-semibold text-black truncate">{category}</span>
+                      <span className="ml-2 text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                        {Array.isArray(categoryTemplates) ? categoryTemplates.length : 0}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+                
+                {/* Templates */}
+                {expandedCategories[category] && Array.isArray(categoryTemplates) && (
+                  <div>
+                    {categoryTemplates.map((template, templateIndex) => (
+                      <button
+                        key={template.id}
+                        onClick={() => onTemplateSelect(template.id)}
+                        onMouseEnter={() => setHoveredTemplate(template.id)}
+                        onMouseLeave={() => setHoveredTemplate(null)}
+                        className={`flex items-center w-full px-2 py-1.5 text-left transition-all duration-100 ${
+                          selectedTemplate?._id === template.id || selectedTemplate?.id === template.id
+                            ? 'bg-gray-100 border-r-2 border-black'
+                            : hoveredTemplate === template.id
+                            ? 'bg-gray-50'
+                            : 'hover:bg-gray-25'
+                        }`}
+                      >
+                        {/* Tree Structure */}
+                        <div className="flex items-center mr-2">
+                          {/* Vertical Line */}
+                          <div className="w-3 flex justify-center">
+                            <div className={`w-px h-5 ${
+                              templateIndex === categoryTemplates.length - 1 ? 'bg-transparent' : 'bg-gray-200'
+                            }`} />
+                          </div>
+                          
+                          {/* Horizontal Line */}
+                          <div className="w-1.5 h-px bg-gray-200" />
+                          
+                          {/* Dot Indicator */}
+                          <div className={`w-1 h-1 rounded-full ml-1.5 ${
+                            selectedTemplate?._id === template.id || selectedTemplate?.id === template.id
+                              ? 'bg-black'
+                              : hoveredTemplate === template.id
+                              ? 'bg-gray-500'
+                              : 'bg-gray-300'
+                          }`} />
+                        </div>
+                        
+                        {/* Template Name */}
+                        <div className="flex-1 min-w-0">
+                          <span className={`text-xs truncate block ${
+                            selectedTemplate?._id === template.id || selectedTemplate?.id === template.id
+                              ? 'text-black font-medium'
+                              : 'text-gray-700'
+                          }`}>
+                            {template.title}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Minimal Selection Indicator */}
+      {selectedTemplate && (
+        <div className="px-2 py-1 bg-gray-50 border-t border-gray-100">
+          <div className="text-xs text-gray-600 truncate font-medium">
+            {selectedTemplate.title}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

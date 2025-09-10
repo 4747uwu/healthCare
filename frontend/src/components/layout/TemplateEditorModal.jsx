@@ -15,14 +15,14 @@ const HTMLTemplateEditorModal = ({ template, onClose, onSave }) => {
   const categories = [
     'General',
     'CT',
-    'MRI',
-    'X-Ray',
-    'Ultrasound',
-    'Cardiology',
-    'Neurology',
-    'Oncology',
-    'Pediatric',
-    'Emergency',
+    'CR',
+    'CT SCREENING FORMAT',
+    'ECHO',
+    'EEG-TMT-NCS',
+    'MR',
+    'MRI SCREENING FORMAT',
+    'PT',
+    'US',
     'Other'
   ];
 
