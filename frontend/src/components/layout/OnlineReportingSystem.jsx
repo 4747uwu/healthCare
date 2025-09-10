@@ -158,6 +158,8 @@ const OnlineReportingSystem = () => {
   }
 };
 
+console.log(`wow this is the tits data": ${studyData}`);
+
   // Download functionality from WorklistTable
   const handleDownloadStudy = async () => {
     // Try multiple ID formats for download
@@ -581,7 +583,7 @@ const OnlineReportingSystem = () => {
               {/* Download Button */}
               <button
                 onClick={handleDownloadStudy}
-                disabled={!studyData?.orthancStudyID}
+                // disabled={!studyData?.orthancStudyID}
                 className="flex flex-col items-center justify-center p-2 text-xs font-medium bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Download Study"
               >
@@ -594,7 +596,7 @@ const OnlineReportingSystem = () => {
               {/* Radiant Viewer Button */}
               <button
                 onClick={handleLaunchRadiantViewer}
-                disabled={!studyData?.orthancStudyID}
+                // disabled={!studyData?.orthancStudyID}
                 className="flex flex-col items-center justify-center p-2 text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Open in Radiant Viewer"
               >
@@ -607,7 +609,7 @@ const OnlineReportingSystem = () => {
               {/* OHIF Button */}
               <button
                 onClick={handleOpenOHIF}
-                disabled={!studyData?.studyInstanceUID}
+                // disabled={!studyData?.studyInstanceUID}
                 className="flex flex-col items-center justify-center p-2 text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Open in OHIF Viewer"
               >
