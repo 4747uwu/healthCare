@@ -513,7 +513,95 @@ const handleAssignmentSuccess = useCallback((studyId, assignedDoctors, action = 
 };
 
   const handleUnauthorized = useCallback(() => toast.info(`Marking ${selectedStudies.length} studies as unauthorized`), [selectedStudies]);
-  const handleExportWorklist = useCallback(() => toast.success(`Exported ${filteredStudies.length} studies to CSV`), [filteredStudies]);
+const handleExportWorklist = useCallback(async () => {
+  try {
+    // Show loading toast
+    const loadingToastId = toast.loading('Preparing Excel export...', { duration: 10000 });
+    
+    // Prepare query parameters for filtering (if you have filters)
+    const queryParams = new URLSearchParams();
+    
+    // Add current filter parameters if available
+    // You can customize these based on your current filters
+    if (activeTab && activeTab !== 'all') {
+      queryParams.append('status', activeTab === 'inprogress' ? 'assigned_to_doctor' : activeTab);
+    }
+    
+    // If you have selected studies, export only those
+    if (selectedStudies.length > 0) {
+      queryParams.append('studyIds', selectedStudies.join(','));
+    }
+    
+    // Add other filters if they exist in your component
+    // queryParams.append('search', searchTerm);
+    // queryParams.append('modality', selectedModality);
+    // etc.
+    
+    console.log('🔍 Exporting worklist with parameters:', queryParams.toString());
+    
+    // Call the backend endpoint
+    const response = await api.get(`/footer/export?${queryParams.toString()}`, {
+      responseType: 'blob', // Important for file downloads
+      timeout: 60000 // 1 minute timeout for large exports
+    });
+    
+    // Dismiss loading toast
+    toast.dismiss(loadingToastId);
+    
+    // Create blob URL and trigger download
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    
+    // Generate filename with current date
+    const today = new Date().toISOString().slice(0, 10);
+    const exportType = selectedStudies.length > 0 ? 'Selected' : 'All';
+    const tabFilter = activeTab !== 'all' ? `_${activeTab}` : '';
+    link.download = `Worklist_${exportType}${tabFilter}_${today}.xlsx`;
+    
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Clean up blob URL
+    window.URL.revokeObjectURL(downloadUrl);
+    
+    // Show success message
+    const exportedCount = selectedStudies.length > 0 ? selectedStudies.length : filteredStudies.length;
+    toast.success(`✅ Exported ${exportedCount} studies to Excel`, {
+      duration: 4000,
+      icon: '📊'
+    });
+    
+    console.log('✅ Export completed successfully');
+    
+  } catch (error) {
+    // Dismiss any loading toasts
+    toast.dismiss();
+    
+    console.error('❌ Export error:', error);
+    
+    // Handle specific error cases
+    if (error.response?.status === 404) {
+      toast.error('Export endpoint not found. Please contact support.');
+    } else if (error.response?.status === 401) {
+      toast.error('Authentication expired. Please log in again.');
+    } else if (error.response?.status === 403) {
+      toast.error('You do not have permission to export data.');
+    } else if (error.code === 'ECONNABORTED') {
+      toast.error('Export timeout. The file might be too large. Try filtering the data first.');
+    } else if (error.response?.status === 500) {
+      toast.error('Server error during export. Please try again.');
+    } else {
+      toast.error(`Export failed: ${error.message || 'Unknown error'}`);
+    }
+  }
+}, [filteredStudies, selectedStudies, activeTab]);
   const handleDispatchReport = useCallback(() => toast.info(`Dispatching reports for ${selectedStudies.length} studies`), [selectedStudies]);
   const handleBulkZipDownload = useCallback(async () => toast.success(`Initiated download for ${selectedStudies.length} studies`), [selectedStudies]);
 
