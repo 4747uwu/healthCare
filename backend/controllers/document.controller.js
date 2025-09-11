@@ -2187,9 +2187,6 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
   }
 }
 
-
-
-
 static async generateReportWithDocxService(req, res) {
     console.log('🔄 Received request to generate report via C# DOCX Service...');
 
@@ -2412,141 +2409,109 @@ static async generateReportWithDocxServiceDraft(req, res) {
     }
 }
 
-// 🆕 NEW: Get study download info with Cloudflare R2 CDN links for Online Reporting System
-static async getStudyDownloadInfo(req, res) {
+static async getStudyDownloadInfo (req, res)  {
     try {
         const { studyId } = req.params;
-        const startTime = Date.now();
         
-        console.log(`🔍 Getting download info for study: ${studyId}`);
-
-        // Get study with all necessary fields for download and viewer actions
+        console.log('🔍 Getting download info for study:', studyId);
+        
+        // Find study with download information
         const study = await DicomStudy.findById(studyId)
-            .select('orthancStudyID studyInstanceUID patientId patientName modality accessionNumber studyDate preProcessedDownload downloadOptions')
+            .populate('patient', 'patientID patientNameRaw firstName lastName clinicalHistory')
+            .select('orthancStudyID studyInstanceUID preProcessedDownload seriesCount instanceCount patientId patient')
             .lean();
-
+        
         if (!study) {
+            console.log('❌ Study not found:', studyId);
             return res.status(404).json({
                 success: false,
                 message: 'Study not found'
             });
         }
-
-        // 🔧 EXTRACT ORTHANC IDENTIFIERS for viewers and downloads
-        const orthancStudyID = study.orthancStudyID || study.studyInstanceUID || study._id.toString();
-        const studyInstanceUID = study.studyInstanceUID || study.orthancStudyID || study._id.toString();
-
+        
+        console.log('📊 Found study with patient ObjectId:', study.patient?._id, '(patientId:', study.patientId + ')');
+        
+        // Extract study identifiers
+        const orthancStudyID = study.orthancStudyID;
+        const studyInstanceUID = study.studyInstanceUID;
+        
         console.log('🔍 Extracted study identifiers:', {
             orthancStudyID,
             studyInstanceUID,
             originalStudyId: study._id
         });
-
-        // 🔧 CHECK R2 CDN AVAILABILITY (same logic as WorklistTable)
-        const hasR2Zip = study.downloadOptions?.hasWasabiZip || 
-                         study.downloadOptions?.hasR2Zip || 
-                         study.preProcessedDownload?.zipStatus === 'completed';
-
+        
+        // Check R2 CDN availability
+        const preProcessedDownload = study.preProcessedDownload || {};
+        const hasR2CDN = preProcessedDownload.zipStatus === 'completed' && !!preProcessedDownload.zipUrl;
+        const r2SizeMB = preProcessedDownload.zipSizeMB || 0;
+        
         console.log('🌐 R2 CDN availability:', {
-            hasR2Zip,
-            zipStatus: study.preProcessedDownload?.zipStatus,
-            downloadOptions: study.downloadOptions
+            hasR2Zip: hasR2CDN,
+            zipStatus: preProcessedDownload.zipStatus || 'pending',
+            downloadOptions: preProcessedDownload
         });
-
-        // 🔧 PREPARE DOWNLOAD ENDPOINTS
+        
+        // Prepare download endpoints
         const downloadEndpoints = {
-            // Direct Orthanc download (always available)
+            r2CDN: `/api/download/study/${orthancStudyID}/r2-direct`,
             orthancDirect: `/api/orthanc-download/study/${orthancStudyID}/download`,
-            
-            // R2 CDN download (if available)
-            r2CDN: hasR2Zip ? `/api/download/study/${orthancStudyID}/r2-direct` : null
+            preProcessed: `/api/download/study/${orthancStudyID}/pre-processed`,
+            createZip: `/api/download/study/${orthancStudyID}/create`
         };
-
-        // 🔧 PREPARE VIEWER ENDPOINTS
-        const viewerEndpoints = {
-            // OHIF Viewer
-            ohif: {
-                studyInstanceUID: studyInstanceUID,
-                orthancStudyID: orthancStudyID,
-                baseUrl: process.env.VITE_OHIF_LOCAL_URL || 'http://localhost:4000'
-            },
-            
-            // Radiant Viewer Protocol
-            radiant: {
-                protocolUrl: `myapp://launch?study=${encodeURIComponent(orthancStudyID)}`,
-                studyId: orthancStudyID
-            }
-        };
-
-        // 🔧 ENHANCED RESPONSE with all necessary data for Online Reporting System
-        const responseData = {
+        
+        // 🔧 FIX: Safely access patient data with fallbacks
+        const patientData = study.patient || {};
+        const clinicalHistory = patientData.clinicalHistory || 
+                              patientData.medicalHistory?.clinicalHistory || 
+                              'No clinical history available';
+        
+        const response = {
             success: true,
-            studyId: study._id,
-            
-            // 🔧 ORTHANC IDENTIFIERS
             orthancStudyID: orthancStudyID,
             studyInstanceUID: studyInstanceUID,
-            
-            // 🔧 STUDY METADATA
-            studyInfo: {
-                patientId: study.patientId,
-                patientName: study.patientName,
-                modality: study.modality,
-                accessionNumber: study.accessionNumber,
-                studyDate: study.studyDate,
-                clinicalHistory: study.clinicalHistory.clinicalHistory || 'N/A'
-            },
-            
-            // 🔧 DOWNLOAD OPTIONS
             downloadOptions: {
-                hasR2CDN: hasR2Zip,
-                r2SizeMB: study.downloadOptions?.wasabiSizeMB || study.downloadOptions?.r2SizeMB || 0,
-                zipStatus: study.preProcessedDownload?.zipStatus || 'not_available',
+                hasR2CDN: hasR2CDN,
+                hasWasabiZip: hasR2CDN, // Legacy compatibility
+                hasR2Zip: hasR2CDN,
+                r2SizeMB: r2SizeMB,
+                wasabiSizeMB: r2SizeMB, // Legacy compatibility
+                zipStatus: preProcessedDownload.zipStatus || 'not_started',
+                zipCreatedAt: preProcessedDownload.zipCreatedAt,
+                zipExpiresAt: preProcessedDownload.zipExpiresAt,
+                downloadCount: preProcessedDownload.downloadCount || 0,
+                lastDownloaded: preProcessedDownload.lastDownloaded,
                 endpoints: downloadEndpoints
             },
-            
-            // 🔧 VIEWER OPTIONS
-            viewerOptions: {
-                ohif: viewerEndpoints.ohif,
-                radiant: viewerEndpoints.radiant
-            },
-            
-            // 🔧 ACTION CONFIGURATIONS (for UI buttons)
-            actionConfig: {
-                download: {
-                    enabled: true,
-                    preferR2: hasR2Zip,
-                    fallbackAvailable: true
-                },
-                viewers: {
-                    ohifEnabled: !!studyInstanceUID,
-                    radiantEnabled: !!orthancStudyID
-                }
+            studyInfo: {
+                seriesCount: study.seriesCount || 0,
+                instanceCount: study.instanceCount || 0,
+                patientId: study.patientId || patientData.patientID,
+                patientName: patientData.patientNameRaw || 
+                           `${patientData.firstName || ''} ${patientData.lastName || ''}`.trim() ||
+                           'Unknown Patient',
+                clinicalHistory: clinicalHistory
             }
         };
-
-        const processingTime = Date.now() - startTime;
-        console.log(`✅ Study download info prepared in ${processingTime}ms`);
-
-        res.json({
-            ...responseData,
-            performance: {
-                queryTime: processingTime,
-                fromCache: false
-            }
+        
+        console.log('✅ Sending download info response:', {
+            hasR2CDN: response.downloadOptions.hasR2CDN,
+            zipStatus: response.downloadOptions.zipStatus,
+            endpoints: Object.keys(response.downloadOptions.endpoints)
         });
-
+        
+        res.json(response);
+        
     } catch (error) {
         console.error('❌ Error getting study download info:', error);
         res.status(500).json({
             success: false,
-            message: 'Error retrieving study download information',
+            message: 'Failed to get study download information',
             error: error.message
         });
     }
-}
+};
 
-// 🆕 NEW: Enhanced R2 CDN download function (same as admin controller)
 static async downloadStudyFromR2CDN(req, res) {
     try {
         const { studyId } = req.params;
@@ -2625,7 +2590,6 @@ static async downloadStudyFromR2CDN(req, res) {
     }
 }
 
-// 🆕 NEW: Direct Orthanc download function for Online Reporting System
 static async downloadStudyFromOrthanc(req, res) {
     try {
         const { studyId } = req.params;
