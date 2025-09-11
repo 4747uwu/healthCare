@@ -513,40 +513,82 @@ const handleAssignmentSuccess = useCallback((studyId, assignedDoctors, action = 
 };
 
   const handleUnauthorized = useCallback(() => toast.info(`Marking ${selectedStudies.length} studies as unauthorized`), [selectedStudies]);
+
+
 const handleExportWorklist = useCallback(async () => {
   try {
     // Show loading toast
     const loadingToastId = toast.loading('Preparing Excel export...', { duration: 10000 });
     
-    // Prepare query parameters for filtering (if you have filters)
+    // Prepare query parameters for filtering
     const queryParams = new URLSearchParams();
     
+    // 🔧 FIX: Map frontend tab names to actual database status values
+    const statusMapping = {
+      'all': null, // Don't add status filter for 'all'
+      'pending': 'pending_assignment', // Map to actual DB value
+      'inprogress': 'assigned_to_doctor', // Map to actual DB value  
+      'completed': 'report_finalized' // Map to actual DB value
+    };
+    
     // Add current filter parameters if available
-    // You can customize these based on your current filters
     if (activeTab && activeTab !== 'all') {
-      queryParams.append('status', activeTab === 'inprogress' ? 'assigned_to_doctor' : activeTab);
+      const dbStatus = statusMapping[activeTab];
+      if (dbStatus) {
+        queryParams.append('status', dbStatus);
+      }
+      console.log('🔍 Mapped tab to status:', { activeTab, dbStatus });
     }
     
     // If you have selected studies, export only those
     if (selectedStudies.length > 0) {
       queryParams.append('studyIds', selectedStudies.join(','));
+      console.log('🔍 Selected studies for export:', selectedStudies.length);
     }
     
-    // Add other filters if they exist in your component
-    // queryParams.append('search', searchTerm);
-    // queryParams.append('modality', selectedModality);
-    // etc.
+    // 🆕 ADD: Add additional common filters if they exist in your component
+    // You can uncomment and modify these based on your actual filter state
+    /*
+    if (searchTerm) {
+      queryParams.append('search', searchTerm);
+    }
+    if (selectedModality) {
+      queryParams.append('modality', selectedModality);
+    }
+    if (selectedLocation) {
+      queryParams.append('location', selectedLocation);
+    }
+    if (dateRange?.start) {
+      queryParams.append('startDate', dateRange.start);
+    }
+    if (dateRange?.end) {
+      queryParams.append('endDate', dateRange.end);
+    }
+    */
     
-    console.log('🔍 Exporting worklist with parameters:', queryParams.toString());
+    console.log('🔍 Final export parameters:', queryParams.toString());
     
     // Call the backend endpoint
     const response = await api.get(`/footer/export?${queryParams.toString()}`, {
       responseType: 'blob', // Important for file downloads
-      timeout: 60000 // 1 minute timeout for large exports
+      timeout: 120000 // 2 minute timeout for large exports
+    });
+    
+    console.log('📊 Export response headers:', {
+      contentType: response.headers['content-type'],
+      contentLength: response.headers['content-length'],
+      contentDisposition: response.headers['content-disposition']
     });
     
     // Dismiss loading toast
     toast.dismiss(loadingToastId);
+    
+    // Check if we actually got data
+    if (response.data.size === 0) {
+      console.warn('⚠️ Export returned empty file');
+      toast.error('Export returned empty file. No matching studies found.');
+      return;
+    }
     
     // Create blob URL and trigger download
     const blob = new Blob([response.data], {
@@ -585,6 +627,11 @@ const handleExportWorklist = useCallback(async () => {
     toast.dismiss();
     
     console.error('❌ Export error:', error);
+    console.error('❌ Error details:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data
+    });
     
     // Handle specific error cases
     if (error.response?.status === 404) {
@@ -602,6 +649,8 @@ const handleExportWorklist = useCallback(async () => {
     }
   }
 }, [filteredStudies, selectedStudies, activeTab]);
+
+
   const handleDispatchReport = useCallback(() => toast.info(`Dispatching reports for ${selectedStudies.length} studies`), [selectedStudies]);
   const handleBulkZipDownload = useCallback(async () => toast.success(`Initiated download for ${selectedStudies.length} studies`), [selectedStudies]);
 
