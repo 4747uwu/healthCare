@@ -61,6 +61,22 @@ router.get('/study/:studyId/reports',
   DocumentController.getStudyReports
 );
 
+// 🆕 NEW: Online Reporting System download and viewer endpoints
+router.get('/study/:studyId/download-info', 
+  authorize('admin', 'lab_staff', 'doctor_account'),
+  DocumentController.getStudyDownloadInfo
+);
+
+router.get('/study/:studyId/download/r2-cdn', 
+  authorize('admin', 'lab_staff', 'doctor_account'),
+  DocumentController.downloadStudyFromR2CDN
+);
+
+router.get('/study/:studyId/download/orthanc-direct', 
+  authorize('admin', 'lab_staff', 'doctor_account'),
+  DocumentController.downloadStudyFromOrthanc
+);
+
 // 🔧 NEW: Convert HTML report and upload to Wasabi
 router.post('/study/:studyId/convert-and-upload', 
   authorize('admin', 'lab_staff', 'doctor_account'),
