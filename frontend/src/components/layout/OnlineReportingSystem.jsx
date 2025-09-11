@@ -24,6 +24,9 @@ const OnlineReportingSystem = () => {
   const [exportFormat, setExportFormat] = useState('docx');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // 🆕 NEW: Add state for download options
+  const [downloadOptions, setDownloadOptions] = useState(null);
+
   // Re-initialize when studyId changes
   useEffect(() => {
     if (studyId) {
@@ -53,9 +56,10 @@ const OnlineReportingSystem = () => {
       }
       console.log(currentUser.email);
       
-      const [studyResponse, templatesResponse] = await Promise.all([
+      const [studyResponse, templatesResponse, downloadInfoResponse] = await Promise.all([
         api.get(`/labEdit/patients/${studyId}`),
-        api.get('/html-templates/reporting')
+        api.get('/html-templates/reporting'),
+        api.get(`/documents/study/${studyId}/download-info`)
       ]);
 
       if (studyResponse.data.success) {
@@ -141,6 +145,12 @@ const OnlineReportingSystem = () => {
     
     setReportContent(''); 
 
+    // 🆕 NEW: Set download options
+    if (downloadInfoResponse.data.success) {
+      setDownloadOptions(downloadInfoResponse.data);
+      console.log('📥 Download options loaded:', downloadInfoResponse.data);
+    }
+
   } catch (error) {
     console.error('❌ [Reporting] API Error:', error);
     
@@ -161,26 +171,108 @@ const OnlineReportingSystem = () => {
 console.log(`wow this is the tits data": ${studyData}`);
 
   // Download functionality from WorklistTable
-  const handleDownloadStudy = async () => {
-    // Try multiple ID formats for download
-    const downloadId = studyData?.orthancStudyID || 
-                    studyData?.studyInstanceUID || 
-                    studyData?.studyId || 
-                    studyId;
-  
-  if (!downloadId) {
-    toast.error('Study data not available for download');
-    console.log('🔍 Available study data for download:', studyData);
-    return;
-  }
+  const handleWasabiDownload = async () => {
+    if (!downloadOptions?.downloadOptions?.hasR2CDN) {
+      toast.error('R2 CDN download not available for this study');
+      return;
+    }
 
-  try {
-    const loadingToastId = toast.loading('Preparing download...', { duration: 10000 });
-    
-    console.log('🔍 Attempting download with ID:', downloadId);
-    
     try {
-      const response = await api.get(`/orthanc-download/study/${downloadId}/download`, {
+      const loadingToast = toast.loading('Getting R2 CDN download URL...');
+      
+      const response = await api.get(`/documents/study/${studyId}/download/r2-cdn`);
+      
+      toast.dismiss(loadingToast);
+      
+      if (response.data.success) {
+        const { downloadUrl, fileName, fileSizeMB, expectedSpeed, storageProvider } = response.data.data;
+        
+        console.log('✅ R2 CDN download URL received:', fileName);
+        
+        // Large file handling with R2 info
+        if (fileSizeMB > 100) {
+          const downloadChoice = confirm(
+            `Large file detected: ${fileName} (${fileSizeMB}MB)\n\n` +
+            `🚀 Storage: ${storageProvider} with CDN\n` +
+            `⚡ Expected speed: ${expectedSpeed}\n` +
+            `🌐 Global CDN: Enabled\n\n` +
+            `Click OK for direct download, or Cancel to copy URL.`
+          );
+          
+          if (!downloadChoice) {
+            try {
+              await navigator.clipboard.writeText(downloadUrl);
+              toast.success(
+                `📋 R2 CDN URL copied!\n\n` +
+                `🚀 Cloudflare R2 with global CDN\n` +
+                `⚡ ${expectedSpeed}\n` +
+                `🔗 Permanent URL (no expiry)`,
+                { duration: 8000, icon: '🌐' }
+              );
+              return;
+            } catch (clipboardError) {
+              prompt('Copy this R2 CDN URL:', downloadUrl);
+              return;
+            }
+          }
+        }
+        
+        // Direct browser download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName;
+        link.target = '_blank';
+        link.style.display = 'none';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast.success(
+          `🚀 R2 CDN Download started: ${fileName}\n` +
+          `📁 Size: ${fileSizeMB}MB\n` +
+          `⚡ ${expectedSpeed}\n` +
+          `🌐 Cloudflare Global CDN`,
+          { duration: 6000, icon: '🌐' }
+        );
+        
+      } else {
+        toast.error(response.data.message || 'R2 download failed');
+      }
+    } catch (error) {
+      toast.dismiss();
+      console.error('R2 CDN download error:', error);
+      
+      if (error.response?.status === 404) {
+        toast.error('ZIP file not found in R2. Creating new one...');
+      } else if (error.response?.status === 410) {
+        toast.error('ZIP file has expired. Creating a new one...');
+      } else {
+        toast.error('Failed to get R2 CDN download URL');
+      }
+    }
+  };
+
+  // 🔧 ENHANCED: Update existing download function to use new endpoint
+  const handleDownloadStudy = async () => {
+    if (!downloadOptions) {
+      toast.error('Download information not available');
+      return;
+    }
+
+    // Prefer R2 CDN if available
+    if (downloadOptions.downloadOptions.hasR2CDN) {
+      await handleWasabiDownload();
+      return;
+    }
+
+    // Fallback to direct Orthanc download
+    try {
+      const loadingToastId = toast.loading('Preparing download...', { duration: 10000 });
+      
+      console.log('🔍 Attempting direct Orthanc download');
+      
+      const response = await api.get(`/documents/study/${studyId}/download/orthanc-direct`, {
         responseType: 'blob',
         timeout: 300000,
       });
@@ -189,7 +281,7 @@ console.log(`wow this is the tits data": ${studyData}`);
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `study_${downloadId}.zip`;
+      link.download = `study_${studyId}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -198,23 +290,12 @@ console.log(`wow this is the tits data": ${studyData}`);
       toast.dismiss(loadingToastId);
       toast.success('Download started successfully!');
       
-    } catch (apiError) {
+    } catch (error) {
       toast.dismiss(loadingToastId);
-      console.error('🔍 Download API Error:', apiError);
-      
-      if (apiError.code === 'ECONNABORTED') {
-        toast.error('Download timeout - the file might be too large. Please try again.');
-      } else if (apiError.response?.status === 404) {
-        toast.error('Study not found on the server. The study might not be uploaded to PACS yet.');
-      } else {
-        toast.error(`Download failed: ${apiError.message || 'Unknown error'}`);
-      }
+      console.error('🔍 Download error:', error);
+      toast.error('Download failed: ' + (error.message || 'Unknown error'));
     }
-  } catch (error) {
-    console.error('Error downloading study:', error);
-    toast.error('Failed to download study: ' + error.message);
-  }
-};
+  };
 
   // Radiant Viewer functionality from WorklistTable
   const handleLaunchRadiantViewer = async () => {
@@ -582,15 +663,14 @@ console.log(`wow this is the tits data": ${studyData}`);
             <div className="grid grid-cols-3 gap-1">
               {/* Download Button */}
               <button
-                onClick={handleDownloadStudy}
-                // disabled={!studyData?.orthancStudyID}
+                onClick={downloadOptions?.downloadOptions?.hasR2CDN ? handleWasabiDownload : handleDownloadStudy}
                 className="flex flex-col items-center justify-center p-2 text-xs font-medium bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Download Study"
+                title={downloadOptions?.downloadOptions?.hasR2CDN ? "Download from R2 CDN" : "Download Study"}
               >
                 <svg className="w-4 h-4 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Download
+                {downloadOptions?.downloadOptions?.hasR2CDN ? '🌐 R2 CDN' : 'Download'}
               </button>
 
               {/* Radiant Viewer Button */}
