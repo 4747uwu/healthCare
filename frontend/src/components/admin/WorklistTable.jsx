@@ -517,61 +517,52 @@ const handleAssignmentSuccess = useCallback((studyId, assignedDoctors, action = 
 
 const handleExportWorklist = useCallback(async () => {
   try {
-    // Show loading toast
     const loadingToastId = toast.loading('Preparing Excel export...', { duration: 10000 });
     
-    // Prepare query parameters for filtering
     const queryParams = new URLSearchParams();
     
-    // 🔧 FIX: Map frontend tab names to actual database status values
+    // 🔧 FIXED: Use multiple status values based on your STATUS_CONFIG
     const statusMapping = {
-      'all': null, // Don't add status filter for 'all'
-      'pending': 'pending_assignment', // Map to actual DB value
-      'inprogress': 'assigned_to_doctor', // Map to actual DB value  
-      'completed': 'report_finalized' // Map to actual DB value
+      'all': null,
+      
+      // 🔴 PENDING: All statuses with category 'pending'
+      'pending': ['new_study_received', 'new', 'pending_assignment'],
+      
+      // 🟡 IN PROGRESS: All statuses with category 'inprogress' 
+      'inprogress': ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'],
+      
+      // 🔵 COMPLETED: All statuses with category 'completed'
+      'completed': ['report_drafted', 'report_finalized', 'report_uploaded', 'report_downloaded_radiologist', 'report_downloaded'],
+      
+      // 🟢 FINAL/ARCHIVED: All statuses with category 'final'
+      'final': ['final_report_downloaded', 'archived']
     };
     
-    // Add current filter parameters if available
+    console.log('🔍 Current activeTab:', activeTab);
+    
     if (activeTab && activeTab !== 'all') {
-      const dbStatus = statusMapping[activeTab];
-      if (dbStatus) {
-        queryParams.append('status', dbStatus);
+      const dbStatuses = statusMapping[activeTab];
+      console.log('🔍 Mapped statuses:', { activeTab, dbStatuses });
+      
+      if (dbStatuses && Array.isArray(dbStatuses)) {
+        // Send comma-separated status values for backend to handle
+        queryParams.append('statuses', dbStatuses.join(','));
+        console.log('📝 Final status filter:', dbStatuses.join(','));
+      } else {
+        console.warn('⚠️ No mapping found for tab:', activeTab);
       }
-      console.log('🔍 Mapped tab to status:', { activeTab, dbStatus });
     }
     
-    // If you have selected studies, export only those
     if (selectedStudies.length > 0) {
       queryParams.append('studyIds', selectedStudies.join(','));
       console.log('🔍 Selected studies for export:', selectedStudies.length);
     }
     
-    // 🆕 ADD: Add additional common filters if they exist in your component
-    // You can uncomment and modify these based on your actual filter state
-    /*
-    if (searchTerm) {
-      queryParams.append('search', searchTerm);
-    }
-    if (selectedModality) {
-      queryParams.append('modality', selectedModality);
-    }
-    if (selectedLocation) {
-      queryParams.append('location', selectedLocation);
-    }
-    if (dateRange?.start) {
-      queryParams.append('startDate', dateRange.start);
-    }
-    if (dateRange?.end) {
-      queryParams.append('endDate', dateRange.end);
-    }
-    */
-    
     console.log('🔍 Final export parameters:', queryParams.toString());
     
-    // Call the backend endpoint
     const response = await api.get(`/footer/export?${queryParams.toString()}`, {
-      responseType: 'blob', // Important for file downloads
-      timeout: 120000 // 2 minute timeout for large exports
+      responseType: 'blob',
+      timeout: 120000
     });
     
     console.log('📊 Export response headers:', {
@@ -580,17 +571,14 @@ const handleExportWorklist = useCallback(async () => {
       contentDisposition: response.headers['content-disposition']
     });
     
-    // Dismiss loading toast
     toast.dismiss(loadingToastId);
     
-    // Check if we actually got data
     if (response.data.size === 0) {
       console.warn('⚠️ Export returned empty file');
       toast.error('Export returned empty file. No matching studies found.');
       return;
     }
     
-    // Create blob URL and trigger download
     const blob = new Blob([response.data], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
@@ -599,21 +587,16 @@ const handleExportWorklist = useCallback(async () => {
     const link = document.createElement('a');
     link.href = downloadUrl;
     
-    // Generate filename with current date
     const today = new Date().toISOString().slice(0, 10);
     const exportType = selectedStudies.length > 0 ? 'Selected' : 'All';
     const tabFilter = activeTab !== 'all' ? `_${activeTab}` : '';
     link.download = `Worklist_${exportType}${tabFilter}_${today}.xlsx`;
     
-    // Trigger download
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    // Clean up blob URL
     window.URL.revokeObjectURL(downloadUrl);
     
-    // Show success message
     const exportedCount = selectedStudies.length > 0 ? selectedStudies.length : filteredStudies.length;
     toast.success(`✅ Exported ${exportedCount} studies to Excel`, {
       duration: 4000,
@@ -623,9 +606,7 @@ const handleExportWorklist = useCallback(async () => {
     console.log('✅ Export completed successfully');
     
   } catch (error) {
-    // Dismiss any loading toasts
     toast.dismiss();
-    
     console.error('❌ Export error:', error);
     console.error('❌ Error details:', {
       status: error.response?.status,
@@ -633,7 +614,6 @@ const handleExportWorklist = useCallback(async () => {
       data: error.response?.data
     });
     
-    // Handle specific error cases
     if (error.response?.status === 404) {
       toast.error('Export endpoint not found. Please contact support.');
     } else if (error.response?.status === 401) {
@@ -649,7 +629,6 @@ const handleExportWorklist = useCallback(async () => {
     }
   }
 }, [filteredStudies, selectedStudies, activeTab]);
-
 
   const handleDispatchReport = useCallback(() => toast.info(`Dispatching reports for ${selectedStudies.length} studies`), [selectedStudies]);
   const handleBulkZipDownload = useCallback(async () => toast.success(`Initiated download for ${selectedStudies.length} studies`), [selectedStudies]);
@@ -824,7 +803,7 @@ const cardGrid = useMemo(() => (
                             const isEmergency = study.caseType?.toLowerCase() === 'emergency' || study.priority === 'EMERGENCY';
                             
                             const getRowClasses = () => {
-                              let baseClasses = "flex items-center w-full h-full transition-colors duration-150";
+                              let baseClasses = "flex items-center w-full h-full transition-colors duration-150 hover:bg-gray-200";
                               if (isEmergency) return isSelected ? `${baseClasses} bg-red-200 hover:bg-red-300` : `${baseClasses} bg-red-100 hover:bg-red-200`;
                               if (isSelected) return `${baseClasses} bg-blue-50 hover:bg-blue-100`;
                               return `${baseClasses} ${index % 2 === 0 ? 'bg-white' : 'bg-gray-100'}`;

@@ -206,80 +206,68 @@ export const markStudiesUnauthorized = async (req, res) => {
  */
 export const exportWorklist = async (req, res) => {
   try {
-    // Parse query parameters for filtering
     const { 
       search, 
       startDate, 
       endDate, 
       modality, 
       location,
-      status,
+      status,      // Keep this for backward compatibility
+      statuses,    // 🆕 NEW: Handle multiple statuses
       doctor,
       studyIds
     } = req.query;
     
     console.log('📊 Export request received:', {
-      search, startDate, endDate, modality, location, status, doctor, studyIds,
+      search, startDate, endDate, modality, location, status, statuses, doctor, studyIds,
       queryString: req.url
     });
     
-    // Build filter query
     let filter = {};
     
-    // Filter by specific study IDs if provided (comma-separated string)
+    // Filter by specific study IDs if provided
     if (studyIds) {
       const ids = studyIds.split(',').map(id => id.trim());
       filter._id = { $in: ids };
       console.log('🎯 Filtering by specific study IDs:', ids.length);
     }
     
-    // Handle status filter
-    if (status) {
+    // 🔧 UPDATED: Handle multiple statuses
+    if (statuses) {
+      const statusArray = statuses.split(',').map(s => s.trim());
+      filter.workflowStatus = { $in: statusArray };
+      console.log('📝 Filtering by multiple statuses:', statusArray);
+    } else if (status) {
+      // Fallback to single status for backward compatibility
       filter.workflowStatus = status;
-      console.log('📝 Filtering by status:', status);
+      console.log('📝 Filtering by single status:', status);
     }
     
-    // Handle date range
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) {
-        filter.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        // Set to end of day
-        const endOfDay = new Date(endDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = endOfDay;
-      }
+    // Add other filters
+    if (search) {
+      filter.$or = [
+        { patientId: { $regex: search, $options: 'i' } },
+        { accessionNumber: { $regex: search, $options: 'i' } }
+      ];
     }
     
-    // Handle other filters
+    if (startDate && endDate) {
+      filter.studyDate = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
     if (modality) {
-      filter.modalitiesInStudy = { $regex: modality, $options: 'i' };
+      filter.modality = modality;
     }
     
     if (location) {
-      filter['sourceLab.name'] = { $regex: location, $options: 'i' };
-    }
-    
-    if (doctor) {
-      filter.lastAssignedDoctor = doctor;
-    }
-    
-    // Handle search
-    if (search) {
-      filter.$or = [
-        { 'patient.firstName': { $regex: search, $options: 'i' } },
-        { 'patient.lastName': { $regex: search, $options: 'i' } },
-        { 'patient.patientID': { $regex: search, $options: 'i' } },
-        { accessionNumber: { $regex: search, $options: 'i' } },
-        { examDescription: { $regex: search, $options: 'i' } }
-      ];
+      filter.sourceLab = location;
     }
     
     console.log('🔍 Final MongoDB filter:', JSON.stringify(filter, null, 2));
     
-    // Fetch studies with populated references
     const studies = await DicomStudy.find(filter)
       .populate('patient', 'firstName lastName patientID age gender dateOfBirth')
       .populate({
