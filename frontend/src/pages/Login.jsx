@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Link } from 'react-router-dom';
 import LoginSlideshow from './LoginSlideShow';
-import logoImage from '../assets/starradiology_logo-1 (1).png';
+import logoImage from '../assets/xcentic.png';
 import ShinyText from '../components/creative/shinnyText';
 
 const LoginPage = () => {
@@ -96,7 +96,7 @@ const LoginPage = () => {
             <div className="mb-6">
               <img 
                 src={logoImage} 
-                alt="Star Radiology" 
+                alt="Xcentic" 
                 className="h-16 w-auto mx-auto object-contain"
                 onError={(e) => {
                   // Fallback if image fails to load

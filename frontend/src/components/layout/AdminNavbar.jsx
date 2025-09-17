@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import starRadiologyLogo from '../../assets/starradiology_logo-1 (1).png';
+import starRadiologyLogo from '../../assets/xcentic.png';
 
 const UniversalNavbar = () => {
   const { currentUser, logout } = useAuth();

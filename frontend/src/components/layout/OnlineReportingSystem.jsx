@@ -924,12 +924,12 @@ const OnlineReportingSystem = () => {
       <div className="bg-white border-b border-gray-200 px-4 py-3 flex-shrink-0">
         <div className="flex flex-row items-start justify-between items-center">
           <img 
-            src="/starradiology_logo-1 (1).png" 
+            src="/xcentic.png" 
             alt="Star Radiology Logo" 
             className="h-12 w-auto mb-1"
           />
           <h2 className="text-sm items-end font-medium text-gray-900 text-center">
-            Online Reporting System
+            Xcentic Reporting System
           </h2>
         </div>
       </div>
