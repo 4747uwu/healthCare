@@ -923,11 +923,11 @@ const OnlineReportingSystem = () => {
       {/* Header Section with Logo - Only for Template Sidebar */}
       <div className="bg-white border-b border-gray-200 px-4 py-3 flex-shrink-0">
         <div className="flex flex-row items-start justify-between items-center">
-          <img 
+          {/* <img 
             src="/xcentic.png" 
-            alt="Star Radiology Logo" 
+            alt=" XCENTIC Logo" 
             className="h-12 w-auto mb-1"
-          />
+          /> */}
           <h2 className="text-sm items-end font-medium text-gray-900 text-center">
             Xcentic Reporting System
           </h2>
