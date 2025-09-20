@@ -978,133 +978,79 @@ const OnlineReportingSystem = () => {
           </div>
         </div>
 
-        {/* Study Information Panel - Add this before the Study Controls Panel */}
-        <div className="flex-shrink-0 bg-white border border-gray-300 rounded-lg shadow-lg p-4 mb-2">
-          <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
-            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-sm font-medium text-gray-900">Study Information</span>
-          </div>
-          
-          <div className="mt-3 space-y-3 text-xs">
-            {/* Patient Information */}
-            <div className="bg-blue-50 p-2 rounded">
-              <div className="font-medium text-blue-800 mb-1">Patient Details</div>
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-blue-600">Name:</span>
-                  <span className="text-blue-900 font-medium truncate ml-2">{patientData?.fullName || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-blue-600">ID:</span>
-                  <span className="text-blue-900 truncate ml-2">{patientData?.patientId || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-blue-600">Age/Gender:</span>
-                  <span className="text-blue-900 truncate ml-2">{patientData?.age || 'N/A'} / {patientData?.gender || 'N/A'}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Study Details */}
-            <div className="bg-green-50 p-2 rounded">
-              <div className="font-medium text-green-800 mb-1">Study Details</div>
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-green-600">Modality:</span>
-                  <span className="text-green-900 truncate ml-2">{studyData?.modality || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-green-600">Description:</span>
-                  <span className="text-green-900 truncate ml-2" title={studyData?.description}>
-                    {studyData?.description || 'N/A'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-green-600">Date:</span>
-                  <span className="text-green-900 truncate ml-2">
-                    {studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : 'N/A'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-green-600">Accession:</span>
-                  <span className="text-green-900 font-mono text-xs truncate ml-2">{studyData?.accessionNumber || 'N/A'}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Clinical History */}
-            {patientData?.clinicalHistory && (
-              <div className="bg-yellow-50 p-2 rounded">
-                <div className="font-medium text-yellow-800 mb-1">Clinical History</div>
-                <div className="text-yellow-900 text-xs leading-relaxed">
-                  {/* 🔧 FIX: Safely render clinical history */}
-                  {typeof patientData.clinicalHistory === 'string' 
-                    ? patientData.clinicalHistory 
-                    : patientData.clinicalHistory?.clinicalHistory || 
-                      JSON.stringify(patientData.clinicalHistory, null, 2)
-                  }
-                </div>
-              </div>
-            )}
-
-            {/* Download Status */}
-            <div className="bg-purple-50 p-2 rounded">
-              <div className="font-medium text-purple-800 mb-1">Download Status</div>
-              <div className="space-y-1">
-                <div className="flex justify-between items-center">
-                  <span className="text-purple-600">R2 CDN:</span>
-                  <span className={`text-xs px-2 py-1 rounded ${downloadOptions?.downloadOptions?.hasR2CDN ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {downloadOptions?.downloadOptions?.hasR2CDN ? 'Available' : 'Not Ready'}
-                  </span>
-                </div>
-                {downloadOptions?.downloadOptions?.hasR2CDN && (
-                  <div className="flex justify-between">
-                    <span className="text-purple-600">Size:</span>
-                    <span className="text-purple-900">{downloadOptions?.downloadOptions?.r2SizeMB || 0}MB</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Study Controls Panel - Fixed at bottom right corner */}
+        {/* 🔧 CONSOLIDATED: Single Study Controls Panel with all information */}
         <div className="flex-shrink-0 bg-white border border-gray-300 rounded-lg shadow-lg p-4">
-          {/* Study Tab */}
+          {/* Study Tab - Enhanced with all patient and study information */}
           <div className="mb-4">
             <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
-              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className="text-sm font-medium text-gray-900">Study</span>
+              <span className="text-sm font-medium text-gray-900">Study Information</span>
             </div>
             
-            {/* Study Info */}
-            <div className="mt-3 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Patient:</span>
-                <span className="text-gray-900 font-medium truncate ml-2">{patientData?.fullName || 'N/A'}</span>
+            {/* 🆕 ENHANCED: Complete study and patient information */}
+            <div className="mt-3 space-y-3 text-xs">
+              {/* Patient Information Section */}
+              <div className="bg-blue-50 p-2 rounded">
+                <div className="font-medium text-blue-800 mb-1">Patient Details</div>
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-blue-600">Name:</span>
+                    <span className="text-blue-900 font-medium truncate ml-2">{patientData?.fullName || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-blue-600">ID:</span>
+                    <span className="text-blue-900 truncate ml-2">{patientData?.patientId || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-blue-600">Age/Gender:</span>
+                    <span className="text-blue-900 truncate ml-2">{patientData?.age || 'N/A'} / {patientData?.gender || 'N/A'}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">ID:</span>
-                <span className="text-gray-900 truncate ml-2">{patientData?.patientId || 'N/A'}</span>
+
+              {/* Study Details Section */}
+              <div className="bg-green-50 p-2 rounded">
+                <div className="font-medium text-green-800 mb-1">Study Details</div>
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-green-600">Modality:</span>
+                    <span className="text-green-900 truncate ml-2">{studyData?.modality || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-green-600">Description:</span>
+                    <span className="text-green-900 truncate ml-2" title={studyData?.description}>
+                      {studyData?.description || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-green-600">Date:</span>
+                    <span className="text-green-900 truncate ml-2">
+                      {studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-green-600">Accession:</span>
+                    <span className="text-green-900 font-mono text-xs truncate ml-2">{studyData?.accessionNumber || 'N/A'}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Modality:</span>
-                <span className="text-gray-900 truncate ml-2">{studyData?.modality || 'N/A'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Date:</span>
-                <span className="text-gray-900 truncate ml-2">
-                  {studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : 'N/A'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Accession:</span>
-                <span className="text-gray-900 font-mono text-xs truncate ml-2">{studyData?.accessionNumber || 'N/A'}</span>
-              </div>
+
+              {/* Clinical History Section */}
+              {patientData?.clinicalHistory && (
+                <div className="bg-yellow-50 p-2 rounded">
+                  <div className="font-medium text-yellow-800 mb-1">Clinical History</div>
+                  <div className="text-yellow-900 text-xs leading-relaxed">
+                    {/* 🔧 FIX: Safely render clinical history */}
+                    {typeof patientData.clinicalHistory === 'string' 
+                      ? patientData.clinicalHistory 
+                      : patientData.clinicalHistory?.clinicalHistory || 
+                        JSON.stringify(patientData.clinicalHistory, null, 2)
+                    }
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
