@@ -644,22 +644,16 @@ const OnlineReportingSystem = () => {
       console.log('👤 [Draft] Current user for draft:', currentUser);
       
       const templateName = `${currentUser.email}.docx`;
+      console.log(templateName);
 
-      // Prepare placeholders with current data
       const placeholders = {
-        '--name--': patientData?.fullName || 'N/A',
-        '--patientid--': patientData?.patientId || 'N/A',
-        '--accessionno--': studyData?.accessionNumber || 'N/A',
-        '--agegender--': `${patientData?.age || 'N/A'} / ${patientData?.gender || 'N/A'}`,
-        '--referredby--': reportData?.referringPhysician.name || 'N/A',
+        '--name--': patientData?.fullName || '',
+        '--patientid--': patientData?.patientId || '',
+        '--accessionno--': studyData?.accessionNumber || '',
+        '--agegender--': `${patientData?.age || ''} / ${patientData?.gender || ''}`,
+        '--referredby--': reportData?.referringPhysician.name || '',
         '--reporteddate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString(),
-        '--Content--': reportContent,
-        '--modality--': studyData?.modality || 'N/A',
-        '--studydate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : 'N/A',
-        '--description--': studyData?.description || 'N/A',
-        '--doctorname--': currentUser?.fullName || 'Doctor',
-        '--hospitalname--': 'Star Radiology',
-        '--reportstatus--': 'DRAFT'
+        '--Content--': reportContent
       };
 
       console.log('🔍 [Draft] Placeholders prepared:', {

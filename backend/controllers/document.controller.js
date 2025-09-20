@@ -2301,6 +2301,8 @@ static async generateReportWithDocxService(req, res) {
 
 static async generateReportWithDocxServiceDraft(req, res) {
     console.log('🔄 Received request to generate report via C# DOCX Service...');
+        console.log('Request body:', req.body); // Debug: Log the entire request body
+
 
     try {
         const { studyId } = req.params;
