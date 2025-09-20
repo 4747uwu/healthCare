@@ -2189,6 +2189,7 @@ static async convertHTMLToDOCX(htmlContent, reportData) {
 
 static async generateReportWithDocxService(req, res) {
     console.log('🔄 Received request to generate report via C# DOCX Service...');
+    console.log('Request body:', req.body); // Debug: Log the entire request body
 
     try {
         const { studyId } = req.params;

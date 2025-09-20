@@ -79,143 +79,193 @@ const OnlineReportingSystem = () => {
   }, [studyId]);
 
   const initializeReportingSystem = async () => {
-    console.log('🚀 [Initialize] Starting reporting system initialization for studyId:', studyId);
-    setLoading(true);
+  console.log('🚀 [Initialize] Starting reporting system initialization for studyId:', studyId);
+  setLoading(true);
+  
+  try {
+    const currentUser = sessionManager.getCurrentUser();
+    console.log('👤 [Initialize] Current user:', currentUser);
     
-    try {
-      const currentUser = sessionManager.getCurrentUser();
-      console.log('👤 [Initialize] Current user:', currentUser);
-      
-      if (!currentUser) {
-        console.error('❌ [Initialize] No current user found');
-        toast.error('Authentication required.');
-        navigate('/login');
-        return;
-      }
-      
-      console.log('📧 [Initialize] User email:', currentUser.email);
-      console.log('👤 [Initialize] User role:', currentUser.role);
-      
-      // 🔧 UPDATED: Call the new comprehensive endpoint
-      const studyInfoEndpoint = `/documents/study/${studyId}/reporting-info`;
-      const templatesEndpoint = '/html-templates/reporting';
-      
-      console.log('📡 [API] Calling endpoints:');
-      console.log('  - Study Info:', studyInfoEndpoint);
-      console.log('  - Templates:', templatesEndpoint);
-      
-      const [studyInfoResponse, templatesResponse] = await Promise.all([
-        api.get(studyInfoEndpoint),
-        api.get(templatesEndpoint)
-      ]);
-
-      // 🔍 DEBUG: Log API responses
-      console.log('📡 [API Response] Study Info Response:', {
-        status: studyInfoResponse.status,
-        success: studyInfoResponse.data?.success,
-        data: studyInfoResponse.data
-      });
-      
-      console.log('📡 [API Response] Templates Response:', {
-        status: templatesResponse.status,
-        success: templatesResponse.data?.success,
-        templatesCount: Object.keys(templatesResponse.data?.data?.templates || {}).length
-      });
-
-      if (studyInfoResponse.data.success) {
-        const { studyInfo, patientInfo, downloadOptions, clinicalHistory } = studyInfoResponse.data.data;
-        
-        console.log('✅ [Study] Comprehensive study data received:', {
-          studyInfo,
-          patientInfo,
-          downloadOptions,
-          clinicalHistory
-        });
-        
-        // Set study data with all the information
-        setStudyData({
-          _id: studyInfo._id,
-          orthancStudyID: studyInfo.orthancStudyID,
-          studyInstanceUID: studyInfo.studyInstanceUID,
-          accessionNumber: studyInfo.accessionNumber,
-          modality: studyInfo.modality,
-          description: studyInfo.description,
-          studyDate: studyInfo.studyDate,
-          workflowStatus: studyInfo.workflowStatus,
-          priority: studyInfo.priority,
-          caseType: studyInfo.caseType,
-          seriesCount: studyInfo.seriesCount,
-          instanceCount: studyInfo.instanceCount,
-          sourceLab: studyInfo.sourceLab,
-          assignedDoctor: studyInfo.assignedDoctor,
-          referringPhysician: studyInfo.referringPhysician,
-          createdAt: studyInfo.createdAt
-        });
-        
-        // Set patient data
-        setPatientData({
-          patientId: patientInfo.patientId,
-          patientName: patientInfo.patientName,
-          fullName: patientInfo.fullName,
-          age: patientInfo.age,
-          gender: patientInfo.gender,
-          dateOfBirth: patientInfo.dateOfBirth,
-          clinicalHistory: patientInfo.clinicalHistory
-        });
-        
-        // Set download options
-        setDownloadOptions({
-          downloadOptions: downloadOptions,
-          orthancStudyID: studyInfo.orthancStudyID,
-          studyInstanceUID: studyInfo.studyInstanceUID
-        });
-        
-        // Set report data with referring physician
-        setReportData({
-          referringPhysician: studyInfo.referringPhysician,
-          clinicalHistory: clinicalHistory
-        });
-
-        toast.success(`Loaded study: ${studyInfo.accessionNumber}`);
-      } else {
-        console.error('❌ [Study] Failed to load study data:', studyInfoResponse.data);
-        toast.error("Failed to load study data.");
-      }
-      
-      if (templatesResponse.data.success) {
-        const templateData = templatesResponse.data.data.templates;
-        console.log('✅ [Templates] Setting templates:', {
-          templateCount: Object.keys(templateData).length,
-          templateCategories: Object.keys(templateData)
-        });
-        setTemplates(templateData);
-      } else {
-        console.error('❌ [Templates] Failed to load templates:', templatesResponse.data);
-      }
-      
-      console.log('🧹 [Content] Resetting report content');
-      setReportContent(''); 
-
-    } catch (error) {
-      console.error('❌ [Initialize] API Error:', error);
-      
-      if (error.response?.status === 404) {
-        console.error('❌ [Initialize] 404 Error - Study not found:', studyId);
-        toast.error(`Study ${studyId} not found or access denied.`);
-        setTimeout(() => navigate('/doctor/dashboard'), 2000);
-      } else if (error.response?.status === 401) {
-        console.error('❌ [Initialize] 401 Error - Authentication expired');
-        toast.error('Authentication expired. Please log in again.');
-        navigate('/login');
-      } else {
-        console.error('❌ [Initialize] Unknown error:', error.message);
-        toast.error(`Failed to load study: ${error.message || 'Unknown error'}`);
-      }
-    } finally {
-      console.log('🏁 [Initialize] Initialization complete, setting loading to false');
-      setLoading(false);
+    if (!currentUser) {
+      console.error('❌ [Initialize] No current user found');
+      toast.error('Authentication required.');
+      navigate('/login');
+      return;
     }
-  };
+    
+    console.log('📧 [Initialize] User email:', currentUser.email);
+    console.log('👤 [Initialize] User role:', currentUser.role);
+    
+    // 🔧 KEEP: Using the existing endpoints as requested
+    const studyInfoEndpoint = `/documents/study/${studyId}/reporting-info`;
+    const templatesEndpoint = '/html-templates/reporting';
+    
+    console.log('📡 [API] Calling endpoints:');
+    console.log('  - Study Info:', studyInfoEndpoint);
+    console.log('  - Templates:', templatesEndpoint);
+    
+    const [studyInfoResponse, templatesResponse] = await Promise.all([
+      api.get(studyInfoEndpoint),
+      api.get(templatesEndpoint)
+    ]);
+
+    // 🔍 DEBUG: Log API responses
+    console.log('📡 [API Response] Study Info Response:', {
+      status: studyInfoResponse.status,
+      success: studyInfoResponse.data?.success,
+      data: studyInfoResponse.data
+    });
+    
+    console.log('📡 [API Response] Templates Response:', {
+      status: templatesResponse.status,
+      success: templatesResponse.data?.success,
+      templatesCount: Object.keys(templatesResponse.data?.data?.templates || {}).length
+    });
+
+    if (studyInfoResponse.data.success) {
+      // 🔧 FIXED: Use the working data structure pattern from reference
+      const data = studyInfoResponse.data.data;
+      console.log('🔍 Loaded study data:', data);
+      
+      // Extract study info from the correct nested structure - matching reference pattern
+      const studyInfo = data.studyInfo || {};
+      const patientInfo = data.patientInfo || {};
+      const allStudies = data.allStudies || [];
+      
+      // Find the current study from allStudies array or use studyInfo - matching reference
+      const currentStudy = allStudies.find(study => study.studyId === studyId) || studyInfo;
+      
+      // Extract DICOM identifiers that might be needed for viewers - matching reference
+      const orthancStudyID = currentStudy.orthancStudyID || 
+                            currentStudy.studyId || 
+                            studyInfo.studyId ||
+                            null;
+    
+      const studyInstanceUID = currentStudy.studyInstanceUID || 
+                              currentStudy.studyId || 
+                              studyInfo.studyId ||
+                              null;
+    
+      console.log('🔍 Extracted IDs:', {
+        orthancStudyID,
+        studyInstanceUID,
+        originalStudyId: currentStudy.studyId || studyInfo.studyId
+      });
+      
+      // 🔧 FIXED: Set study data using the reference working structure
+      setStudyData({
+        _id: studyId,
+        orthancStudyID: orthancStudyID,
+        studyInstanceUID: studyInstanceUID,
+        accessionNumber: currentStudy.accessionNumber || studyInfo.accessionNumber || 'N/A',
+        modality: currentStudy.modality || studyInfo.modality || 'N/A',
+        description: currentStudy.examDescription || studyInfo.examDescription || '',
+        studyDate: currentStudy.studyDate || studyInfo.studyDate || new Date().toISOString(),
+        workflowStatus: currentStudy.status || studyInfo.workflowStatus || studyInfo.status || 'assigned_to_doctor',
+        priority: currentStudy.priorityLevel || studyInfo.priorityLevel || 'NORMAL',
+        caseType: currentStudy.caseType || studyInfo.caseType,
+        seriesCount: currentStudy.seriesCount || studyInfo.seriesCount,
+        instanceCount: currentStudy.instanceCount || studyInfo.instanceCount,
+        sourceLab: currentStudy.sourceLab || studyInfo.sourceLab,
+        assignedDoctor: currentStudy.assignedDoctor || studyInfo.assignedDoctor,
+        referringPhysician: currentStudy.referringPhysician || studyInfo.referringPhysician,
+        createdAt: currentStudy.createdAt || studyInfo.createdAt,
+        
+        // Additional fields from reference working version
+        studyId: currentStudy.studyId || studyInfo.studyId,
+        
+        // Spread the rest to maintain compatibility
+        ...currentStudy,
+        ...studyInfo
+      });
+      
+      // 🔧 FIXED: Set patient data using the reference working structure
+      setPatientData({
+        patientId: patientInfo.patientId || patientInfo.patientID || 'N/A',
+        patientName: patientInfo.fullName || patientInfo.patientName || 'Unknown Patient',
+        fullName: patientInfo.fullName || patientInfo.patientName || 'Unknown Patient',
+        age: patientInfo.age || 'N/A',
+        gender: patientInfo.gender || 'N/A',
+        dateOfBirth: patientInfo.dateOfBirth || 'N/A',
+        // 🔧 FIXED: Handle clinical history safely like in reference working version
+        clinicalHistory: typeof patientInfo.clinicalHistory === 'string' 
+          ? patientInfo.clinicalHistory
+          : patientInfo.clinicalHistory?.clinicalHistory || 
+            'No clinical history available',
+        ...patientInfo
+      });
+      
+      // 🔧 FIXED: Set download options structure for compatibility (kept as is but structured like reference)
+      setDownloadOptions({
+        downloadOptions: {
+          hasR2CDN: data.downloadOptions?.hasR2CDN || false,
+          hasWasabiZip: data.downloadOptions?.hasWasabiZip || false,
+          hasR2Zip: data.downloadOptions?.hasR2Zip || false,
+          r2SizeMB: data.downloadOptions?.r2SizeMB || 0,
+          wasabiSizeMB: data.downloadOptions?.wasabiSizeMB || 0,
+          zipStatus: data.downloadOptions?.zipStatus || 'not_started'
+        },
+        orthancStudyID: orthancStudyID,
+        studyInstanceUID: studyInstanceUID
+      });
+      
+      // Extract referring physician info - matching reference pattern
+      const referringPhysicians = data.referringPhysicians || {};
+      const currentReferring = referringPhysicians.current || {};
+      
+      setReportData({
+        referringPhysician: currentReferring.name || 
+                           currentStudy.referringPhysician || 
+                           studyInfo.physicians?.referring?.name || 
+                           studyInfo.referringPhysician ||
+                           'N/A',
+        clinicalHistory: typeof patientInfo.clinicalHistory === 'string' 
+          ? patientInfo.clinicalHistory
+          : patientInfo.clinicalHistory?.clinicalHistory || 
+            data.clinicalHistory ||
+            'No clinical history available'
+      });
+
+      toast.success(`Loaded study: ${currentStudy.accessionNumber || studyInfo.accessionNumber || studyId}`);
+    } else {
+      console.error('❌ [Study] Failed to load study data:', studyInfoResponse.data);
+      toast.error("Failed to load study data.");
+    }
+    
+    if (templatesResponse.data.success) {
+      const templateData = templatesResponse.data.data.templates;
+      console.log('✅ [Templates] Setting templates:', {
+        templateCount: Object.keys(templateData).length,
+        templateCategories: Object.keys(templateData)
+      });
+      setTemplates(templateData);
+    } else {
+      console.error('❌ [Templates] Failed to load templates:', templatesResponse.data);
+    }
+    
+    console.log('🧹 [Content] Resetting report content');
+    setReportContent(''); 
+
+  } catch (error) {
+    console.error('❌ [Initialize] API Error:', error);
+    
+    if (error.response?.status === 404) {
+      console.error('❌ [Initialize] 404 Error - Study not found:', studyId);
+      toast.error(`Study ${studyId} not found or access denied.`);
+      setTimeout(() => navigate('/doctor/dashboard'), 2000);
+    } else if (error.response?.status === 401) {
+      console.error('❌ [Initialize] 401 Error - Authentication expired');
+      toast.error('Authentication expired. Please log in again.');
+      navigate('/login');
+    } else {
+      console.error('❌ [Initialize] Unknown error:', error.message);
+      toast.error(`Failed to load study: ${error.message || 'Unknown error'}`);
+    }
+  } finally {
+    console.log('🏁 [Initialize] Initialization complete, setting loading to false');
+    setLoading(false);
+  }
+};
 
   // Download functionality from WorklistTable
   const handleWasabiDownload = async () => {
