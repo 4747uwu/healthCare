@@ -651,7 +651,7 @@ const OnlineReportingSystem = () => {
         '--patientid--': patientData?.patientId || 'N/A',
         '--accessionno--': studyData?.accessionNumber || 'N/A',
         '--agegender--': `${patientData?.age || 'N/A'} / ${patientData?.gender || 'N/A'}`,
-        '--referredby--': reportData?.referringPhysician || 'N/A',
+        '--referredby--': reportData?.referringPhysician.name || 'N/A',
         '--reporteddate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString(),
         '--Content--': reportContent,
         '--modality--': studyData?.modality || 'N/A',
