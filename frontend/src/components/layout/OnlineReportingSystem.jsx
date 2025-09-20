@@ -96,139 +96,89 @@ const OnlineReportingSystem = () => {
       console.log('📧 [Initialize] User email:', currentUser.email);
       console.log('👤 [Initialize] User role:', currentUser.role);
       
-      // 🔍 DEBUG: Log API endpoints being called
-      const studyEndpoint = `/labEdit/patients/${studyId}`;
+      // 🔧 UPDATED: Call the new comprehensive endpoint
+      const studyInfoEndpoint = `/documents/study/${studyId}/reporting-info`;
       const templatesEndpoint = '/html-templates/reporting';
-      const downloadInfoEndpoint = `/documents/study/${studyId}/download-info`;
       
       console.log('📡 [API] Calling endpoints:');
-      console.log('  - Study:', studyEndpoint);
+      console.log('  - Study Info:', studyInfoEndpoint);
       console.log('  - Templates:', templatesEndpoint);
-      console.log('  - Download Info:', downloadInfoEndpoint);
       
-      const [studyResponse, templatesResponse, downloadInfoResponse] = await Promise.all([
-        api.get(studyEndpoint),
-        api.get(templatesEndpoint),
-        api.get(downloadInfoEndpoint)
+      const [studyInfoResponse, templatesResponse] = await Promise.all([
+        api.get(studyInfoEndpoint),
+        api.get(templatesEndpoint)
       ]);
 
-      // 🔍 DEBUG: Log all API responses
-      console.log('📡 [API Response] Study Response:', {
-        status: studyResponse.status,
-        success: studyResponse.data?.success,
-        data: studyResponse.data
+      // 🔍 DEBUG: Log API responses
+      console.log('📡 [API Response] Study Info Response:', {
+        status: studyInfoResponse.status,
+        success: studyInfoResponse.data?.success,
+        data: studyInfoResponse.data
       });
       
       console.log('📡 [API Response] Templates Response:', {
         status: templatesResponse.status,
         success: templatesResponse.data?.success,
-        templatesCount: Object.keys(templatesResponse.data?.data?.templates || {}).length,
-        data: templatesResponse.data
-      });
-      
-      console.log('📡 [API Response] Download Info Response:', {
-        status: downloadInfoResponse.status,
-        success: downloadInfoResponse.data?.success,
-        data: downloadInfoResponse.data
+        templatesCount: Object.keys(templatesResponse.data?.data?.templates || {}).length
       });
 
-      if (studyResponse.data.success) {
-        const data = studyResponse.data.data;
-        console.log('✅ [Study] Raw study data received:', data);
+      if (studyInfoResponse.data.success) {
+        const { studyInfo, patientInfo, downloadOptions, clinicalHistory } = studyInfoResponse.data.data;
         
-        // Extract study info from the correct nested structure
-        const studyInfo = data.studyInfo || {};
-        const patientInfo = data.patientInfo || {};
-        const allStudies = data.allStudies || [];
-        
-        console.log('🔍 [Study] Extracted data structures:');
-        console.log('  - studyInfo:', studyInfo);
-        console.log('  - patientInfo:', patientInfo);
-        console.log('  - allStudies count:', allStudies.length);
-        console.log('  - allStudies:', allStudies);
-        
-        // Find the current study from allStudies array or use studyInfo
-        const currentStudy = allStudies.find(study => study.studyId === studyId) || studyInfo;
-        console.log('🎯 [Study] Current study found:', currentStudy);
-        
-        // Extract DICOM identifiers that might be needed for viewers
-        const orthancStudyID = currentStudy.orthancStudyID || 
-                            currentStudy.studyId || 
-                            studyInfo.studyId ||
-                            null;
-      
-        const studyInstanceUID = currentStudy.studyInstanceUID || 
-                              currentStudy.studyId || 
-                              studyInfo.studyId ||
-                              null;
-      
-        console.log('🔍 [DICOM] Extracted IDs:', {
-          orthancStudyID,
-          studyInstanceUID,
-          originalStudyId: currentStudy.studyId || studyInfo.studyId,
-          currentStudyKeys: Object.keys(currentStudy || {}),
-          studyInfoKeys: Object.keys(studyInfo || {})
-        });
-      
-        const processedStudyData = {
-          _id: studyId,
-          accessionNumber: currentStudy.accessionNumber || studyInfo.accessionNumber || 'N/A',
-          modality: currentStudy.modality || studyInfo.modality || 'N/A',
-          studyDate: currentStudy.studyDate || studyInfo.studyDate || new Date().toISOString(),
-          description: currentStudy.examDescription || studyInfo.examDescription || '',
-          workflowStatus: currentStudy.status || studyInfo.workflowStatus || studyInfo.status || 'assigned_to_doctor',
-          priority: currentStudy.priorityLevel || studyInfo.priorityLevel || 'NORMAL',
-          
-          // DICOM identifiers for viewers - try multiple fallback options
-          orthancStudyID: orthancStudyID,
-          studyInstanceUID: studyInstanceUID,
-          
-          // Additional fields that might be useful
-          studyId: currentStudy.studyId || studyInfo.studyId,
-          caseType: currentStudy.caseType || studyInfo.caseType,
-          assignedDoctor: currentStudy.assignedDoctor || studyInfo.assignedDoctor,
-          
-          ...currentStudy,
-          ...studyInfo
-        };
-        
-        console.log('✅ [Study] Processed study data:', processedStudyData);
-        setStudyData(processedStudyData);
-        
-        const processedPatientData = {
-          fullName: patientInfo.fullName || patientInfo.patientName || 'Unknown Patient',
-          patientId: patientInfo.patientId || patientInfo.patientID || 'N/A',
-          age: patientInfo.age || 'N/A',
-          gender: patientInfo.gender || 'N/A',
-          dateOfBirth: patientInfo.dateOfBirth || 'N/A',
-          ...patientInfo
-        };
-        
-        console.log('✅ [Patient] Processed patient data:', processedPatientData);
-        setPatientData(processedPatientData);
-        
-        // Extract referring physician info
-        const referringPhysicians = data.referringPhysicians || {};
-        const currentReferring = referringPhysicians.current || {};
-        
-        console.log('👨‍⚕️ [Physician] Referring physicians data:', {
-          referringPhysicians,
-          currentReferring
+        console.log('✅ [Study] Comprehensive study data received:', {
+          studyInfo,
+          patientInfo,
+          downloadOptions,
+          clinicalHistory
         });
         
-        const processedReportData = {
-          referringPhysician: currentReferring.name || 
-                             currentStudy.referringPhysician || 
-                             studyInfo.physicians?.referring?.name || 
-                             'N/A',
-        };
+        // Set study data with all the information
+        setStudyData({
+          _id: studyInfo._id,
+          orthancStudyID: studyInfo.orthancStudyID,
+          studyInstanceUID: studyInfo.studyInstanceUID,
+          accessionNumber: studyInfo.accessionNumber,
+          modality: studyInfo.modality,
+          description: studyInfo.description,
+          studyDate: studyInfo.studyDate,
+          workflowStatus: studyInfo.workflowStatus,
+          priority: studyInfo.priority,
+          caseType: studyInfo.caseType,
+          seriesCount: studyInfo.seriesCount,
+          instanceCount: studyInfo.instanceCount,
+          sourceLab: studyInfo.sourceLab,
+          assignedDoctor: studyInfo.assignedDoctor,
+          referringPhysician: studyInfo.referringPhysician,
+          createdAt: studyInfo.createdAt
+        });
         
-        console.log('✅ [Report] Processed report data:', processedReportData);
-        setReportData(processedReportData);
+        // Set patient data
+        setPatientData({
+          patientId: patientInfo.patientId,
+          patientName: patientInfo.patientName,
+          fullName: patientInfo.fullName,
+          age: patientInfo.age,
+          gender: patientInfo.gender,
+          dateOfBirth: patientInfo.dateOfBirth,
+          clinicalHistory: patientInfo.clinicalHistory
+        });
+        
+        // Set download options
+        setDownloadOptions({
+          downloadOptions: downloadOptions,
+          orthancStudyID: studyInfo.orthancStudyID,
+          studyInstanceUID: studyInfo.studyInstanceUID
+        });
+        
+        // Set report data with referring physician
+        setReportData({
+          referringPhysician: studyInfo.referringPhysician,
+          clinicalHistory: clinicalHistory
+        });
 
-        toast.success(`Loaded study: ${currentStudy.accessionNumber || studyInfo.accessionNumber || studyId}`);
+        toast.success(`Loaded study: ${studyInfo.accessionNumber}`);
       } else {
-        console.error('❌ [Study] Failed to load study data:', studyResponse.data);
+        console.error('❌ [Study] Failed to load study data:', studyInfoResponse.data);
         toast.error("Failed to load study data.");
       }
       
@@ -236,8 +186,7 @@ const OnlineReportingSystem = () => {
         const templateData = templatesResponse.data.data.templates;
         console.log('✅ [Templates] Setting templates:', {
           templateCount: Object.keys(templateData).length,
-          templateCategories: Object.keys(templateData),
-          templates: templateData
+          templateCategories: Object.keys(templateData)
         });
         setTemplates(templateData);
       } else {
@@ -247,31 +196,8 @@ const OnlineReportingSystem = () => {
       console.log('🧹 [Content] Resetting report content');
       setReportContent(''); 
 
-      // 🆕 NEW: Set download options
-      if (downloadInfoResponse.data.success) {
-        const downloadData = downloadInfoResponse.data;
-        console.log('✅ [Download] Setting download options:', downloadData);
-        console.log('🔍 [Download] Download options breakdown:', {
-          hasR2CDN: downloadData.downloadOptions?.hasR2CDN,
-          r2SizeMB: downloadData.downloadOptions?.r2SizeMB,
-          orthancStudyID: downloadData.orthancStudyID,
-          studyInstanceUID: downloadData.studyInstanceUID,
-          endpoints: downloadData.downloadOptions?.endpoints
-        });
-        setDownloadOptions(downloadData);
-      } else {
-        console.error('❌ [Download] Failed to load download options:', downloadInfoResponse.data);
-      }
-
     } catch (error) {
       console.error('❌ [Initialize] API Error:', error);
-      console.error('❌ [Initialize] Error details:', {
-        message: error.message,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        config: error.config
-      });
       
       if (error.response?.status === 404) {
         console.error('❌ [Initialize] 404 Error - Study not found:', studyId);
@@ -667,7 +593,7 @@ const OnlineReportingSystem = () => {
       const currentUser = sessionManager.getCurrentUser();
       console.log('👤 [Draft] Current user for draft:', currentUser);
       
-      const templateName = "MyReport.docx";
+      const templateName = `${currentUser.email}.docx`;
 
       // Prepare placeholders with current data
       const placeholders = {
@@ -989,7 +915,7 @@ const OnlineReportingSystem = () => {
             
             {/* Action Buttons */}
             <div className="grid grid-cols-3 gap-1">
-              {/* Download Button */}
+              {/* Download Button - Updated to show R2 CDN status */}
               <button
                 onClick={() => {
                   console.log('⬇️ [UI] Download button clicked');
@@ -1008,7 +934,14 @@ const OnlineReportingSystem = () => {
                 <svg className="w-4 h-4 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                {downloadOptions?.downloadOptions?.hasR2CDN ? '🌐 R2 CDN' : 'Download'}
+                {downloadOptions?.downloadOptions?.hasR2CDN ? (
+                  <>
+                    <span className="text-xs">🌐 R2 CDN</span>
+                    <span className="text-xs text-gray-500">{downloadOptions?.downloadOptions?.r2SizeMB || 0}MB</span>
+                  </>
+                ) : (
+                  'Download'
+                )}
               </button>
 
               {/* Radiant Viewer Button */}
@@ -1045,9 +978,93 @@ const OnlineReportingSystem = () => {
           </div>
         </div>
 
-        {/* Empty space - takes remaining height */}
-        <div className="flex-1"></div>
-        
+        {/* Study Information Panel - Add this before the Study Controls Panel */}
+        <div className="flex-shrink-0 bg-white border border-gray-300 rounded-lg shadow-lg p-4 mb-2">
+          <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm font-medium text-gray-900">Study Information</span>
+          </div>
+          
+          <div className="mt-3 space-y-3 text-xs">
+            {/* Patient Information */}
+            <div className="bg-blue-50 p-2 rounded">
+              <div className="font-medium text-blue-800 mb-1">Patient Details</div>
+              <div className="space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-blue-600">Name:</span>
+                  <span className="text-blue-900 font-medium truncate ml-2">{patientData?.fullName || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-blue-600">ID:</span>
+                  <span className="text-blue-900 truncate ml-2">{patientData?.patientId || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-blue-600">Age/Gender:</span>
+                  <span className="text-blue-900 truncate ml-2">{patientData?.age || 'N/A'} / {patientData?.gender || 'N/A'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Study Details */}
+            <div className="bg-green-50 p-2 rounded">
+              <div className="font-medium text-green-800 mb-1">Study Details</div>
+              <div className="space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-green-600">Modality:</span>
+                  <span className="text-green-900 truncate ml-2">{studyData?.modality || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-green-600">Description:</span>
+                  <span className="text-green-900 truncate ml-2" title={studyData?.description}>
+                    {studyData?.description || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-green-600">Date:</span>
+                  <span className="text-green-900 truncate ml-2">
+                    {studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-green-600">Accession:</span>
+                  <span className="text-green-900 font-mono text-xs truncate ml-2">{studyData?.accessionNumber || 'N/A'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Clinical History */}
+            {patientData?.clinicalHistory && (
+              <div className="bg-yellow-50 p-2 rounded">
+                <div className="font-medium text-yellow-800 mb-1">Clinical History</div>
+                <div className="text-yellow-900 text-xs leading-relaxed">
+                  {patientData.clinicalHistory}
+                </div>
+              </div>
+            )}
+
+            {/* Download Status */}
+            <div className="bg-purple-50 p-2 rounded">
+              <div className="font-medium text-purple-800 mb-1">Download Status</div>
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-600">R2 CDN:</span>
+                  <span className={`text-xs px-2 py-1 rounded ${downloadOptions?.downloadOptions?.hasR2CDN ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {downloadOptions?.downloadOptions?.hasR2CDN ? 'Available' : 'Not Ready'}
+                  </span>
+                </div>
+                {downloadOptions?.downloadOptions?.hasR2CDN && (
+                  <div className="flex justify-between">
+                    <span className="text-purple-600">Size:</span>
+                    <span className="text-purple-900">{downloadOptions?.downloadOptions?.r2SizeMB || 0}MB</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Study Controls Panel - Fixed at bottom right corner */}
         <div className="flex-shrink-0 bg-white border border-gray-300 rounded-lg shadow-lg p-4">
           {/* Study Tab */}

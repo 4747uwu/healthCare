@@ -102,5 +102,10 @@ router.delete('/study/:studyId/reports/:reportIndex',
   DocumentController.deleteStudyReport
 );
 
+// 🆕 ADD: Study info for reporting endpoint
+router.get('/study/:studyId/reporting-info', 
+    DocumentController.getStudyInfoForReporting
+);
+
 // In your routes file (e.g., documents.js)
 export default router;
