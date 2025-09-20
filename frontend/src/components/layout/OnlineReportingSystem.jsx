@@ -643,7 +643,7 @@ const OnlineReportingSystem = () => {
       const currentUser = sessionManager.getCurrentUser();
       console.log('👤 [Draft] Current user for draft:', currentUser);
       
-      const templateName = `${currentUser.email}.docx`;
+const templateName = `${currentUser.email.split('@')[0]}.docx`;
       console.log(templateName);
 
       const placeholders = {
@@ -763,8 +763,8 @@ const OnlineReportingSystem = () => {
       const currentUser = sessionManager.getCurrentUser();
       console.log('👤 [Finalize] Current user for finalization:', currentUser);
       
-      const templateName = `MyReport.${exportFormat}`;
-
+const templateName = `${currentUser.email.split('@')[0]}.docx`;
+      console.log(templateName);
       const placeholders = {
         '--name--': patientData?.fullName || '',
         '--patientid--': patientData?.patientId || '',
