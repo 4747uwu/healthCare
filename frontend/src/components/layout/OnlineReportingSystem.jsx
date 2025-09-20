@@ -1039,7 +1039,12 @@ const OnlineReportingSystem = () => {
               <div className="bg-yellow-50 p-2 rounded">
                 <div className="font-medium text-yellow-800 mb-1">Clinical History</div>
                 <div className="text-yellow-900 text-xs leading-relaxed">
-                  {patientData.clinicalHistory}
+                  {/* 🔧 FIX: Safely render clinical history */}
+                  {typeof patientData.clinicalHistory === 'string' 
+                    ? patientData.clinicalHistory 
+                    : patientData.clinicalHistory?.clinicalHistory || 
+                      JSON.stringify(patientData.clinicalHistory, null, 2)
+                  }
                 </div>
               </div>
             )}
