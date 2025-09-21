@@ -2518,18 +2518,15 @@ static async getStudyDownloadInfo (req, res)  {
 static async downloadStudyFromR2CDN(req, res) {
     try {
         const { studyId } = req.params;
-        const loadingStart = Date.now();
         
-        console.log(`🌐 Getting R2 CDN download URL for study: ${studyId}`);
-
-        // Get study to verify it exists and has R2 data
+        // Get study to extract orthancStudyID
         const study = await DicomStudy.findOne({
             $or: [
                 { _id: studyId },
                 { orthancStudyID: studyId },
                 { studyInstanceUID: studyId }
             ]
-        }).select('orthancStudyID studyInstanceUID downloadOptions preProcessedDownload patientId patientName');
+        }).select('orthancStudyID');
 
         if (!study) {
             return res.status(404).json({
@@ -2538,58 +2535,17 @@ static async downloadStudyFromR2CDN(req, res) {
             });
         }
 
-        // Use the same R2 endpoint as admin controller
-        const response = await api.get(`/download/study/${study.orthancStudyID || studyId}/r2-direct`);
-        
-        if (response.data.success) {
-            const { downloadUrl, fileName, fileSizeMB, expectedSpeed, storageProvider } = response.data.data;
-            
-            const processingTime = Date.now() - loadingStart;
-            console.log(`✅ R2 CDN URL retrieved in ${processingTime}ms: ${fileName}`);
-            
-            res.json({
-                success: true,
-                data: {
-                    downloadUrl,
-                    fileName,
-                    fileSizeMB,
-                    expectedSpeed,
-                    storageProvider,
-                    studyInfo: {
-                        patientId: study.patientId,
-                        patientName: study.patientName,
-                        orthancStudyID: study.orthancStudyID,
-                        studyInstanceUID: study.studyInstanceUID
-                    }
-                },
-                performance: {
-                    processingTime
-                }
-            });
-        } else {
-            throw new Error(response.data.message || 'Failed to get R2 CDN URL');
-        }
+        // Redirect to the existing R2 download endpoint
+        const orthancStudyId = study.orthancStudyID || studyId;
+        return res.redirect(`/api/download/study/${orthancStudyId}/r2-direct`);
 
     } catch (error) {
-        console.error('❌ Error getting R2 CDN download:', error);
-        
-        if (error.response?.status === 404) {
-            res.status(404).json({
-                success: false,
-                message: 'Study not found in R2 storage or ZIP not ready'
-            });
-        } else if (error.response?.status === 410) {
-            res.status(410).json({
-                success: false,
-                message: 'Download link has expired, generating new one...'
-            });
-        } else {
-            res.status(500).json({
-                success: false,
-                message: 'Failed to get R2 CDN download URL',
-                error: error.message
-            });
-        }
+        console.error('❌ Error redirecting to R2 CDN download:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to redirect to R2 CDN download',
+            error: error.message
+        });
     }
 }
 
