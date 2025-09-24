@@ -1159,7 +1159,7 @@ const templateName = `${currentUser.email.split('@')[0]}.docx`;
                   {typeof patientData.clinicalHistory === 'string' 
                     ? patientData.clinicalHistory 
                     : patientData.clinicalHistory?.clinicalHistory || 
-                      JSON.stringify(patientData.clinicalHistory, null, 2)
+                      'N/A'
                   }
                 </div>
               </div>
