@@ -114,7 +114,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
 
   const handleGenerateReport = async () => {
     if (!studyData?._id) return;
-  
+
     setGenerating(true);
     try {
       const token = sessionManager.getToken();
@@ -123,18 +123,19 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
         setGenerating(false);
         return;
       }
-  
+
       const protocolUrl = `xcentic://${studyData._id}?token=${encodeURIComponent(token)}`;
       console.log('Protocol URL:', protocolUrl.replace(token, '[REDACTED]'));
-  
-      const launched = await launchProtocol(protocolUrl);
+
+      // ✅ Use direct method instead of iframe
+      const launched = await launchProtocolDirect(protocolUrl);
       if (launched) {
         toast.success("Report launcher opened successfully!");
       } else {
         console.log('Protocol launch failed, falling back to download...');
         await fallbackDownload();
       }
-  
+
     } catch (error) {
       console.error("Error generating report:", error);
       toast.error("Failed to generate report");
@@ -143,32 +144,22 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
     }
   };
   
-  const launchProtocol = (protocolUrl) => {
+  // ✅ New direct launch method
+  const launchProtocolDirect = (protocolUrl) => {
     return new Promise((resolve) => {
-      let launched = false;
-      let timeoutId;
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = protocolUrl;
-      
-      timeoutId = setTimeout(() => {
-        if (!launched) {
-          document.body.removeChild(iframe);
-          resolve(false);
-        }
-      }, 3000);
-  
-      const onFocus = () => {
-        if (!launched) {
-          launched = true;
-          clearTimeout(timeoutId);
-          document.body.removeChild(iframe);
-          window.removeEventListener('focus', onFocus);
+      try {
+        // Simple direct approach
+        window.location.href = protocolUrl;
+        
+        // Give it a moment then assume success
+        setTimeout(() => {
           resolve(true);
-        }
-      };
-      window.addEventListener('focus', onFocus);
-      document.body.appendChild(iframe);
+        }, 500);
+        
+      } catch (error) {
+        console.error('Direct protocol launch failed:', error);
+        resolve(false);
+      }
     });
   };
   
@@ -538,7 +529,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                       <div className="p-3 bg-yellow-50 border-t border-yellow-200">
                         <div className="flex items-center">
                           <svg className="w-5 h-5 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m-1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                           <p className="text-sm text-yellow-800">
                             <strong>Lab Staff View:</strong> You can only view and download finalized reports. Report creation and deletion are not available.
