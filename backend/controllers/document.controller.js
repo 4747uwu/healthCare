@@ -2605,7 +2605,7 @@ static async downloadStudyFromOrthanc(req, res) {
     }
 }
 
-  // 🆕 NEW: Get comprehensive study info for online reporting
+
 static async getStudyInfoForReporting  (req, res) {
     try {
         const { studyId } = req.params;
