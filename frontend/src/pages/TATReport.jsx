@@ -995,7 +995,7 @@ const TATReport = () => {
                   </td>
                   <td className="border-r border-gray-100 px-1 py-1 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
-                      {study.reportDate ? formatDateTime(study.reportDate) : '-'}
+                      {study.reportedDate ? formatDateTime(study.reportedDate) : '-'}
                     </div>
                   </td>
                   
