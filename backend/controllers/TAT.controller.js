@@ -385,7 +385,7 @@ export const getTATReport = async (req, res) => {
                 // Basic study info
                 workflowStatus: 1, studyDate: 1, createdAt: 1, accessionNumber: 1,
                 examDescription: 1, modality: 1, modalitiesInStudy: 1, referredBy: 1,
-                seriesCount: 1, instanceCount: 1,
+                seriesCount: 1, instanceCount: 1, doctorReports: 1,
                 // Assignment & Report Info
                 assignment: 1, reportInfo: 1, doctorReports: 1, // 🔧 ADD: doctorReports
                 // THE GOAL: Include the pre-calculated TAT object from the database
@@ -442,8 +442,26 @@ export const getTATReport = async (req, res) => {
                 // ✅ FIX: Use IST formatting for all dates
                 uploadDate: formatDate(study.createdAt),
                 assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
-                reportDate: formatDate(study.reportInfo?.finalizedAt),
-                reportedBy,
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-in', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
+                    }).replace(',', '');
+                })()
+                : null,                reportedBy,
                 assignedDoctorId: assignedDoctorId ? assignedDoctorId.toString() : null,
                 uploadedById: uploadedById ? uploadedById.toString() : null,
                 diffStudyAndReportTAT: tat.studyToReportTATFormatted || '-',
@@ -615,6 +633,7 @@ export const exportTATReport = async (req, res) => {
                 workflowStatus: 1, studyDate: 1, createdAt: 1, accessionNumber: 1,
                 examDescription: 1, modality: 1, modalitiesInStudy: 1, referredBy: 1,
                 seriesCount: 1, instanceCount: 1, assignment: 1, reportInfo: 1,
+                doctorReports: 1,
                 calculatedTAT: 1,
                 patientData: { $arrayElemAt: ['$patientData', 0] },
                 labData: { $arrayElemAt: ['$labData', 0] },
@@ -787,8 +806,26 @@ export const exportTATReport = async (req, res) => {
                 studyDate: formatStudyDate(study.studyDate),
                 uploadDate: formatDate(study.createdAt),
                 assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
-                reportDate: formatDate(study.reportInfo?.finalizedAt),
-                uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
+reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-in', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
+                    }).replace(',', '');
+                })()
+                : null,                uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
                 uploadToReport: tat.uploadToReportTAT || 'N/A',
                 assignToReport: tat.assignmentToReportTAT || 'N/A',
                 reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-',
