@@ -345,6 +345,7 @@ const TATReport = () => {
         const studies = response.data.studies;
         setStudies(studies);
         setCurrentPage(1);
+        console.log(studies);
         
         // 🔍 DEBUG: Log sample studies to see uploadedById values
         console.log('🔍 DEBUG: Sample studies with uploadedById:');
