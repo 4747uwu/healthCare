@@ -145,7 +145,7 @@ const DoctorDashboard = React.memo(() => {
       // Process studies response
       if (studiesResponse.data.success) {
         setAllStudies(studiesResponse.data.data);
-        // setTotalRecords(studiesResponse.data.totalRecords);
+        setTotalRecords(studiesResponse.data.totalRecords);
         setLastRefresh(new Date());
         
         console.log(`✅ DOCTOR: Data fetch successful: ${studiesResponse.data.data.length} studies`);
