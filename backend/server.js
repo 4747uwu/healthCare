@@ -77,7 +77,9 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'http://portal.xcentic.in',     // ✅ ADD THIS
         'https://portal.xcentic.in',
         'http://ai.starradiology.com',
-        'http://157.245.86.199'
+        'http://157.245.86.199',
+                'https://aio.allinoneteleradiology.com'
+
                // ✅ Local HTTPS testing
       ]
     : [
@@ -91,7 +93,8 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'http://portal.xcentic.in',     // ✅ ADD THIS
         'https://portal.xcentic.in',
         'http://ai.starradiology.com',
-        'http://157.245.86.199'
+        'http://157.245.86.199',
+        'https://aio.allinoneteleradiology.com'
       ];
 
 app.use(cors({
