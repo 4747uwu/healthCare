@@ -446,7 +446,7 @@ export const getAssignedStudies = async (req, res) => {
                 workflowStatus: study.workflowStatus,
                 caseType: study.caseType || 'routine',
                 currentCategory: study.currentCategory,
-                tat: tat,
+                // tat: tat,
                 totalTATDays: tat.totalTATDays,
                 isOverdue: tat.isOverdue,
                 tatPhase: tat.phase,
