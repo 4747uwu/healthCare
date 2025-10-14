@@ -13,10 +13,18 @@ const DoctorDashboard = React.memo(() => {
 
   const [allStudies, setAllStudies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
   const [activeCategory, setActiveCategory] = useState('all');
+  
+  // 🔧 SIMPLIFIED: Single page mode state management (matching admin)
+  const [recordsPerPage, setRecordsPerPage] = useState(100);
+  const [totalRecords, setTotalRecords] = useState(0);
+  
+  // 🆕 NEW: Date filter state for backend integration (matching admin)
+  const [dateFilter, setDateFilter] = useState('assignedToday'); // Default to assigned today for doctors
+  const [customDateFrom, setCustomDateFrom] = useState('');
+  const [customDateTo, setCustomDateTo] = useState('');
+  const [dateType, setDateType] = useState('UploadDate'); // StudyDate, UploadDate
+  
   const [dashboardStats, setDashboardStats] = useState({
     totalStudies: 0,
     pendingStudies: 0,
@@ -25,6 +33,13 @@ const DoctorDashboard = React.memo(() => {
     urgentStudies: 0,
     todayAssigned: 0
   });
+
+  const [values, setValues] = useState({
+    today: 0,
+    pending: 0,
+    inprogress: 0,
+    completed: 0,
+  });
   
   // 🔧 AUTO-REFRESH STATE
   const [lastRefresh, setLastRefresh] = useState(new Date());
@@ -32,102 +47,232 @@ const DoctorDashboard = React.memo(() => {
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
 
-  // 🔧 IMPROVED API CALL WITH BACKEND CATEGORY FILTERING
-  const fetchStudies = useCallback(async (showLoadingState = true) => {
-    try {
-      if (showLoadingState) {
-        setLoading(true);
-      }
-      
-      const response = await api.get('/doctor/assigned-studies', {
-        params: {
-          page: currentPage,
-          limit: 50,
-          // Use category filter if not showing 'all'
-          category: activeCategory !== 'all' ? activeCategory : undefined,
-        }
-      });
-      
-      if (response.data.success) {
-        setAllStudies(response.data.data);
-        setTotalPages(response.data.totalPages);
-        setTotalRecords(response.data.totalRecords);
-        setLastRefresh(new Date());
-        
-        // Use the backend-provided category counts if available
-        if (response.data.summary?.byCategory) {
-          setDashboardStats({
-            totalStudies: response.data.summary.byCategory.all || response.data.totalRecords,
-            pendingStudies: response.data.summary.byCategory.pending || 0,
-            inProgressStudies: response.data.summary.byCategory.inprogress || 0,
-            completedStudies: response.data.summary.byCategory.completed || 0,
-            urgentStudies: response.data.summary.urgentStudies || 
-                           response.data.data.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
-            todayAssigned: response.data.summary.todayAssigned || 
-                          response.data.data.filter(s => {
-                            const today = new Date().toDateString();
-                            return new Date(s.assignedDate).toDateString() === today;
-                          }).length
-          });
-        } else {
-          // Fallback to the client-side counting (less efficient)
-          const studies = response.data.data;
-          setDashboardStats({
-            totalStudies: response.data.totalRecords,
-            pendingStudies: studies.filter(s => s.currentCategory === 'pending').length,
-            inProgressStudies: studies.filter(s => s.currentCategory === 'inprogress').length,
-            completedStudies: studies.filter(s => s.currentCategory === 'completed').length,
-            urgentStudies: studies.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
-            todayAssigned: studies.filter(s => {
-              const today = new Date().toDateString();
-              return new Date(s.assignedDate).toDateString() === today;
-            }).length
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching studies:', error);
-    } finally {
-      if (showLoadingState) {
-        setLoading(false);
-      }
+  // 🆕 NEW: API endpoint mapping for tabs (EXACTLY like admin dashboard)
+  const getEndpointForCategory = useCallback((category) => {
+    switch (category) {
+      case 'pending':
+        return '/doctor/studies/pending';
+      case 'inprogress':
+        return '/doctor/studies/inprogress';
+      case 'completed':
+        return '/doctor/studies/completed';
+      case 'all':
+      default:
+        return '/doctor/assigned-studies';
     }
-  }, [currentPage, activeCategory]);
-
-  // Handle category change
-  const handleCategoryChange = useCallback((category) => {
-    setActiveCategory(category);
-    setCurrentPage(1); // Reset to first page when changing categories
   }, []);
 
-  // Handle page change
-  const handlePageChange = useCallback((page) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
+  // 🔧 UPDATED: Fetch studies with dynamic endpoint (EXACTLY like admin dashboard)
+  const fetchAllData = useCallback(async (searchParams = {}) => {
+    try {
+      setLoading(true);
+      console.log(`🔄 DOCTOR: Fetching data for category: ${activeCategory}`);
+      console.log(`🔍 DOCTOR: Search params:`, searchParams);
+      
+      // ✅ CHECK: If this is a hybrid search (quick search + lab selection)
+      const hasHybridSearchParams = searchParams && 
+        searchParams !== null && 
+        typeof searchParams === 'object' &&
+        Object.keys(searchParams).length > 0 && (
+          searchParams.searchTerm || 
+          (searchParams.selectedLocation && searchParams.selectedLocation !== 'ALL')
+        );
+
+      console.log(`🔍 DOCTOR: Has hybrid search params: ${hasHybridSearchParams}`);
+
+      let studiesResponse, valuesResponse;
+
+      if (hasHybridSearchParams) {
+        // 🔍 HYBRID SEARCH MODE: Use doctor search endpoint for quick search + lab
+        console.log('🔍 DOCTOR: Using HYBRID search endpoint');
+        
+        const searchApiParams = {
+          limit: recordsPerPage,
+          dateType: dateType,
+          ...searchParams
+        };
+        
+        // Add date filter parameters for search
+        if (dateFilter === 'custom') {
+          if (customDateFrom) searchApiParams.customDateFrom = customDateFrom;
+          if (customDateTo) searchApiParams.customDateTo = customDateTo;
+          searchApiParams.dateFilter = 'custom';
+        } else if (dateFilter && dateFilter !== 'all') {
+          searchApiParams.quickDatePreset = dateFilter;
+        }
+        
+        console.log('📤 DOCTOR: Hybrid search API params:', searchApiParams);
+        
+        [studiesResponse, valuesResponse] = await Promise.all([
+          api.get('/admin/studies/search', { params: searchApiParams }),
+          api.get('/admin/search/values', { params: searchApiParams })
+        ]);
+        
+      } else {
+        // 📊 NORMAL MODE: Use doctor controller endpoint
+        console.log('📊 DOCTOR: Using DOCTOR controller for normal data fetching');
+        
+        const doctorParams = {
+          limit: recordsPerPage,
+          dateType: dateType
+        };
+        
+        // Add date filter parameters for doctor endpoint
+        if (dateFilter === 'custom') {
+          if (customDateFrom) doctorParams.customDateFrom = customDateFrom;
+          if (customDateTo) doctorParams.customDateTo = customDateTo;
+          doctorParams.dateFilter = 'custom';
+        } else if (dateFilter && dateFilter !== 'all') {
+          doctorParams.quickDatePreset = dateFilter;
+        }
+        
+        // Add category filter for doctor endpoint
+        if (activeCategory && activeCategory !== 'all') {
+          doctorParams.category = activeCategory;
+        }
+        
+        console.log('📤 DOCTOR: Doctor API params:', doctorParams);
+        
+        // Use different endpoints based on category
+        const studiesEndpoint = getEndpointForCategory(activeCategory);
+        
+        [studiesResponse, valuesResponse] = await Promise.all([
+          api.get(studiesEndpoint, { params: doctorParams }),
+          api.get('/doctor/values', { params: doctorParams })
+        ]);
+      }
+      
+      // Process studies response
+      if (studiesResponse.data.success) {
+        setAllStudies(studiesResponse.data.data);
+        setTotalRecords(studiesResponse.data.totalRecords);
+        setLastRefresh(new Date());
+        
+        console.log(`✅ DOCTOR: Data fetch successful: ${studiesResponse.data.data.length} studies`);
+        console.log(`📊 DOCTOR: Using ${hasHybridSearchParams ? 'HYBRID SEARCH' : 'DOCTOR'} controller`);
+        
+        // Log hybrid mode info
+        if (studiesResponse.data.hybridMode) {
+          console.log(`🔄 DOCTOR: Hybrid mode active - Backend: ${JSON.stringify(studiesResponse.data.backendFilters)}`);
+        }
+        
+        // Update dashboard stats from backend response
+        if (studiesResponse.data.summary?.byCategory) {
+          setDashboardStats({
+            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
+            pendingStudies: studiesResponse.data.summary.byCategory.pending || 0,
+            inProgressStudies: studiesResponse.data.summary.byCategory.inprogress || 0,
+            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
+            urgentStudies: studiesResponse.data.summary.urgentStudies || 
+                           studiesResponse.data.data.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
+            todayAssigned: studiesResponse.data.summary.todayAssigned || 
+                          studiesResponse.data.data.filter(s => {
+                            const today = new Date().toDateString();
+                            return new Date(s.assignedAt || s.assignedDate).toDateString() === today;
+                          }).length
+          });
+        }
+      }
+
+      // Process values response
+      if (valuesResponse.data && valuesResponse.data.success) {
+        setValues({
+          today: valuesResponse.data.total || 0,
+          pending: valuesResponse.data.pending || 0,
+          inprogress: valuesResponse.data.inprogress || 0,
+          completed: valuesResponse.data.completed || 0,
+        });
+      }
+      
+      console.log(`✅ ${hasHybridSearchParams ? 'Hybrid search' : 'Doctor'} data fetched successfully`);
+      
+    } catch (error) {
+      console.error(`❌ DOCTOR: Error fetching data:`, error);
+      setAllStudies([]);
+      setTotalRecords(0);
+      setValues({
+        today: 0,
+        pending: 0,
+        inprogress: 0,
+        completed: 0,
+      });
+    } finally {
+      setLoading(false);
     }
-  }, [totalPages]);
+  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType, getEndpointForCategory]);
+
+  // 🔧 SIMPLIFIED: Single useEffect for initial load and dependency changes
+  useEffect(() => {
+    console.log(`🔄 DOCTOR: Data dependencies changed - fetching fresh data`);
+    fetchAllData();
+  }, [fetchAllData]);
+
+  // 🆕 NEW: Date filter handlers (matching admin)
+  const handleDateFilterChange = useCallback((newDateFilter) => {
+    console.log(`📅 DOCTOR: Changing date filter to ${newDateFilter}`);
+    setDateFilter(newDateFilter);
+    setNextRefreshIn(300); // Reset countdown
+  }, []);
+
+  const handleCustomDateChange = useCallback((from, to) => {
+    console.log(`📅 DOCTOR: Setting custom date range from ${from} to ${to}`);
+    setCustomDateFrom(from);
+    setCustomDateTo(to);
+    if (from || to) {
+      setDateFilter('custom');
+    }
+    setNextRefreshIn(300); // Reset countdown
+  }, []);
+
+  const handleDateTypeChange = useCallback((newDateType) => {
+    console.log(`📅 DOCTOR: Changing date type to ${newDateType}`);
+    setDateType(newDateType);
+    setNextRefreshIn(300); // Reset countdown
+  }, []);
+
+  // 🆕 NEW: Handle search with backend parameters (matching admin)
+  const handleSearchWithBackend = useCallback((searchParams) => {
+    console.log('🔍 DOCTOR: Handling search with backend params:', searchParams);
+    fetchAllData(searchParams);
+  }, [fetchAllData]);
+
+  // Handle category change (EXACTLY like admin)
+  const handleCategoryChange = useCallback((category) => {
+    console.log(`🏷️ DOCTOR: Changing category from ${activeCategory} to ${category}`);
+    
+    // 🔧 FIXED: Only change if actually different
+    if (activeCategory !== category) {
+      setActiveCategory(category);
+      setNextRefreshIn(300); // Reset countdown
+    }
+  }, [activeCategory]);
+
+  // 🔧 SIMPLIFIED: Handle records per page change (no pagination, matching admin)
+  const handleRecordsPerPageChange = useCallback((newRecordsPerPage) => {
+    console.log(`📊 DOCTOR: Changing records per page from ${recordsPerPage} to ${newRecordsPerPage}`);
+    setRecordsPerPage(newRecordsPerPage);
+    setNextRefreshIn(300); // Reset countdown
+  }, []);
 
   // Handle assignment completion (refresh data)
   const handleAssignmentComplete = useCallback(() => {
-    fetchStudies();
+    console.log('📋 DOCTOR: Assignment completed, refreshing studies...');
+    fetchAllData();
     setNextRefreshIn(300); // Reset countdown
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // Handle manual refresh
   const handleManualRefresh = useCallback(() => {
-    fetchStudies();
+    console.log('🔄 DOCTOR: Manual refresh triggered');
+    fetchAllData();
     setNextRefreshIn(300); // Reset countdown
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // Handle worklist view
   const handleWorklistView = useCallback((view) => {
-    console.log('Worklist view changed:', view);
+    console.log('DOCTOR: Worklist view changed:', view);
+    setNextRefreshIn(300); // Reset countdown
   }, []);
-
-  // Initial data fetch
-  useEffect(() => {
-    fetchStudies();
-  }, [fetchStudies]);
 
   // 🔧 AUTO-REFRESH EVERY 5 MINUTES
   useEffect(() => {
@@ -141,8 +286,8 @@ const DoctorDashboard = React.memo(() => {
 
     // Set up auto-refresh every 5 minutes (300 seconds)
     intervalRef.current = setInterval(() => {
-      console.log('Auto-refreshing studies...');
-      fetchStudies(false); // Don't show loading state for auto-refresh
+      console.log('🔄 DOCTOR: Auto-refreshing studies...');
+      fetchAllData(); // Don't show loading state for auto-refresh
       setNextRefreshIn(300); // Reset countdown
     }, 300000); // 5 minutes
 
@@ -155,6 +300,7 @@ const DoctorDashboard = React.memo(() => {
         return prev - 1;
       });
     }, 1000);
+    console.log(allStudies)
 
     // Cleanup function
     return () => {
@@ -165,7 +311,7 @@ const DoctorDashboard = React.memo(() => {
         clearInterval(countdownRef.current);
       }
     };
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // 🔧 FORMAT NEXT REFRESH TIME
   const formatRefreshTime = useMemo(() => {
@@ -184,149 +330,58 @@ const DoctorDashboard = React.memo(() => {
   }, [lastRefresh]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50 flex flex-col">
       <UniversalNavbar />
 
-      <div className="max-w-8xl mx-auto p-4">
-        {/* Enhanced Header with Auto-Refresh Info */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            {/* Left side - Title and basic info */}
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">My Assigned Studies</h1>
-              <div className="flex items-center space-x-4 mt-1">
-                <span className="text-sm text-gray-600">{totalRecords} total studies</span>
-                
-                {/* 🔧 AUTO-REFRESH STATUS */}
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                    <span className="text-xs text-green-700">Auto-refresh enabled</span>
-                  </div>
-                  <span className="text-xs text-gray-500">|</span>
-                  <span className="text-xs text-gray-500">
-                    Last updated: {formatLastRefresh}
-                  </span>
-                  <span className="text-xs text-gray-500">|</span>
-                  <span className="text-xs text-blue-600 font-medium">
-                    Next refresh in: {formatRefreshTime}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Right side - Compact actions */}
-            <div className="flex items-center space-x-3">
-              {/* Quick Stats - Horizontal - DOCTOR SPECIFIC */}
-              <div className="hidden md:flex items-center space-x-4 px-4 py-2 bg-white rounded-lg border border-gray-200 shadow-sm">
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-yellow-600">{dashboardStats.pendingStudies}</div>
-                  <div className="text-xs text-gray-500">Pending</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-orange-600">{dashboardStats.inProgressStudies}</div>
-                  <div className="text-xs text-gray-500">In Progress</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-green-600">{dashboardStats.completedStudies}</div>
-                  <div className="text-xs text-gray-500">Completed</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-red-600">{dashboardStats.urgentStudies}</div>
-                  <div className="text-xs text-gray-500">Urgent</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-blue-600">{dashboardStats.todayAssigned}</div>
-                  <div className="text-xs text-gray-500">Today</div>
-                </div>
-              </div>
-
-              {/* Action Buttons - Enhanced with Auto-Refresh Info */}
-              <div className="flex items-center space-x-2">
-                <button 
-                  onClick={handleManualRefresh}
-                  disabled={loading}
-                  className="flex items-center space-x-1 p-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 disabled:opacity-50"
-                  title={`Manual refresh (Auto-refresh in ${formatRefreshTime})`}
-                >
-                  <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0V9a8 8 0 1115.356 2M15 15v-2a8 8 0 01-15.356-2" />
-                  </svg>
-                  <span className="hidden sm:inline text-xs">
-                    {formatRefreshTime}
-                  </span>
-                </button>
-
-                <Link 
-                  to="/doctor/reports" 
-                  className="px-3 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all duration-200 text-sm font-medium"
-                >
-                  My Reports
-                </Link>
-
-                <Link 
-                  to="/doctor/profile" 
-                  className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 text-sm font-medium"
-                >
-                  Profile
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          {/* 🔧 AUTO-REFRESH PROGRESS BAR */}
-          <div className="w-full bg-gray-200 rounded-full h-1 overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-blue-500 to-green-500 transition-all duration-1000 ease-linear"
-              style={{ 
-                width: `${((300 - nextRefreshIn) / 300) * 100}%` 
-              }}
-            ></div>
-          </div>
-        </div>
-
-        {/* PRIMARY FOCUS: Enhanced Worklist Section */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-          {/* Worklist Content - Maximum Focus */}
-          <div className="p-6">
+      <div className="min-w-full mx-auto p-1 sm:p-2 lg:p-0 flex-1 flex flex-col">
+        {/* 🔧 CLEAN: Main Content - Now WorklistSearch handles all controls (matching admin) */}
+        <div className="bg-white flex-1 min-h-0 rounded border border-gray-200 overflow-hidden flex flex-col">
+          <div className="flex-1 flex flex-col min-h-0 p-0 sm:p-2 lg:px-1 lg:pb-0 pb-0">
             <WorklistSearch 
               allStudies={allStudies}
               loading={loading}
               totalRecords={totalRecords}
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={handlePageChange}
               userRole="doctor"
               onAssignmentComplete={handleAssignmentComplete}
               onView={handleWorklistView}
               activeCategory={activeCategory}
               onCategoryChange={handleCategoryChange}
               categoryStats={dashboardStats}
+              recordsPerPage={recordsPerPage}
+              onRecordsPerPageChange={handleRecordsPerPageChange}
+              dateFilter={dateFilter}
+              onDateFilterChange={handleDateFilterChange}
+              customDateFrom={customDateFrom}
+              customDateTo={customDateTo}
+              onCustomDateChange={handleCustomDateChange}
+              dateType={dateType}
+              onDateTypeChange={handleDateTypeChange}
+              onSearchWithBackend={handleSearchWithBackend}
+              values={values}
+              // 🆕 NEW: Pass additional props for integrated controls (NO websocket props for doctor)
+              connectionStatus="connected" // Static for doctor dashboard
+              onManualRefresh={handleManualRefresh}
             />
           </div>
         </div>
 
-        {/* Secondary Information - Collapsible Mobile Stats - DOCTOR SPECIFIC */}
-        <div className="md:hidden mt-4">
-          <details className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center justify-between">
-              <span>View Statistics</span>
-              <span className="text-xs text-blue-600">
-                Auto-refresh: {formatRefreshTime}
+        {/* 🔧 CLEAN: Mobile Stats - Keep this for mobile view (matching admin) */}
+        <div className="lg:hidden mt-1 sm:mt-2">
+          <details className="bg-white rounded border border-gray-200 shadow-sm">
+            <summary className="px-2 py-1.5 cursor-pointer text-xs font-medium text-gray-700 hover:bg-gray-50 select-none">
+              <span className="flex items-center justify-between">
+                <span>View Doctor Statistics</span>
+                <span className="text-blue-600">Auto-refresh: {formatRefreshTime}</span>
               </span>
             </summary>
-            <div className="px-4 pb-4">
-              {/* Mobile Auto-Refresh Info */}
-              <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                <div className="flex items-center justify-between text-sm">
+            <div className="px-2 pb-2">
+              {/* 🔧 AUTO-REFRESH: Info section for mobile */}
+              <div className="mb-2 p-2 bg-blue-50 rounded text-xs">
+                <div className="flex items-center justify-between">
                   <span className="text-blue-700 font-medium">Auto-refresh enabled</span>
                   <span className="text-blue-600">{formatRefreshTime}</span>
                 </div>
-                <div className="w-full bg-blue-200 rounded-full h-1 mt-2 overflow-hidden">
+                <div className="w-full bg-blue-200 rounded-full h-1 mt-1 overflow-hidden">
                   <div 
                     className="h-full bg-blue-500 transition-all duration-1000 ease-linear"
                     style={{ 
@@ -339,23 +394,43 @@ const DoctorDashboard = React.memo(() => {
                 </div>
               </div>
 
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                  <div className="text-lg font-semibold text-yellow-600">{dashboardStats.pendingStudies}</div>
+              {/* Stats Grid - Doctor specific */}
+              <div className="grid grid-cols-3 gap-1 sm:gap-2">
+                <div className="text-center p-1.5 bg-yellow-50 rounded">
+                  <div className="text-sm font-semibold text-yellow-600">
+                    {dashboardStats.pendingStudies.toLocaleString()}
+                  </div>
                   <div className="text-xs text-gray-500">Pending</div>
                 </div>
-                <div className="text-center p-3 bg-orange-50 rounded-lg">
-                  <div className="text-lg font-semibold text-orange-600">{dashboardStats.inProgressStudies}</div>
+                <div className="text-center p-1.5 bg-orange-50 rounded">
+                  <div className="text-sm font-semibold text-orange-600">
+                    {dashboardStats.inProgressStudies.toLocaleString()}
+                  </div>
                   <div className="text-xs text-gray-500">In Progress</div>
                 </div>
-                <div className="text-center p-3 bg-green-50 rounded-lg">
-                  <div className="text-lg font-semibold text-green-600">{dashboardStats.completedStudies}</div>
+                <div className="text-center p-1.5 bg-green-50 rounded">
+                  <div className="text-sm font-semibold text-green-600">
+                    {dashboardStats.completedStudies.toLocaleString()}
+                  </div>
                   <div className="text-xs text-gray-500">Completed</div>
                 </div>
-                <div className="text-center p-3 bg-red-50 rounded-lg">
-                  <div className="text-lg font-semibold text-red-600">{dashboardStats.urgentStudies}</div>
+                <div className="text-center p-1.5 bg-red-50 rounded">
+                  <div className="text-sm font-semibold text-red-600">
+                    {dashboardStats.urgentStudies.toLocaleString()}
+                  </div>
                   <div className="text-xs text-gray-500">Urgent</div>
+                </div>
+                <div className="text-center p-1.5 bg-blue-50 rounded">
+                  <div className="text-sm font-semibold text-blue-600">
+                    {dashboardStats.todayAssigned.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500">Today</div>
+                </div>
+                <div className="text-center p-1.5 bg-gray-50 rounded">
+                  <div className="text-sm font-semibold text-gray-600">
+                    {dashboardStats.totalStudies.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500">Total</div>
                 </div>
               </div>
             </div>
