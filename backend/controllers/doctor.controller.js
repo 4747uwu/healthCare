@@ -3053,7 +3053,7 @@ export const getCompletedStudies = async (req, res) => {
                 patientIdForDisplay = patient.patientID || "N/A";
             }
 
-            const tat = study.calculatedTAT || calculateStudyTAT(study);
+            // const tat = study.calculatedTAT || calculateStudyTAT(study);
 
             return {
                 _id: study._id,
