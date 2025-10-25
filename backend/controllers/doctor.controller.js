@@ -489,6 +489,9 @@ export const getAssignedStudies = async (req, res) => {
                 patientIdDisplay = patient.patientID || 'N/A';
             }
 
+                        // const tat = study.calculatedTAT || calculateStudyTAT(study);
+
+
             return {
                 _id: study._id,
                 orthancStudyID: study.orthancStudyID,
@@ -540,6 +543,10 @@ export const getAssignedStudies = async (req, res) => {
                 workflowStatus: study.workflowStatus,
                 caseType: study.caseType || 'routine',
                 currentCategory: study.currentCategory,
+                // tat: tat,
+                // totalTATDays: tat.totalTATDays,
+                // isOverdue: tat.isOverdue,
+                // tatPhase: tat.phase,
                 priority: assignmentData?.priority || study.caseType?.toUpperCase() || 'NORMAL',
                 assignedDate: assignmentData?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
@@ -2794,8 +2801,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
 export const getCompletedStudies = async (req, res) => {
     try {
         const startTime = Date.now();
-        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-
+const limit = Math.min(parseInt(req.query.limit) || 20, 1500);
         const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
         if (!doctor) {
             return res.status(404).json({
@@ -3206,10 +3212,10 @@ export const getCompletedStudies = async (req, res) => {
                 workflowStatus: study.workflowStatus,
                 caseType: study.caseType || 'routine',
                 currentCategory: study.currentCategory,
-                tat: tat,
-                totalTATDays: tat.totalTATDays,
-                isOverdue: tat.isOverdue,
-                tatPhase: tat.phase,
+                // tat: tat,
+                // totalTATDays: tat.totalTATDays,
+                // isOverdue: tat.isOverdue,
+                // tatPhase: tat.phase,
                 priority: assignmentData?.priority || 'NORMAL',
                 assignedDate: assignmentData?.assignedAt,
                 reportStartedAt: study.reportInfo?.startedAt,
