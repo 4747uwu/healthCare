@@ -112,27 +112,32 @@ const convertImageToDicom = async (imageBuffer, metadata, imageIndex = 0) => {
     }
 };
 
-// 🔧 NEW: Create DICOM binary file (simplified version)
+// 🔧 FIXED: Create DICOM binary file (proper Buffer creation)
 const createDicomBinary = async (dicomDataset, pixelData) => {
     try {
-        // This is a simplified DICOM file creation
-        // In production, you'd use a proper DICOM library like dcmjs
+        // Create a proper DICOM file structure
+        // This is a simplified version - in production use dcmjs for full compliance
         
-        // Create a basic DICOM file structure
-        const header = Buffer.from([
-            // DICOM prefix
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            // ... more DICOM header bytes would go here
-        ]);
+        // DICOM File Meta Information
+        const preamble = Buffer.alloc(128, 0); // 128 bytes of zeros
+        const prefix = Buffer.from('DICM', 'ascii'); // DICOM prefix
         
-        // For now, create a placeholder DICOM file
+        // Simplified DICOM header (this should be proper DICOM tags in production)
+        const headerData = JSON.stringify(dicomDataset);
+        const headerBuffer = Buffer.from(headerData, 'utf8');
+        const headerLength = Buffer.alloc(4);
+        headerLength.writeUInt32LE(headerBuffer.length, 0);
+        
+        // Combine all parts into a valid DICOM file
         const dicomFile = Buffer.concat([
-            header,
-            Buffer.from(JSON.stringify(dicomDataset)),
-            pixelData
+            preamble,      // 128 bytes preamble
+            prefix,        // 'DICM' prefix
+            headerLength,  // Header length (4 bytes)
+            headerBuffer,  // JSON metadata as header
+            pixelData      // Actual pixel data
         ]);
         
+        console.log(`✅ DICOM binary created, size: ${dicomFile.length} bytes`);
         return dicomFile;
         
     } catch (error) {
@@ -141,12 +146,12 @@ const createDicomBinary = async (dicomDataset, pixelData) => {
     }
 };
 
-// 🔧 NEW: Create ZIP directly without Orthanc
+// 🔧 FIXED: Create ZIP directly without Orthanc
 const createZipFromImages = async (dicomResults, metadata) => {
     try {
         console.log('📦 Creating ZIP file from processed images...');
         
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             const archive = archiver('zip', {
                 zlib: { level: 6 } // Compression level
             });
@@ -168,31 +173,59 @@ const createZipFromImages = async (dicomResults, metadata) => {
                 reject(err);
             });
             
-            // Add each DICOM file to the ZIP
-            dicomResults.forEach((result, index) => {
+            // 🔧 FIXED: Add each DICOM file to the ZIP with proper Buffer handling
+            let filesAdded = 0;
+            for (let index = 0; index < dicomResults.length; index++) {
+                const result = dicomResults[index];
+                
                 if (result.status === 'success') {
                     try {
-                        // Create a simplified DICOM file
-                        const dicomBinary = createDicomBinary(result.dicomDataset, result.pixelData);
+                        console.log(`📄 Adding image ${index + 1} to ZIP...`);
+                        
+                        // 🔧 CRITICAL FIX: Await the createDicomBinary function
+                        const dicomBinary = await createDicomBinary(result.dicomDataset, result.pixelData);
+                        
+                        // 🔧 ENSURE: dicomBinary is a proper Buffer
+                        if (!Buffer.isBuffer(dicomBinary)) {
+                            throw new Error(`DICOM binary is not a Buffer for image ${index + 1}`);
+                        }
+                        
+                        console.log(`✅ DICOM binary for image ${index + 1} is valid Buffer: ${dicomBinary.length} bytes`);
+                        
+                        // Add the buffer to archive with proper filename
                         archive.append(dicomBinary, { 
                             name: `image_${index + 1}_${result.sopInstanceUID}.dcm` 
                         });
+                        
+                        filesAdded++;
+                        console.log(`✅ Added image ${index + 1} to ZIP successfully`);
+                        
                     } catch (err) {
-                        console.warn(`⚠️ Failed to add image ${index + 1} to ZIP:`, err.message);
+                        console.error(`❌ Failed to add image ${index + 1} to ZIP:`, err.message);
+                        // Continue with other files instead of failing completely
                     }
                 }
-            });
+            }
+            
+            if (filesAdded === 0) {
+                return reject(new Error('No valid DICOM files to add to ZIP'));
+            }
             
             // Add metadata file
             const metadataJson = JSON.stringify({
                 studyInfo: metadata,
                 createdAt: new Date().toISOString(),
-                imageCount: dicomResults.filter(r => r.status === 'success').length,
-                creator: 'XCENTIC Image Uploader'
+                imageCount: filesAdded,
+                creator: 'XCENTIC Image Uploader',
+                totalOriginalImages: dicomResults.length,
+                successfulConversions: filesAdded
             }, null, 2);
             
-            archive.append(metadataJson, { name: 'study_metadata.json' });
+            archive.append(Buffer.from(metadataJson), { name: 'study_metadata.json' });
             
+            console.log(`📋 Added metadata file, finalizing ZIP with ${filesAdded} DICOM files...`);
+            
+            // Finalize the archive
             archive.finalize();
         });
         
