@@ -257,9 +257,13 @@ export const downloadFromR2 = async (req, res) => {
         
         console.log(`🌐 R2 download requested for: ${orthancStudyId}`);
         
-        const study = await DicomStudy.findOne(
-            { orthancStudyID: orthancStudyId }
-        ).lean();
+        const study = await DicomStudy.findOne({
+            $or: [
+                { orthancStudyID: orthancStudyId },
+                { studyInstanceUID: orthancStudyId },
+                { _id: orthancStudyId }
+            ]
+        }).lean();
         
         console.log('🔍 DEBUG - Study found:', !!study);
         if (study) {
