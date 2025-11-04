@@ -3,8 +3,8 @@ import axios from 'axios';
 import sessionManager from './sessionManager';
 
 // ✅ Use environment variable with correct port
-// const API_URL = '/api';
-const API_URL = 'http://localhost:3000/api'; // Adjust port as needed
+const API_URL = '/api';
+// const API_URL = 'http://localhost:3000/api'; // Adjust port as needed
 
 console.log('🔍 API Service URL:', API_URL); // Debug log
 
