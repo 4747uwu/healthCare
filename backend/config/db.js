@@ -7,7 +7,7 @@ dotenv.config();
 const connectDB = async () => {
     try {
         console.log('🔗 Connecting to MongoDB replica set...');
-        const MONGODB_URI ='mongodb://mongoadmin:your_super_secret_password@157.245.86.199:27017/medical_project?authSource=admin&directConnection=true';
+        const MONGODB_URI ='mongodb://mongoadmin:your_super_secret_password@mongodb:27017/?replicaSet=rs0&authSource=admin'
                 // const MONGODB_URI ='mongodb://alice:alicePassword@64.227.187.164:27017/medical_project?authSource=admin&directConnection=true'
 
                 // mongodb://alice:alicePassword@159.203.168.110:27017/admin?authSource=admin&directConnection=true
