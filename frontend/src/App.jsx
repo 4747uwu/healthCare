@@ -28,6 +28,8 @@ import OwnerManagement from './pages/OwnerManagement';
 // ✅ NEW: Additional imports
 import TemplateManager from './components/layout/TemplateMangement';
 import OnlineReportingSystem from './components/layout/OnlineReportingSystem';
+// 🆕 ADD:
+import DicomUploader from './pages/admin/DicomUploader';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { currentUser, loading } = useAuth();
@@ -110,6 +112,15 @@ function App() {
                   <NewDoctorPage />
                 </ProtectedRoute>
               } 
+            />
+            {/* 🆕 DICOM Uploader Route */}
+            <Route
+              path="/admin/dicom-uploader"
+              element={
+                <ProtectedRoute allowedRoles={['admin','lab_staff']}>
+                  <DicomUploader />
+                </ProtectedRoute>
+              }
             />
             <Route 
               path="/admin/new-admin" 

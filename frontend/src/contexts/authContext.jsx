@@ -3,9 +3,12 @@ import axios from 'axios';
 import sessionManager from '../services/sessionManager';
 
 // ✅ Use environment variable instead of hardcoded localhost
-const API_URL = import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_BACKEND_URL !== ''
-  ? `${import.meta.env.VITE_BACKEND_URL}/api`  // Development: use external URL
-  : '/api';  // Production: use nginx proxy
+// const API_URL = import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_BACKEND_URL !== ''
+//   ? `${import.meta.env.VITE_BACKEND_URL}/api`  // Development: use external URL
+//   : '/api';  // Production: use nginx proxy
+
+  const API_URL = 'http://157.245.86.199:3000/api'; // Adjust port as needed
+
 
 
 console.log('🔍 API_URL:', API_URL); // Debug log
