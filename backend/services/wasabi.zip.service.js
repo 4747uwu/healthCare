@@ -227,6 +227,43 @@ class CloudflareR2ZipService {
         }
     }
 
+    // Add this method to your CloudflareR2ZipService
+async uploadZipBuffer({ buffer, fileName, studyDatabaseId, studyInstanceUID, instanceCount, seriesCount }) {
+    try {
+        const year = new Date().getFullYear();
+        const key = `studies/${year}/${fileName}`;
+        
+        // Upload buffer to R2
+        const uploadResult = await this.r2Client.send(new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: key,
+            Body: buffer,
+            ContentType: 'application/zip',
+            Metadata: {
+                studyDatabaseId: studyDatabaseId.toString(),
+                studyInstanceUID: studyInstanceUID,
+                instanceCount: instanceCount.toString(),
+                seriesCount: seriesCount.toString(),
+                uploadMethod: 'direct_image_upload'
+            }
+        }));
+        
+        const zipUrl = `${this.r2Config.publicUrlPattern}/${key}`;
+        
+        return {
+            success: true,
+            zipUrl: zipUrl,
+            zipKey: key,
+            fileName: fileName,
+            sizeMB: (buffer.length / 1024 / 1024)
+        };
+        
+    } catch (error) {
+        console.error('❌ Error uploading ZIP buffer to R2:', error);
+        throw error;
+    }
+}
+
     // ✅ FIXED: Upload ZIP stream to Cloudflare R2
     async uploadZipToR2(zipStream, fileName, metadata) {
         const year = new Date().getFullYear();

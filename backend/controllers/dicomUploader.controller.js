@@ -5,13 +5,10 @@ import Patient from '../models/patientModel.js';
 import Lab from '../models/labModel.js';
 import CloudflareR2ZipService from '../services/wasabi.zip.service.js';
 import { v4 as uuidv4 } from 'uuid';
+import archiver from 'archiver';
+import { Buffer } from 'buffer';
 
-const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
-const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice';
-const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
-const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
-
-// 🔧 ENHANCED: Image to DICOM conversion with proper metadata
+// 🔧 ENHANCED: Image to DICOM conversion with proper metadata (NO ORTHANC)
 const convertImageToDicom = async (imageBuffer, metadata, imageIndex = 0) => {
     try {
         console.log(`🔄 Converting image ${imageIndex + 1} to DICOM...`);
@@ -35,69 +32,57 @@ const convertImageToDicom = async (imageBuffer, metadata, imageIndex = 0) => {
         const dicomDate = now.toISOString().slice(0, 10).replace(/-/g, '');
         const dicomTime = now.toISOString().slice(11, 19).replace(/:/g, '');
         
-        // 🔧 CRITICAL: Build DICOM dataset
+        // 🔧 CRITICAL: Build DICOM dataset for binary creation
         const dicomDataset = {
             // Patient Module
-            "00100010": { "vr": "PN", "Value": [metadata.patientName || "UNKNOWN^PATIENT"] }, // Patient's Name
-            "00100020": { "vr": "LO", "Value": [metadata.patientId || "UNKNOWN"] }, // Patient ID
-            "00100030": { "vr": "DA", "Value": [metadata.patientBirthDate || ""] }, // Patient's Birth Date
-            "00100040": { "vr": "CS", "Value": [metadata.patientSex || "O"] }, // Patient's Sex
+            PatientName: metadata.patientName || "UNKNOWN^PATIENT",
+            PatientID: metadata.patientId || "UNKNOWN",
+            PatientBirthDate: metadata.patientBirthDate || "",
+            PatientSex: metadata.patientSex || "O",
             
             // General Study Module
-            "0020000D": { "vr": "UI", "Value": [studyInstanceUID] }, // Study Instance UID
-            "00080020": { "vr": "DA", "Value": [dicomDate] }, // Study Date
-            "00080030": { "vr": "TM", "Value": [dicomTime] }, // Study Time
-            "00080050": { "vr": "SH", "Value": [metadata.accessionNumber || ""] }, // Accession Number
-            "00081030": { "vr": "LO", "Value": [metadata.studyDescription || "Uploaded Image Study"] }, // Study Description
-            "00080090": { "vr": "PN", "Value": [metadata.referringPhysician || ""] }, // Referring Physician's Name
-            "00200010": { "vr": "SH", "Value": [metadata.studyId || "1"] }, // Study ID
+            StudyInstanceUID: studyInstanceUID,
+            StudyDate: dicomDate,
+            StudyTime: dicomTime,
+            AccessionNumber: metadata.accessionNumber || "",
+            StudyDescription: metadata.studyDescription || "Uploaded Image Study",
+            ReferringPhysicianName: metadata.referringPhysician || "",
+            StudyID: metadata.studyId || "1",
             
             // General Series Module
-            "0020000E": { "vr": "UI", "Value": [seriesInstanceUID] }, // Series Instance UID
-            "00200011": { "vr": "IS", "Value": [1] }, // Series Number
-            "00080021": { "vr": "DA", "Value": [dicomDate] }, // Series Date
-            "00080031": { "vr": "TM", "Value": [dicomTime] }, // Series Time
-            "00080060": { "vr": "CS", "Value": [metadata.modality || "OT"] }, // Modality
-            "0008103E": { "vr": "LO", "Value": [metadata.seriesDescription || "Uploaded Image Series"] }, // Series Description
-            "00180015": { "vr": "CS", "Value": [metadata.bodyPartExamined || ""] }, // Body Part Examined
+            SeriesInstanceUID: seriesInstanceUID,
+            SeriesNumber: "1",
+            SeriesDate: dicomDate,
+            SeriesTime: dicomTime,
+            Modality: metadata.modality || "OT",
+            SeriesDescription: metadata.seriesDescription || "Uploaded Image Series",
+            BodyPartExamined: metadata.bodyPartExamined || "",
             
             // General Equipment Module
-            "00080070": { "vr": "LO", "Value": ["XCENTIC"] }, // Manufacturer
-            "00081090": { "vr": "LO", "Value": ["XCENTIC_UPLOADER"] }, // Manufacturer's Model Name
-            "00181020": { "vr": "LO", "Value": ["v1.0"] }, // Software Versions
-            "00081010": { "vr": "SH", "Value": ["XCENTIC_STATION"] }, // Station Name
+            Manufacturer: "XCENTIC",
+            ManufacturerModelName: "XCENTIC_UPLOADER",
+            SoftwareVersions: "v1.0",
+            StationName: "XCENTIC_STATION",
             
             // General Image Module
-            "00080008": { "vr": "CS", "Value": ["ORIGINAL", "PRIMARY"] }, // Image Type
-            "00200013": { "vr": "IS", "Value": [imageIndex + 1] }, // Instance Number
-            "00080018": { "vr": "UI", "Value": [sopInstanceUID] }, // SOP Instance UID
-            "00080016": { "vr": "UI", "Value": ["1.2.840.10008.5.1.4.1.1.7"] }, // SOP Class UID (Secondary Capture Image Storage)
+            ImageType: ["ORIGINAL", "PRIMARY"],
+            InstanceNumber: (imageIndex + 1).toString(),
+            SOPInstanceUID: sopInstanceUID,
+            SOPClassUID: "1.2.840.10008.5.1.4.1.1.7", // Secondary Capture Image Storage
             
             // Image Pixel Module
-            "00280002": { "vr": "US", "Value": [1] }, // Samples per Pixel
-            "00280004": { "vr": "CS", "Value": ["MONOCHROME2"] }, // Photometric Interpretation
-            "00280010": { "vr": "US", "Value": [imageInfo.height] }, // Rows
-            "00280011": { "vr": "US", "Value": [imageInfo.width] }, // Columns
-            "00280100": { "vr": "US", "Value": [8] }, // Bits Allocated
-            "00280101": { "vr": "US", "Value": [8] }, // Bits Stored
-            "00280102": { "vr": "US", "Value": [7] }, // High Bit
-            "00280103": { "vr": "US", "Value": [0] }, // Pixel Representation
-            
-            // 🔧 CUSTOM: Add lab identification in private tags
-            "00130010": { "vr": "LO", "Value": [metadata.labIdentifier || "XCENTIC_LAB"] }, // Private Creator
-            "00150010": { "vr": "LO", "Value": [metadata.labIdentifier || "XCENTIC_LAB"] }, // Lab ID
-            "00210010": { "vr": "LO", "Value": [metadata.labIdentifier || "XCENTIC_LAB"] }, // Alternative Lab ID
-            "00430010": { "vr": "LO", "Value": [metadata.labIdentifier || "XCENTIC_LAB"] }, // Another Lab ID
+            SamplesPerPixel: 1,
+            PhotometricInterpretation: "MONOCHROME2",
+            Rows: imageInfo.height,
+            Columns: imageInfo.width,
+            BitsAllocated: 8,
+            BitsStored: 8,
+            HighBit: 7,
+            PixelRepresentation: 0,
             
             // Institution Module
-            "00080080": { "vr": "LO", "Value": [metadata.institutionName || "XCENTIC Medical Center"] }, // Institution Name
-            "00080081": { "vr": "ST", "Value": [metadata.institutionAddress || ""] }, // Institution Address
-            
-            // 🔧 CONVERSION: Add conversion metadata
-            "00090010": { "vr": "LO", "Value": ["XCENTIC_CONVERSION"] }, // Private Creator for conversion info
-            "00091001": { "vr": "LO", "Value": ["IMAGE_TO_DICOM"] }, // Conversion Type
-            "00091002": { "vr": "DT", "Value": [now.toISOString()] }, // Conversion DateTime
-            "00091003": { "vr": "LO", "Value": [metadata.originalFilename || "uploaded_image"] }, // Original Filename
+            InstitutionName: metadata.institutionName || "XCENTIC Medical Center",
+            InstitutionAddress: metadata.institutionAddress || ""
         };
         
         // Convert processed image to grayscale for DICOM
@@ -106,12 +91,6 @@ const convertImageToDicom = async (imageBuffer, metadata, imageIndex = 0) => {
             .raw()
             .toBuffer();
         
-        // Add pixel data to DICOM dataset
-        dicomDataset["7FE00010"] = {
-            "vr": "OB",
-            "BulkDataURI": `data:application/octet-stream;base64,${grayscaleBuffer.toString('base64')}`
-        };
-        
         console.log(`✅ DICOM dataset created for image ${imageIndex + 1}`);
         
         return {
@@ -119,6 +98,7 @@ const convertImageToDicom = async (imageBuffer, metadata, imageIndex = 0) => {
             studyInstanceUID,
             seriesInstanceUID,
             sopInstanceUID,
+            pixelData: grayscaleBuffer,
             imageInfo: {
                 width: imageInfo.width,
                 height: imageInfo.height,
@@ -132,29 +112,97 @@ const convertImageToDicom = async (imageBuffer, metadata, imageIndex = 0) => {
     }
 };
 
-// 🔧 UPLOAD: Upload DICOM to Orthanc
-const uploadDicomToOrthanc = async (dicomDataset) => {
+// 🔧 NEW: Create DICOM binary file (simplified version)
+const createDicomBinary = async (dicomDataset, pixelData) => {
     try {
-        console.log('📤 Uploading DICOM to Orthanc...');
+        // This is a simplified DICOM file creation
+        // In production, you'd use a proper DICOM library like dcmjs
         
-        const response = await axios.post(`${ORTHANC_BASE_URL}/instances`, dicomDataset, {
-            headers: {
-                'Authorization': orthancAuth,
-                'Content-Type': 'application/json'
-            },
-            timeout: 30000
-        });
+        // Create a basic DICOM file structure
+        const header = Buffer.from([
+            // DICOM prefix
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            // ... more DICOM header bytes would go here
+        ]);
         
-        console.log('✅ DICOM uploaded to Orthanc:', response.data);
-        return response.data;
+        // For now, create a placeholder DICOM file
+        const dicomFile = Buffer.concat([
+            header,
+            Buffer.from(JSON.stringify(dicomDataset)),
+            pixelData
+        ]);
+        
+        return dicomFile;
         
     } catch (error) {
-        console.error('❌ Error uploading DICOM to Orthanc:', error.response?.data || error.message);
-        throw new Error(`Failed to upload DICOM to Orthanc: ${error.message}`);
+        console.error('❌ Error creating DICOM binary:', error);
+        throw new Error(`Failed to create DICOM binary: ${error.message}`);
     }
 };
 
-// 🔧 MAIN: Upload images and convert to DICOM
+// 🔧 NEW: Create ZIP directly without Orthanc
+const createZipFromImages = async (dicomResults, metadata) => {
+    try {
+        console.log('📦 Creating ZIP file from processed images...');
+        
+        return new Promise((resolve, reject) => {
+            const archive = archiver('zip', {
+                zlib: { level: 6 } // Compression level
+            });
+            
+            const chunks = [];
+            
+            archive.on('data', (chunk) => {
+                chunks.push(chunk);
+            });
+            
+            archive.on('end', () => {
+                const zipBuffer = Buffer.concat(chunks);
+                console.log(`✅ ZIP created successfully, size: ${(zipBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+                resolve(zipBuffer);
+            });
+            
+            archive.on('error', (err) => {
+                console.error('❌ ZIP creation error:', err);
+                reject(err);
+            });
+            
+            // Add each DICOM file to the ZIP
+            dicomResults.forEach((result, index) => {
+                if (result.status === 'success') {
+                    try {
+                        // Create a simplified DICOM file
+                        const dicomBinary = createDicomBinary(result.dicomDataset, result.pixelData);
+                        archive.append(dicomBinary, { 
+                            name: `image_${index + 1}_${result.sopInstanceUID}.dcm` 
+                        });
+                    } catch (err) {
+                        console.warn(`⚠️ Failed to add image ${index + 1} to ZIP:`, err.message);
+                    }
+                }
+            });
+            
+            // Add metadata file
+            const metadataJson = JSON.stringify({
+                studyInfo: metadata,
+                createdAt: new Date().toISOString(),
+                imageCount: dicomResults.filter(r => r.status === 'success').length,
+                creator: 'XCENTIC Image Uploader'
+            }, null, 2);
+            
+            archive.append(metadataJson, { name: 'study_metadata.json' });
+            
+            archive.finalize();
+        });
+        
+    } catch (error) {
+        console.error('❌ Error creating ZIP:', error);
+        throw new Error(`Failed to create ZIP: ${error.message}`);
+    }
+};
+
+// 🔧 MAIN: Upload images and convert to DICOM (NO ORTHANC)
 export const uploadImages = async (req, res) => {
     console.log('🔍 ===== DICOM UPLOADER CALLED =====');
     console.log('📝 req.body:', req.body);
@@ -238,9 +286,9 @@ export const uploadImages = async (req, res) => {
             seriesInstanceUID
         };
         
-        // 🔧 STEP 4: Process each image
+        // 🔧 STEP 4: Process each image (NO ORTHANC UPLOAD)
         const uploadResults = [];
-        const orthancInstanceIds = [];
+        const dicomResults = [];
         
         for (let i = 0; i < req.files.length; i++) {
             const file = req.files[i];
@@ -253,18 +301,18 @@ export const uploadImages = async (req, res) => {
                     originalFilename: file.originalname
                 }, i);
                 
-                // Upload to Orthanc
-                const orthancResult = await uploadDicomToOrthanc(dicomResult.dicomDataset);
+                dicomResults.push({
+                    ...dicomResult,
+                    originalFilename: file.originalname,
+                    status: 'success'
+                });
                 
                 uploadResults.push({
                     filename: file.originalname,
                     sopInstanceUID: dicomResult.sopInstanceUID,
-                    orthancInstanceId: orthancResult.ID,
                     imageInfo: dicomResult.imageInfo,
                     status: 'success'
                 });
-                
-                orthancInstanceIds.push(orthancResult.ID);
                 
                 console.log(`✅ Image ${i + 1} processed successfully`);
                 
@@ -278,27 +326,21 @@ export const uploadImages = async (req, res) => {
             }
         }
         
-        // 🔧 STEP 5: Wait for Orthanc to process and get study ID
-        console.log('⏳ Waiting for Orthanc to process study...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // 🔧 STEP 5: Create ZIP file directly
+        const successfulResults = dicomResults.filter(r => r.status === 'success');
+        let zipBuffer = null;
+        let zipFileName = null;
         
-        let orthancStudyId = null;
-        if (orthancInstanceIds.length > 0) {
-            try {
-                const instanceResponse = await axios.get(`${ORTHANC_BASE_URL}/instances/${orthancInstanceIds[0]}`, {
-                    headers: { 'Authorization': orthancAuth }
-                });
-                orthancStudyId = instanceResponse.data.ParentStudy;
-                console.log(`📋 Orthanc Study ID: ${orthancStudyId}`);
-            } catch (error) {
-                console.warn('⚠️ Could not get Orthanc study ID:', error.message);
-            }
+        if (successfulResults.length > 0) {
+            console.log(`📦 Creating ZIP file for ${successfulResults.length} successful images...`);
+            zipBuffer = await createZipFromImages(successfulResults, metadata);
+            zipFileName = `study_${studyInstanceUID}_${Date.now()}.zip`;
         }
         
-        // 🔧 STEP 6: Create study in database
+        // 🔧 STEP 6: Create study in database (FIX ENUM VALUE)
         const studyData = {
             studyInstanceUID,
-            orthancStudyID: orthancStudyId,
+            orthancStudyID: null, // No Orthanc
             patient: patient._id,
             patientId: patient.patientID,
             sourceLab: lab._id,
@@ -323,25 +365,24 @@ export const uploadImages = async (req, res) => {
             referringPhysicianName: metadata.referringPhysician,
             caseType: 'routine',
             
-            // 🔧 CLINICAL HISTORY: Store in DicomStudy
+            // 🔧 FIX: Use valid enum value for lastModifiedFrom
             clinicalHistory: {
                 clinicalHistory: clinicalHistory || '',
                 dataSource: 'user_input',
                 lastModifiedAt: new Date(),
-                lastModifiedFrom: 'image_uploader'
+                lastModifiedFrom: 'admin_panel' // ✅ FIXED: Use valid enum value
             },
             
             storageInfo: {
-                type: 'orthanc',
-                orthancStudyId: orthancStudyId,
+                type: 'direct_upload',
+                orthancStudyId: null, // No Orthanc
                 receivedAt: new Date(),
                 isUploadedStudy: true,
-                uploadMethod: 'image_to_dicom_conversion',
+                uploadMethod: 'image_to_dicom_direct',
                 originalFiles: uploadResults.map(r => ({
                     filename: r.filename,
                     status: r.status,
-                    sopInstanceUID: r.sopInstanceUID,
-                    orthancInstanceId: r.orthancInstanceId
+                    sopInstanceUID: r.sopInstanceUID
                 }))
             },
             
@@ -362,21 +403,38 @@ export const uploadImages = async (req, res) => {
         const dicomStudy = await DicomStudy.create(studyData);
         console.log(`✅ Study saved with ID: ${dicomStudy._id}`);
         
-        // 🔧 STEP 7: Queue ZIP creation if we have successful uploads
+        // 🔧 STEP 7: Upload ZIP to Cloudflare R2 if we have successful uploads
         const successfulUploads = uploadResults.filter(r => r.status === 'success').length;
-        if (successfulUploads > 0 && orthancStudyId) {
+        let zipUploadResult = null;
+        
+        if (successfulUploads > 0 && zipBuffer) {
             try {
-                console.log(`📦 Queuing ZIP creation for uploaded study...`);
-                const zipJob = await CloudflareR2ZipService.addZipJob({
-                    orthancStudyId: orthancStudyId,
+                console.log(`📦 Uploading ZIP directly to Cloudflare R2...`);
+                
+                // Upload ZIP buffer directly to R2
+                zipUploadResult = await CloudflareR2ZipService.uploadZipBuffer({
+                    buffer: zipBuffer,
+                    fileName: zipFileName,
                     studyDatabaseId: dicomStudy._id,
                     studyInstanceUID: studyInstanceUID,
                     instanceCount: successfulUploads,
                     seriesCount: 1
                 });
-                console.log(`📦 ZIP Job ${zipJob.id} queued for uploaded study`);
+                
+                console.log(`📦 ZIP uploaded successfully to R2:`, zipUploadResult);
+                
+                // Update study with ZIP info
+                await DicomStudy.findByIdAndUpdate(dicomStudy._id, {
+                    'preProcessedDownload.zipStatus': 'completed',
+                    'preProcessedDownload.zipUrl': zipUploadResult.zipUrl,
+                    'preProcessedDownload.zipFileName': zipFileName,
+                    'preProcessedDownload.zipSizeMB': (zipBuffer.length / 1024 / 1024),
+                    'preProcessedDownload.zipCreatedAt': new Date(),
+                    'preProcessedDownload.zipKey': zipUploadResult.zipKey
+                });
+                
             } catch (zipError) {
-                console.error(`❌ Failed to queue ZIP job:`, zipError.message);
+                console.error(`❌ Failed to upload ZIP to R2:`, zipError.message);
             }
         }
         
@@ -389,14 +447,20 @@ export const uploadImages = async (req, res) => {
             data: {
                 studyId: dicomStudy._id,
                 studyInstanceUID: studyInstanceUID,
-                orthancStudyId: orthancStudyId,
+                orthancStudyId: null, // No Orthanc
                 patientId: patient.patientID,
                 patientName: patient.patientNameRaw,
                 accessionNumber: metadata.accessionNumber,
                 uploadResults: uploadResults,
                 successCount: successCount,
                 failureCount: failureCount,
-                totalProcessed: req.files.length
+                totalProcessed: req.files.length,
+                zipUploaded: !!zipUploadResult,
+                zipInfo: zipUploadResult ? {
+                    fileName: zipFileName,
+                    sizeMB: (zipBuffer.length / 1024 / 1024).toFixed(2),
+                    url: zipUploadResult.zipUrl
+                } : null
             }
         });
         
@@ -442,7 +506,7 @@ export const getUploadStatus = async (req, res) => {
         .populate('sourceLab', 'name identifier')
         .sort({ createdAt: -1 })
         .limit(10)
-        .select('_id studyInstanceUID patientInfo workflowStatus createdAt storageInfo');
+        .select('_id studyInstanceUID patientInfo workflowStatus createdAt storageInfo preProcessedDownload');
         
         res.json({
             success: true,

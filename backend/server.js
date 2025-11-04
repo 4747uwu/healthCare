@@ -78,7 +78,7 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'https://portal.xcentic.in',
         'http://ai.starradiology.com',
         'http://157.245.86.199',
-        'http://localhost:5173/',
+        'http://localhost:5173',
                 'https://aio.allinoneteleradiology.com'
 
                // ✅ Local HTTPS testing
