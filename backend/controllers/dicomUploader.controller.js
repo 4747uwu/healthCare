@@ -98,16 +98,11 @@ const createProperDicomFile = async (imageBuffer, metadata, imageIndex = 0) => {
         
         // 🔧 CRITICAL FIX: Convert friendly dataset into proper DICOM elements with VRs
         console.log(`🔧 Normalizing dataset using DicomMetaDictionary...`);
-const dicomData = DicomMetaDictionary.denaturalizeDataset(dataset);
+        const dicomData = DicomMetaDictionary.denaturalizeDataset(dataset);
         
-        // 🔧 CRITICAL FIX: Include File Meta Information
-        // console.log(`🔧 Creating File Meta Information...`);
-    //    DicomMetaDictionary.createMeta(dicomData)
-
-        
-        // 🔧 CRITICAL FIX: Create DicomDict with proper structure
+        // 🔧 FIXED: Create DicomDict directly with normalized data
         console.log(`🔧 Creating DicomDict and writing buffer...`);
-        const dicomDict = new DicomDict(meta);
+        const dicomDict = new DicomDict();
         dicomDict.dict = dicomData; // Set the normalized data
         
         const dicomBuffer = dicomDict.write();
