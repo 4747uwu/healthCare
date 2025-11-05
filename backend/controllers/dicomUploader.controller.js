@@ -12,121 +12,112 @@ import dcmjs from 'dcmjs'; // ✅ PROPER DICOM LIBRARY
 // 🔧 FIXED: Import DicomMetaDictionary for proper VR handling
 const { DicomMetaDictionary, DicomDict } = dcmjs.data;
 
-// 🔧 FIXED: Create real DICOM file using dcmjs with proper VR handling
 const createProperDicomFile = async (imageBuffer, metadata, imageIndex = 0) => {
-    try {
-        console.log(`🔄 Creating proper DICOM file for image ${imageIndex + 1} (using DicomMetaDictionary)...`);
-        
-        // Process image with Sharp to get proper pixel data
-        const processedImage = await sharp(imageBuffer)
-            .grayscale()
-            .png({ quality: 90 })
-            .toBuffer();
-        
-        const imageInfo = await sharp(processedImage).metadata();
-        
-        // Get raw pixel data for DICOM
-        const pixelData = await sharp(processedImage)
-            .raw()
-            .toBuffer();
-        
-        // Generate DICOM UIDs
-        const studyInstanceUID = metadata.studyInstanceUID;
-        const seriesInstanceUID = metadata.seriesInstanceUID;
-        const sopInstanceUID = `1.2.826.0.1.3680043.8.498.${Date.now()}.${imageIndex}.${Math.random().toString(36).substr(2, 9)}`;
-        
-        // Format DICOM date and time
-        const now = new Date();
-        const dicomDate = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const dicomTime = now.toISOString().slice(11, 19).replace(/:/g, '');
-        
-        // 🔧 FIXED: Build dataset with friendly names (dcmjs will normalize VRs)
-        const dataset = {
-            // Patient Module
-            PatientName: metadata.patientName || "UNKNOWN^PATIENT",
-            PatientID: metadata.patientId || "UNKNOWN",
-            PatientBirthDate: metadata.patientBirthDate?.replace(/-/g, '') || "",
-            PatientSex: metadata.patientSex || "O",
-            
-            // General Study Module
-            StudyInstanceUID: studyInstanceUID,
-            StudyDate: dicomDate,
-            StudyTime: dicomTime,
-            ReferringPhysicianName: metadata.referringPhysician || "",
-            StudyID: "1",
-            AccessionNumber: metadata.accessionNumber || "",
-            StudyDescription: metadata.studyDescription || "Uploaded Image Study",
-            
-            // General Series Module
-            SeriesInstanceUID: seriesInstanceUID,
-            SeriesNumber: "1",
-            SeriesDate: dicomDate,
-            SeriesTime: dicomTime,
-            Modality: metadata.modality || "OT",
-            SeriesDescription: metadata.seriesDescription || "Uploaded Image Series",
-            BodyPartExamined: metadata.bodyPartExamined || "",
-            
-            // General Equipment Module
-            Manufacturer: "XCENTIC",
-            ManufacturerModelName: "XCENTIC_UPLOADER",
-            SoftwareVersions: "v1.0",
-            StationName: "XCENTIC_STATION",
-            
-            // General Image Module
-            ImageType: ["ORIGINAL", "PRIMARY"],
-            InstanceNumber: (imageIndex + 1).toString(),
-            SOPClassUID: "1.2.840.10008.5.1.4.1.1.7", // Secondary Capture
-            SOPInstanceUID: sopInstanceUID,
-            
-            // Image Pixel Module
-            SamplesPerPixel: 1,
-            PhotometricInterpretation: "MONOCHROME2",
-            Rows: imageInfo.height,
-            Columns: imageInfo.width,
-            BitsAllocated: 8,
-            BitsStored: 8,
-            HighBit: 7,
-            PixelRepresentation: 0,
-            
-            // Institution Module
-            InstitutionName: metadata.institutionName || "XCENTIC Medical Center",
-            InstitutionAddress: metadata.institutionAddress || "",
-            
-            // Pixel Data
-            PixelData: Array.from(pixelData)
-        };
-        
-        // 🔧 CRITICAL FIX: Convert friendly dataset into proper DICOM elements with VRs
-        console.log(`🔧 Normalizing dataset using DicomMetaDictionary...`);
-        const dicomData = DicomMetaDictionary.denaturalizeDataset(dataset);
-        
-        // 🔧 FIXED: Create DicomDict directly with normalized data
-        console.log(`🔧 Creating DicomDict and writing buffer...`);
-        const dicomDict = new DicomDict();
-        dicomDict.dict = dicomData; // Set the normalized data
-        
-        const dicomBuffer = dicomDict.write();
-        
-        console.log(`✅ Proper DICOM file created for image ${imageIndex + 1}, size: ${dicomBuffer.length} bytes`);
-        
-        return {
-            dicomFile: Buffer.from(dicomBuffer),
-            sopInstanceUID,
-            imageInfo: {
-                width: imageInfo.width,
-                height: imageInfo.height,
-                size: dicomBuffer.length
-            }
-        };
-        
-    } catch (error) {
-        console.error(`❌ Error creating DICOM file for image ${imageIndex + 1}:`, error);
-        
-        // 🔧 FALLBACK: If dcmjs still fails, use manual creation
-        console.log(`🔄 Falling back to manual DICOM creation for image ${imageIndex + 1}...`);
-        return await createManualDicomFile(imageBuffer, metadata, imageIndex);
-    }
+  try {
+    console.log(`🔄 Creating proper DICOM file for image ${imageIndex + 1} (using DicomMetaDictionary)...`);
+
+    // Process image
+    const processedImage = await sharp(imageBuffer)
+      .grayscale()
+      .png({ quality: 90 })
+      .toBuffer();
+
+    const imageInfo = await sharp(processedImage).metadata();
+
+    // Get raw pixel data
+    const pixelData = await sharp(processedImage).raw().toBuffer();
+
+    // Generate UIDs
+    const studyInstanceUID = metadata.studyInstanceUID;
+    const seriesInstanceUID = metadata.seriesInstanceUID;
+    const sopInstanceUID = `1.2.826.0.1.3680043.8.498.${Date.now()}.${imageIndex}.${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
+    // DICOM date/time
+    const now = new Date();
+    const dicomDate = now.toISOString().slice(0, 10).replace(/-/g, "");
+    const dicomTime = now.toISOString().slice(11, 19).replace(/:/g, "");
+
+    // Dataset
+    const dataset = {
+      PatientName: metadata.patientName || "UNKNOWN^PATIENT",
+      PatientID: metadata.patientId || "UNKNOWN",
+      PatientBirthDate: metadata.patientBirthDate?.replace(/-/g, "") || "",
+      PatientSex: metadata.patientSex || "O",
+
+      StudyInstanceUID: studyInstanceUID,
+      StudyDate: dicomDate,
+      StudyTime: dicomTime,
+      ReferringPhysicianName: metadata.referringPhysician || "",
+      StudyID: "1",
+      AccessionNumber: metadata.accessionNumber || "",
+      StudyDescription: metadata.studyDescription || "Uploaded Image Study",
+
+      SeriesInstanceUID: seriesInstanceUID,
+      SeriesNumber: "1",
+      SeriesDate: dicomDate,
+      SeriesTime: dicomTime,
+      Modality: metadata.modality || "OT",
+      SeriesDescription: metadata.seriesDescription || "Uploaded Image Series",
+      BodyPartExamined: metadata.bodyPartExamined || "",
+
+      Manufacturer: "XCENTIC",
+      ManufacturerModelName: "XCENTIC_UPLOADER",
+      SoftwareVersions: "v1.0",
+      StationName: "XCENTIC_STATION",
+
+      ImageType: ["ORIGINAL", "PRIMARY"],
+      InstanceNumber: (imageIndex + 1).toString(),
+      SOPClassUID: "1.2.840.10008.5.1.4.1.1.7", // Secondary Capture
+      SOPInstanceUID: sopInstanceUID,
+
+      SamplesPerPixel: 1,
+      PhotometricInterpretation: "MONOCHROME2",
+      Rows: imageInfo.height,
+      Columns: imageInfo.width,
+      BitsAllocated: 8,
+      BitsStored: 8,
+      HighBit: 7,
+      PixelRepresentation: 0,
+
+      InstitutionName: metadata.institutionName || "XCENTIC Medical Center",
+      InstitutionAddress: metadata.institutionAddress || "",
+
+      PixelData: Array.from(pixelData),
+    };
+
+    // Normalize dataset
+    console.log(`🔧 Normalizing dataset using DicomMetaDictionary...`);
+    const dicomData = DicomMetaDictionary.denaturalizeDataset(dataset);
+
+    // ✅ Minimal meta header to prevent crash
+    const meta = { "00020010": { Value: ["1.2.840.10008.1.2.1"], vr: "UI" } };
+
+    console.log(`🔧 Creating DicomDict and writing buffer...`);
+    const dicomDict = new DicomDict(meta); // ✅ pass meta here
+    dicomDict.dict = dicomData;
+
+    const dicomBuffer = dicomDict.write();
+
+    console.log(`✅ Proper DICOM file created for image ${imageIndex + 1}, size: ${dicomBuffer.length} bytes`);
+
+    return {
+      dicomFile: Buffer.from(dicomBuffer),
+      sopInstanceUID,
+      imageInfo: {
+        width: imageInfo.width,
+        height: imageInfo.height,
+        size: dicomBuffer.length,
+      },
+    };
+  } catch (error) {
+    console.error(`❌ Error creating DICOM file for image ${imageIndex + 1}:`, error);
+    console.log(`🔄 Falling back to manual DICOM creation for image ${imageIndex + 1}...`);
+    return await createManualDicomFile(imageBuffer, metadata, imageIndex);
+  }
 };
+
 
 // 🔧 FALLBACK: Manual DICOM creation (enhanced but still simple)
 const createManualDicomFile = async (imageBuffer, metadata, imageIndex = 0) => {
