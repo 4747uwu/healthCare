@@ -102,7 +102,8 @@ const dicomData = DicomMetaDictionary.denaturalizeDataset(dataset);
         
         // 🔧 CRITICAL FIX: Include File Meta Information
         console.log(`🔧 Creating File Meta Information...`);
-        const meta = DicomMetaDictionary.createFileMetaInformation(dicomData);
+       DicomMetaDictionary.createMeta(dicomData)
+
         
         // 🔧 CRITICAL FIX: Create DicomDict with proper structure
         console.log(`🔧 Creating DicomDict and writing buffer...`);
