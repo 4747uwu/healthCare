@@ -101,8 +101,8 @@ const createProperDicomFile = async (imageBuffer, metadata, imageIndex = 0) => {
 const dicomData = DicomMetaDictionary.denaturalizeDataset(dataset);
         
         // 🔧 CRITICAL FIX: Include File Meta Information
-        console.log(`🔧 Creating File Meta Information...`);
-       DicomMetaDictionary.createMeta(dicomData)
+        // console.log(`🔧 Creating File Meta Information...`);
+    //    DicomMetaDictionary.createMeta(dicomData)
 
         
         // 🔧 CRITICAL FIX: Create DicomDict with proper structure
